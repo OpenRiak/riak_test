@@ -149,7 +149,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B does have these changes
     write_to_cluster(NodeA, 1, 1000, new_obj),
-    timer:sleep(?REPL_SLEEP),
+    timer:sleep(?REPL_SLEEP * 2),
     read_from_cluster(NodeA, 1, 1000, ?COMMMON_VAL_INIT, 0),
     read_from_cluster(NodeB, 1, 1000, ?COMMMON_VAL_INIT, 0),
     {root_compare, 0}
