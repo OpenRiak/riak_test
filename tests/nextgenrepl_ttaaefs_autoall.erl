@@ -24,7 +24,6 @@
 -behavior(riak_test).
 
 -export([confirm/0]).
--export([read_from_cluster/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -38,10 +37,7 @@
 -define(C_NVAL, 2).
 
 -define(KEY_COUNT, 200).
--define(REPL_SLEEP, (?KEY_COUNT div 128) * 60000).
-    % Will replicate 200 keys - 128 keys to be repaired per cycle,
-    % and 2 cycles per minute.  No point checking within a minute
--define(LOOP_COUNT, 10).
+-define(READ_ATTEMPTS, ?KEY_COUNT).
 
 -define(SNK_WORKERS, 4).
 
@@ -221,55 +217,19 @@ test_repl(Protocol, [ClusterA, ClusterB, ClusterC], SyncCheck) ->
 
     ?LOG_INFO("Write ~w objects into A and read from B and C", [?KEY_COUNT]),
     write_to_cluster(NodeA1, 1, ?KEY_COUNT, new_obj),
-    timer:sleep(?REPL_SLEEP),
-    0 =
-        wait_for_outcome(?MODULE,
-                            read_from_cluster,
-                            [NodeB1, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, undefined],
-                            0,
-                            ?LOOP_COUNT),
-    0 =
-        wait_for_outcome(?MODULE,
-                            read_from_cluster,
-                            [NodeC1, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, undefined],
-                            0,
-                            ?LOOP_COUNT),
+    nextgenrepl_sibling:read_from_cluster(NodeB1, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, 0, false, ?READ_ATTEMPTS),
+    nextgenrepl_sibling:read_from_cluster(NodeC1, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, 0, false, ?READ_ATTEMPTS),
 
     ?LOG_INFO("Deleting ~w objects from B and read not_found from A and C", [?KEY_COUNT]),
     delete_from_cluster(NodeB2, 1, ?KEY_COUNT),
-    timer:sleep(?REPL_SLEEP),
-    200 =
-        wait_for_outcome(?MODULE,
-                        read_from_cluster,
-                        [NodeA2, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, undefined],
-                        ?KEY_COUNT,
-                        ?LOOP_COUNT),
-    200 =
-        wait_for_outcome(?MODULE,
-                            read_from_cluster,
-                            [NodeC2, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, undefined],
-                            ?KEY_COUNT,
-                            ?LOOP_COUNT),
+    nextgenrepl_sibling:read_from_cluster(NodeA2, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, ?KEY_COUNT, false, ?READ_ATTEMPTS),
+    nextgenrepl_sibling:read_from_cluster(NodeC2, 1, ?KEY_COUNT, ?COMMMON_VAL_INIT, ?KEY_COUNT, false, ?READ_ATTEMPTS),
 
     ?LOG_INFO("Modifying ~w objects from C and then read from A and B", [?KEY_COUNT]),
     write_to_cluster(NodeC1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT, new_obj),
     write_to_cluster(NodeC1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT, ?COMMMON_VAL_MOD),
-    timer:sleep(?REPL_SLEEP),
-    0 =
-        wait_for_outcome(?MODULE,
-                            read_from_cluster,
-                            [NodeA1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT,
-                                ?COMMMON_VAL_MOD, undefined],
-                            0,
-                            ?LOOP_COUNT),
-    0 =
-        wait_for_outcome(?MODULE,
-                            read_from_cluster,
-                            [NodeB1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT,
-                                ?COMMMON_VAL_MOD, undefined],
-                            0,
-                            ?LOOP_COUNT),
-
+    nextgenrepl_sibling:read_from_cluster(NodeA1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT, ?COMMMON_VAL_MOD, 0, false, ?READ_ATTEMPTS),
+    nextgenrepl_sibling:read_from_cluster(NodeB1, ?KEY_COUNT + 1, 2 * ?KEY_COUNT, ?COMMMON_VAL_MOD, 0, false, ?READ_ATTEMPTS),
 
     pass.
 
@@ -328,51 +288,3 @@ delete_from_cluster(Node, Start, End) ->
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
     ?LOG_WARNING("~b errors while deleting: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
-
-
-
-read_from_cluster(Node, Start, End, CommonValBin, Errors) ->
-    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start + 1, Node]),
-    {ok, C} = riak:client_connect(Node),
-    F =
-        fun(N, Acc) ->
-            Key = list_to_binary(io_lib:format("~8..0B~n", [N])),
-            case riak_client:get(?TEST_BUCKET, Key, C) of
-                {ok, Obj} ->
-                    ExpectedVal = <<N:32/integer, CommonValBin/binary>>,
-                    case riak_object:get_value(Obj) of
-                        ExpectedVal ->
-                            Acc;
-                        UnexpectedVal ->
-                            [{wrong_value, Key, UnexpectedVal}|Acc]
-                    end;
-                {error, Error} ->
-                    [{fetch_error, Error, Key}|Acc]
-            end
-        end,
-    ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    case Errors of
-        undefined ->
-            ?LOG_INFO("Errors Found in read_from_cluster ~w",
-                        [length(ErrorsFound)]),
-            length(ErrorsFound);
-        _ ->
-            ?assertEqual(Errors, length(ErrorsFound))
-    end.
-
-
-wait_for_outcome(Module, Func, Args, ExpOutcome, Loops) ->
-    wait_for_outcome(Module, Func, Args, ExpOutcome, 0, Loops).
-
-wait_for_outcome(Module, Func, Args, _ExpOutcome, LoopCount, LoopCount) ->
-    apply(Module, Func, Args);
-wait_for_outcome(Module, Func, Args, ExpOutcome, LoopCount, MaxLoops) ->
-    case apply(Module, Func, Args) of
-        ExpOutcome ->
-            ExpOutcome;
-        NotRightYet ->
-            ?LOG_INFO("~w not yet ~w ~w", [Func, ExpOutcome, NotRightYet]),
-            timer:sleep(LoopCount * 2000),
-            wait_for_outcome(Module, Func, Args, ExpOutcome,
-                                LoopCount + 1, MaxLoops)
-    end.

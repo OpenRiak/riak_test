@@ -178,9 +178,12 @@ cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
     rt:stop_and_wait(NodeC1),
     ?LOG_INFO("Every peer in cluster should reset"),
     LA = length(ClusterA),
-    ?assertMatch(LA, length(reset_cluster_peers(NodeA, cluster_a))),
     LB = length(ClusterB),
-    ?assertMatch(LB, length(reset_cluster_peers(NodeB, cluster_b))),
+    LAF = fun() -> length(reset_cluster_peers(NodeA, cluster_a)) == LA end,
+    LBF = fun() -> length(reset_cluster_peers(NodeB, cluster_b)) == LB end,
+    ?assertEqual(ok, rt:wait_until(LAF, ?WAIT_LOOPS, ?REPL_SLEEP)),
+    ?assertEqual(ok, rt:wait_until(LBF, ?WAIT_LOOPS, ?REPL_SLEEP)),
+
     ?LOG_INFO("No peers in affected cluster should reset"),
     ?assertMatch(0, length(reset_cluster_peers(NodeC, cluster_c))),
     rt:start_and_wait(NodeC1),
@@ -294,32 +297,29 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B and C do have them.
     write_to_cluster(NodeA, 1, 1000, new_obj),
-    timer:sleep(?REPL_SLEEP),
-    read_from_cluster(NodeB, 1, 1000, ?COMMMON_VAL_INIT, 0),
-    read_from_cluster(NodeC, 1, 1000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeB, 1, 1000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 1, 1000, ?COMMMON_VAL_INIT, 0),
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
     ?LOG_INFO("Test replicating tombstones"),
     delete_from_cluster(NodeA, 901, 1000),
-    timer:sleep(?REPL_SLEEP),
-    read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
-    read_from_cluster(NodeB, 901, 1000, ?COMMMON_VAL_INIT, 100),
-    read_from_cluster(NodeC, 901, 1000, ?COMMMON_VAL_INIT, 100),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
+    nextgenrepl_sibling:read_from_cluster(NodeB, 901, 1000, ?COMMMON_VAL_INIT, 100),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 901, 1000, ?COMMMON_VAL_INIT, 100),
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
     ?LOG_INFO("Test replicating modified objects"),
     write_to_cluster(NodeB, 1, 100, ?COMMMON_VAL_MOD),
-    timer:sleep(?REPL_SLEEP),
-    read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_MOD, 0),
-    read_from_cluster(NodeC, 1, 100, ?COMMMON_VAL_MOD, 0),
-    read_from_cluster(NodeA, 101, 900, ?COMMMON_VAL_INIT, 0),
-    read_from_cluster(NodeC, 101, 900, ?COMMMON_VAL_INIT, 0),
-    read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
-    read_from_cluster(NodeC, 901, 1000, ?COMMMON_VAL_INIT, 100),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_MOD, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 1, 100, ?COMMMON_VAL_MOD, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 101, 900, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 101, 900, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 901, 1000, ?COMMMON_VAL_INIT, 100),
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
@@ -328,9 +328,8 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B and C do have them.
     write_to_cluster(NodeC, 1001, 2000, new_obj),
-    timer:sleep(?REPL_SLEEP),
-    read_from_cluster(NodeA, 1001, 2000, ?COMMMON_VAL_INIT, 0),
-    read_from_cluster(NodeB, 1001, 2000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 1001, 2000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeB, 1001, 2000, ?COMMMON_VAL_INIT, 0),
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
@@ -361,9 +360,8 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster B, verify A and C do have them.
     write_to_cluster(NodeB, 2001, 3000, new_obj),
-    timer:sleep(?REPL_SLEEP),
-    read_from_cluster(NodeA, 2001, 3000, ?COMMMON_VAL_INIT, 0),
-    read_from_cluster(NodeC, 2001, 3000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeA, 2001, 3000, ?COMMMON_VAL_INIT, 0),
+    nextgenrepl_sibling:read_from_cluster(NodeC, 2001, 3000, ?COMMMON_VAL_INIT, 0),
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
@@ -457,41 +455,6 @@ delete_from_cluster(Node, Start, End) ->
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
     ?LOG_WARNING("~b errors while deleting: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
-
-
-%% @doc Read from cluster a series of keys, asserting a certain number
-%%      of errors.
-read_from_cluster(Node, Start, End, CommonValBin, Errors) ->
-    read_from_cluster(Node, Start, End, CommonValBin, Errors, false).
-
-read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
-    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start + 1, Node]),
-    {ok, C} = riak:client_connect(Node),
-    F =
-        fun(N, Acc) ->
-            Key = list_to_binary(io_lib:format("~8..0B~n", [N])),
-            case  riak_client:get(?TEST_BUCKET, Key, C) of
-                {ok, Obj} ->
-                    ExpectedVal = <<N:32/integer, CommonValBin/binary>>,
-                    case riak_object:get_value(Obj) of
-                        ExpectedVal ->
-                            Acc;
-                        UnexpectedVal ->
-                            [{wrong_value, Key, UnexpectedVal}|Acc]
-                    end;
-                {error, Error} ->
-                    [{fetch_error, Error, Key}|Acc]
-            end
-        end,
-    ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    % case length(ErrorsFound) of
-    %     Errors ->
-    %         ok;
-    %     _ ->
-    %         lists:foreach(fun(E) -> ?LOG_WARNING("Read error ~w", [E]) end, ErrorsFound)
-    % end,
-    ?assertEqual(Errors, length(ErrorsFound)).
-
 
 get_stats(Cluster) ->
     Stats = {0, 0, 0, 0, 0, 0},
