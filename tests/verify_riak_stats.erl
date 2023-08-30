@@ -938,7 +938,10 @@ common_stats() ->
         <<"sys_thread_pool_size">>,
         <<"sys_threads_enabled">>,
         <<"sys_wordsize">>,
+        <<"syslog_version">>,
         <<"tools_version">>,
+        <<"uncovered_preflists">>,
+        <<"uncovered_preflists2">>,
         <<"vnode_counter_update">>,
         <<"vnode_counter_update_time_100">>,
         <<"vnode_counter_update_time_95">>,
@@ -1200,9 +1203,7 @@ workday_stats() ->
         <<"resize_handoff_bytes_sent">>,
         <<"resize_handoff_inbound_active_transfers">>,
         <<"resize_handoff_objects_sent">>,
-        <<"resize_handoff_outbound_active_transfers">>,
-        <<"uncovered_preflists">>,
-        <<"uncovered_preflists2">>
+        <<"resize_handoff_outbound_active_transfers">>
     ].
 
 nhse_stats() ->
