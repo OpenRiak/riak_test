@@ -72,7 +72,6 @@
             {ttaaefs_maxresults, 128},
             {repl_reap, true},
             {log_snk_stacktrace, true},
-            {tictacaae_active, passive},
             {tombstone_pause, ?TOMB_PAUSE},
             {delete_mode, DeleteMode}
           ]}
