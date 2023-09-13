@@ -27,7 +27,7 @@
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
 -define(B_RING, 16).
--define(A_NVAL, 1).
+-define(A_NVAL, 2).
 -define(B_NVAL, 3).
 
 -define(KEY_COUNT, 20000).
@@ -62,16 +62,7 @@
             {anti_entropy, {off, []}},
             {repl_reap, true},
             {log_snk_stacktrace, true},
-            {tictacaae_active, active},
-            {tictacaae_parallelstore, leveled_ko},
-                % if backend not leveled will use parallel key-ordered
-                % store
-            {tictacaae_storeheads, true},
-            {tictacaae_rebuildwait, 4},
-            {tictacaae_rebuilddelay, 3600},
-            {tictacaae_exchangetick, 3600 * 1000}, % don't exchange during test
-            {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
-            {ttaaefs_maxresults, 128},
+            {tictacaae_active, passive},
             {tombstone_pause, ?TOMB_PAUSE},
             {delete_mode, DeleteMode}
           ]}
@@ -98,19 +89,39 @@ repl_config(RemoteCluster, LocalClusterName, PeerList) ->
 confirm() ->
     [ClusterA, ClusterB] =
         rt:deploy_clusters([
-            {2, ?CONFIG(?A_RING, ?A_NVAL, keep)},
-            {2, ?CONFIG(?B_RING, ?B_NVAL, keep)}]),
+            {3, ?CONFIG(?A_RING, ?A_NVAL, keep)},
+            {3, ?CONFIG(?B_RING, ?B_NVAL, keep)}]),
 
-    lager:info("Test run using PB protocol an a mix of delete modes"),
-    test_repl(pb, [ClusterA, ClusterB]),
+    lager:info("***************************************************"),
+    lager:info("Test run using PB protocol on a healthy cluster"),
+    lager:info("***************************************************"),
+    pass = test_repl_reap(pb, [ClusterA, ClusterB]),
+
+    lager:info("***************************************************"),
+    lager:info("Test run using PB protocol with node failure"),
+    lager:info("***************************************************"),
+    pass = test_repl_reap_with_node_down(ClusterA, ClusterB),
+
+    rt:clean_cluster(ClusterA),
+    rt:clean_cluster(ClusterB),
+
+    [ClusterA, ClusterB] =
+        rt:deploy_clusters([
+            {3, ?CONFIG(?A_RING, ?A_NVAL, keep)},
+            {3, ?CONFIG(?B_RING, ?B_NVAL, keep)}]),
+
+    lager:info("***************************************************"),
+    lager:info("Test run using HTTP protocol on a healthy cluster"),
+    lager:info("***************************************************"),
+    pass = test_repl_reap(http, [ClusterA, ClusterB]),
     
     pass.
 
 
-test_repl(Protocol, [ClusterA, ClusterB]) ->
+test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
 
-    [NodeA1, NodeA2] = ClusterA,
-    [NodeB1, NodeB2] = ClusterB,
+    [NodeA1, NodeA2, NodeA3] = ClusterA,
+    [NodeB1, NodeB2, NodeB3] = ClusterB,
 
     FoldToPeerConfig = 
         fun(Node, Acc) ->
@@ -127,8 +138,10 @@ test_repl(Protocol, [ClusterA, ClusterB]) ->
     BCfg = repl_config(cluster_a, cluster_b, ClusterBSnkPL),
     rt:set_advanced_conf(NodeA1, ACfg),
     rt:set_advanced_conf(NodeA2, ACfg),
+    rt:set_advanced_conf(NodeA3, ACfg),
     rt:set_advanced_conf(NodeB1, BCfg),
     rt:set_advanced_conf(NodeB2, BCfg),
+    rt:set_advanced_conf(NodeB3, BCfg),
 
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
@@ -159,8 +172,93 @@ test_repl(Protocol, [ClusterA, ClusterB]) ->
     lager:info("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() -> {ok, 0} == find_tombs(NodeA1, all, all, return_count) end),
+    lager:info("All reaped from Cluster A"),
+    lager:info("Now would expect ClusterB to quickly be in sync"),
+    lager:info("So waiting only 5 seconds"),
     rt:wait_until(
-        fun() -> {ok, 0} == find_tombs(NodeB1, all, all, return_count) end),
+        fun() -> {ok, 0} == find_tombs(NodeB1, all, all, return_count) end,
+        5,
+        1000
+    ),
+
+    lager:info(
+        "Confirm reaps are not looping around - all reaper queues empty"),
+    ReapQueueFun =
+        fun(N) ->
+            {mqueue_lengths, MQLs} =
+                lists:keyfind(
+                    mqueue_lengths,
+                    1,
+                    rpc:call(N, riak_kv_reaper, reap_stats, [])),
+            lager:info("Reap queue lengths ~w on ~w", [MQLs, N]),
+            QS = lists:sum(lists:map(fun({_P, L}) -> L end, MQLs)),
+            ?assert(QS == 0)
+        end,
+    lists:foreach(ReapQueueFun, ClusterA  ++ ClusterB),
+    pass.
+
+test_repl_reap_with_node_down(ClusterA, ClusterB) ->
+
+    [NodeA1, NodeA2, _NodeA3] = ClusterA,
+    [NodeB1, NodeB2, _NodeB3] = ClusterB,
+
+    lager:info("Test again - but with failure in A"),
+    write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2),
+    lager:info("Confirm key count of tombs in both clusters"),
+    {ok, TCA1} = find_tombs(NodeA1, all, all, return_count),
+    {ok, TCB1} = find_tombs(NodeB1, all, all, return_count),
+    ?assertEqual(?KEY_COUNT, TCA1),
+    ?assertEqual(?KEY_COUNT, TCB1),
+
+    lager:info("Stopping node 2 in A"),
+    rt:stop_and_wait(NodeA2),
+
+    lager:info("Fold to trigger reap of all tombs - whilst node down"),
+    reap_from_cluster(NodeA1, local),
+
+    rt:start_and_wait(NodeA2),
+    lists:foreach(fun rt:wait_until_node_handoffs_complete/1, ClusterA),
+    lager:info("Node 2 restarted"),
+
+
+    lager:info("Confirm all keys reaped from both clusters"),
+    rt:wait_until(
+        fun() -> {ok, 0} == find_tombs(NodeA1, all, all, return_count) end),
+    lager:info("All reaped from Cluster A"),
+    lager:info("Now would expect ClusterB to quickly be in sync"),
+    lager:info("So waiting only 5 seconds"),
+    rt:wait_until(
+        fun() -> {ok, 0} == find_tombs(NodeB1, all, all, return_count) end,
+        5,
+        1000
+    ),
+
+    lager:info("Test again - but with failure in B"),
+    write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2),
+    lager:info("Confirm key count of tombs in both clusters"),
+    {ok, TCA1} = find_tombs(NodeA1, all, all, return_count),
+    {ok, TCB1} = find_tombs(NodeB1, all, all, return_count),
+    ?assertEqual(?KEY_COUNT, TCA1),
+    ?assertEqual(?KEY_COUNT, TCB1),
+
+    lager:info("Stopping node 2 in B"),
+    rt:stop_and_wait(NodeB2),
+
+    lager:info("Fold to trigger reap of all tombs - whilst node down"),
+    reap_from_cluster(NodeA1, local),
+
+    rt:start_and_wait(NodeB2),
+    lists:foreach(fun rt:wait_until_node_handoffs_complete/1, ClusterB),
+    lager:info("Node 2 restarted"),
+
+    lager:info("Confirm all keys reaped from both clusters"),
+    rt:wait_until(
+        fun() -> {ok, 0} == find_tombs(NodeA1, all, all, return_count) end),
+    lager:info("All reaped from Cluster A"),
+    lager:info("Now would expect ClusterB to be eventually in sync"),
+    rt:wait_until(
+        fun() -> {ok, 0} == find_tombs(NodeB1, all, all, return_count) end
+    ),
 
     pass.
 
