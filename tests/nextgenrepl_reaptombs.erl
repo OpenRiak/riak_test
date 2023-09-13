@@ -60,6 +60,16 @@
         {riak_kv,
           [
             {anti_entropy, {off, []}},
+            {tictacaae_active, active},
+            {tictacaae_parallelstore, leveled_ko},
+                % if backend not leveled will use parallel key-ordered
+                % store
+            {tictacaae_storeheads, true},
+            {tictacaae_rebuildwait, 4},
+            {tictacaae_rebuilddelay, 3600},
+            {tictacaae_exchangetick, 3600 * 1000}, % don't exchange during test
+            {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
+            {ttaaefs_maxresults, 128},
             {repl_reap, true},
             {log_snk_stacktrace, true},
             {tictacaae_active, passive},
