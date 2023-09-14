@@ -96,15 +96,26 @@ repl_config(RemoteCluster, LocalClusterName, PeerList) ->
 
 
 confirm() ->
-    [ClusterA, ClusterB] =
-        rt:deploy_clusters([
-            {3, ?CONFIG(?A_RING, ?A_NVAL, keep, true)},
-            {3, ?CONFIG(?B_RING, ?B_NVAL, keep, false)}]),
+    TestMetaData = riak_test_runner:metadata(),
+    KVBackend = proplists:get_value(backend, TestMetaData),
 
-    lager:info("***************************************************"),
-    lager:info("Test $key index with deletes and reaps"),
-    lager:info("***************************************************"),
-    test_dollarkey(ClusterA, ClusterB, pb).
+    case KVBackend of
+        leveled ->
+            [ClusterA, ClusterB] =
+                rt:deploy_clusters([
+                    {3, ?CONFIG(?A_RING, ?A_NVAL, keep, true)},
+                    {3, ?CONFIG(?B_RING, ?B_NVAL, keep, false)}]),
+
+            lager:info("***************************************************"),
+            lager:info("Test $key index with deletes and reaps"),
+            lager:info("***************************************************"),
+            test_dollarkey(ClusterA, ClusterB, pb);
+        KVBackend ->
+            lager:info(
+                "Test ignored as not relevant to backend ~w",
+                [KVBackend]),
+            pass
+    end.
 
 test_dollarkey(ClusterA, ClusterB, Protocol) ->
 
