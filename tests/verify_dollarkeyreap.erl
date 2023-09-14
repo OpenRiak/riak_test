@@ -188,8 +188,20 @@ test_dollarkey(ClusterA, ClusterB, Protocol) ->
             50 == length(RB1)
         end
     ),
+    lager:info("Confirm term regex still behaves as expected"),
+    {ok, {index_results_v1, RA2, undefined, undefined}} =
+        riakc_pb_socket:get_index_range(
+            PBCa, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100),
+            [{term_regex, ".*4$"}]),
+    ?assertEqual(10, length(RA2)),
+    {ok, {index_results_v1, RB2, undefined, undefined}} =
+        riakc_pb_socket:get_index_range(
+            PBCb, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100),
+            [{term_regex, ".*4$"}]),
+    ?assertEqual(5, length(RB2)),
 
-    lager:info("Found keys ~w", [find_keys(NodeA1, ?TEST_BUCKET, all, all)]),
+    lager:info("Find keys will return tombstones"),
+    ?assertEqual(20000, find_keys(NodeA1, ?TEST_BUCKET, all, all)),
 
     delete_from_cluster(NodeA1, ?TEST_BUCKET, 51, ?KEY_COUNT),
     reap_from_cluster(NodeA1, local, ?TEST_BUCKET),
@@ -206,14 +218,14 @@ test_dollarkey(ClusterA, ClusterB, Protocol) ->
             {ok, 0} == find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count)
         end),
 
-    {ok, {index_results_v1, RA2, undefined, undefined}} =
+    {ok, {index_results_v1, RA3, undefined, undefined}} =
         riakc_pb_socket:get_index_range(
             PBCa, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100)),
-    ?assertEqual(0, length(RA2)),
-    {ok, {index_results_v1, RB2, undefined, undefined}} =
+    ?assertEqual(0, length(RA3)),
+    {ok, {index_results_v1, RB3, undefined, undefined}} =
         riakc_pb_socket:get_index_range(
             PBCb, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100)),
-    ?assertEqual(0, length(RB2)),
+    ?assertEqual(0, length(RB3)),
     
     pass.
 
