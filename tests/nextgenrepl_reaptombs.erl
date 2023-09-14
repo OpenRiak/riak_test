@@ -16,7 +16,7 @@
 %%
 %% -------------------------------------------------------------------
 %% @doc
-%% Coordinate the reaping of tombs between rpelicating clusters
+%% Coordinate the reaping of tombs between replicating clusters
 
 -module(nextgenrepl_reaptombs).
 -behavior(riak_test).
@@ -254,6 +254,7 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
 
     pass.
 
+
 test_repl_reap_with_node_down(ClusterA, ClusterB) ->
 
     [NodeA1, NodeA2, _NodeA3] = ClusterA,
@@ -337,6 +338,9 @@ fullsync_check(Protocol, {SrcNode, SrcNVal, SnkCluster},
     AAEResult.
 
 
+to_key(N) ->
+    list_to_binary(io_lib:format("~8..0B", [N])).
+
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Bucket, Start, End, CommonValBin) -> 
     lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
@@ -344,16 +348,15 @@ write_to_cluster(Node, Bucket, Start, End, CommonValBin) ->
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
-            Key = list_to_binary(io_lib:format("~8..0B", [N])),
             Obj = 
                 case CommonValBin of
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
                         riak_object:new(
-                            Bucket, Key, <<N:32/integer, CVB/binary>>);
+                            Bucket, to_key(N), <<N:32/integer, CVB/binary>>);
                     UpdateBin ->
                         UPDV = <<N:32/integer, UpdateBin/binary>>,
-                        {ok, PrevObj} = riak_client:get(Bucket, Key, C),
+                        {ok, PrevObj} = riak_client:get(Bucket, to_key(N), C),
                         riak_object:update_value(PrevObj, UPDV)
                 end,
             try riak_client:put(Obj, C) of
