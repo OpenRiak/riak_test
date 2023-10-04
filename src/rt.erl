@@ -1882,7 +1882,7 @@ restore_data_dir(Nodes, BackendFldr, BackupFldr) ->
     ?HARNESS:restore_data_dir(Nodes, BackendFldr, BackupFldr).
 
 %% @doc Shutdown every node, this is for after a test run is complete.
--spec teardown() -> ok | rtt:std_error().
+-spec teardown() -> ok.
 teardown() ->
     ?HARNESS:teardown().
 

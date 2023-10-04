@@ -162,7 +162,7 @@
         ok | rtt:std_error().
 
 -callback teardown() ->
-        ok | rtt:std_error().
+        ok.
 
 -callback update_app_config(
     Where :: node() | rtt:fs_path() | all,

@@ -955,8 +955,7 @@ pid_is_dead(PidStr) ->
 
 %% @hidden Stop all possibly running nodes under DevPath, where DevPath is the
 %% path to a `relpath(VsnTag)/dev' directory.
--spec stop_all(DevPath :: vsn_dev_path())
-        -> ok | {error, {enotdir, [rtt:fs_path()]}}.
+-spec stop_all(DevPath :: vsn_dev_path()) -> ok.
 stop_all(DevPath) ->
     case filelib:is_dir(DevPath) of
         true ->
@@ -978,8 +977,7 @@ stop_all(DevPath) ->
                     kill_stragglers(DevPath, Timeout)
             end;
         _ ->
-            ?LOG_ERROR("~s is not a directory.", [DevPath]),
-            {error, {enotdir, DevPath}}
+            ?LOG_ERROR("~s is not a directory.", [DevPath])
     end.
 
 -spec find_shutdown_timeout(Nodes :: rtt:nodes()) -> rtt:millisecs().
@@ -1201,30 +1199,15 @@ get_relpath_version(Path) ->
     end.
 
 %% @private Stop all discoverable nodes.
--spec teardown() -> ok | rtt:std_error().
+-spec teardown() -> ok.
 teardown() ->
     %% make sure we stop any cover processes on any nodes
     %% otherwise, if the next test boots a legacy node we'll end up with cover
     %% incompatibilities and crash the cover server
     rt_cover:maybe_stop_on_nodes(),
     DevPaths = [filename:join(P, "dev") || P <- devpaths()],
-    Results = rt:pmap(fun(DevPath) -> stop_all(DevPath) end, DevPaths),
-    lists:foldl(fun fold_teardown_result/2, ok, Results).
-
-%% @hidden list fold, used only by teardown/0
--spec fold_teardown_result(
-    StopResult :: term(), Result :: ok | rtt:std_error() )
-        -> ok | rtt:std_error().
-fold_teardown_result(ok, Result) ->
-    Result;
-fold_teardown_result({error, Reason}, ok) ->
-    {error, [Reason]};
-fold_teardown_result(Reason, ok) ->
-    {error, [Reason]};
-fold_teardown_result({error, Reason}, {error, [Reasons]}) ->
-    {error, [Reason | Reasons]};
-fold_teardown_result(Reason, {error, [Reasons]}) ->
-    {error, [Reason | Reasons]}.
+    _ = rt:pmap(fun stop_all/1, DevPaths),
+    ok.
 
 %% @private Display running nodes.
 whats_up() ->
