@@ -29,7 +29,14 @@
 -define(TYPES, [{?CTYPE, counter},
                 {?STYPE, set},
                 {?MTYPE, map}]).
--define(CONF, []).
+-define(POOL_SIZE, 4).
+-define(CONF,
+    [{riak_kv,
+        [
+            {worker_pool_strategy, dscp},
+            {af3_worker_pool_size, ?POOL_SIZE}
+        ]}
+    ]).
 
 %% You should have curl installed locally to do this.
 confirm() ->
@@ -178,7 +185,61 @@ confirm() ->
 
     verify_inc(Stats7, Stats8, inc_by_one(dscp_totals())),
 
+    queue_work_for_pool(Node1, af3_pool, 100, 100),
+    TimeForWork = (100 * 100) div ?POOL_SIZE,
+    logger:info("Sleeping ~w ms while queue drains", [TimeForWork]),
+    timer:sleep(TimeForWork),
+    Stats9 = get_stats(Node1),
+    WorkTime =
+        proplists:get_value(<<"worker_af3_pool_worktime_mean">>, Stats9),
+    QueueTime =
+    proplists:get_value(<<"worker_af3_pool_queuetime_mean">>, Stats9),
+    logger:info(
+        "AF3 Queue stats with 100 items on 100ms delay "
+        "queue_time=~w work_time=~w",
+        [QueueTime, WorkTime]
+    ),
+    ?assert(WorkTime >= 100 * 1000),
+    ?assert(WorkTime < 120 * 1000),
+    ?assert(QueueTime > 10 * 100 * 1000),
+    ?assert(QueueTime < 25 * 100 * 1000),
+
     pass.
+
+
+queue_work_for_pool(Node, Pool, Delay, Count) ->
+    FF =
+        lists:flatten(
+            io_lib:format(
+                "FF = fun() -> timer:sleep(~w) end.",
+            [Delay])),
+    RF = "RF = fun(_R) -> ok end.",
+    WL =
+        lists:flatten(
+            io_lib:format(
+                "WL = lists:map(fun(_I) -> {fold, FF, RF} end, lists:seq(1, ~w)).",
+                [Count])),
+    QW = 
+        lists:flatten(
+            io_lib:format(
+                "lists:foreach(fun(WI) -> riak_core_vnode:queue_work(~w, WI, self(), none) end, WL).",
+                [Pool])),
+    logger:info("Sending..."),
+    logger:info("~s", [FF]),
+    logger:info("~s", [RF]),
+    logger:info("~s", [WL]),
+    logger:info("~s", [QW]),
+    
+    rt:attach(
+        Node,
+        [
+            {expect, "\(^D to exit\)"},
+            {send, FF},
+            {send, RF},
+            {send, WL},
+            {send, QW},
+            {expect, "ok"}
+        ]).
 
 verify_inc(Prev, Props, Keys) ->
     [begin
