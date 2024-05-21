@@ -11,6 +11,11 @@ repl_handoff_deadlock_keylist
 repl_location_failures
 repl_fs_bench
 repl_fs_stat_caching
+repl_rt_cascading_rtq
+repl_rt_enqueue_http
+repl_rt_heartbeat
+repl_rt_overload
+repl_rt_pending
 replication2
 replication2_console_tests
 replication2_fsschedule
@@ -21,10 +26,5 @@ replication2_ssl
 replication
 replication_ssl
 replication_stats
-repl_rt_cascading_rtq
-repl_rt_enqueue_http
-repl_rt_heartbeat
-repl_rt_overload
-repl_rt_pending
 verify_counter_repl
 verify_dvv_repl
