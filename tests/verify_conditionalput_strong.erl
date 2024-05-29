@@ -16,11 +16,11 @@
 %%
 %% -------------------------------------------------------------------
 -module(verify_conditionalput_strong).
--behavior(riak_test).
 -export([confirm/0]).
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEFAULT_RING_SIZE, 32).
+-define(DEFAULT_RING_SIZE, 64).
+-define(TEST_LOOPS, 32).
 -define(NUM_NODES, 6).
 
 -define(CONF(Mult, LWW, Strong),
@@ -46,27 +46,45 @@
 confirm() ->
     Nodes1 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, false)),
 
-    false = test_conditional(weak, Nodes1),
+    false = test_conditional({weak, lww}, Nodes1),
 
     rt:clean_cluster(Nodes1),
 
     Nodes2 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, true)),
 
-    true = test_conditional(strong, Nodes2),
+    true = test_conditional({strong, lww}, Nodes2),
 
     rt:clean_cluster(Nodes2),
 
     Nodes3 = rt:build_cluster(?NUM_NODES, ?CONF(true, false, true)),
 
-    true = test_conditional(strong, Nodes3),
+    true = test_conditional({strong, allow_mult}, Nodes3),
+
+    [N3|RestNodes3] = Nodes3,
+
+    true = test_conditional({strong, allow_mult}, RestNodes3, <<"AllUpNodeTest">>),
+
+    spawn_stop(N3),
+    true = test_conditional({strong, allow_mult}, RestNodes3, <<"StopNodeTest">>),
+    rt:wait_until_unpingable(N3),
+
+    spawn_start(N3),
+    true = test_conditional({strong, allow_mult}, RestNodes3, <<"StartNodeTest">>),
+    rt:wait_until_pingable(N3),
 
     pass.
 
 
 test_conditional(Type, Nodes) ->
+    test_conditional(Type, Nodes, <<"ConditionBucket">>).
+
+test_conditional(Type, Nodes, Bucket) ->
+    ClientsPerNode = 10,
+    NCount = length(Nodes),
+
     Clients =
         lists:zip(
-            lists:seq(1, 60),
+            lists:seq(1, ClientsPerNode * NCount),
             lists:map(
                 fun(N) -> rt:pbc(N) end,
                 lists:flatten(lists:duplicate(10, Nodes)))
@@ -74,15 +92,29 @@ test_conditional(Type, Nodes) ->
     
     lager:info("----------------"),
     lager:info(
-        "Testing with ~w condition on PUTs - parallel clients no failures",
-        [Type]
+        "Testing with ~w condition on PUTs - parallel clients ~s",
+        [Type, Bucket]
     ),
     lager:info("----------------"),
-    
-    [{1, C1}|_Rest] = Clients,
 
-    Bucket = <<"WeakConditionBucket">>,
-    Key = <<"WeakConditionKey">>,
+    Keys = lists:map(fun(I) -> to_key(I) end, lists:seq(1, ?TEST_LOOPS)),
+
+    Results =
+        lists:map(
+            fun(K) ->
+                test_concurrent_conditional_changes(Bucket, K, Clients)
+            end,
+            Keys
+        ),
+
+    lists:foreach(fun({_I, C}) -> riakc_pb_socket:stop(C) end, Clients),
+    %% Total should be n(n+1)/2
+    Expected =
+        ((ClientsPerNode * NCount) * (ClientsPerNode * NCount + 1)) div 2,
+    lists:all(fun(R) -> R == Expected end, Results).
+
+test_concurrent_conditional_changes(Bucket, Key, Clients) ->
+    [{1, C1}|_Rest] = Clients,
 
     ok = riakc_pb_socket:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>)),
     TestProcess = self(),
@@ -100,19 +132,17 @@ test_conditional(Type, Nodes) ->
         fun(ClientRef) -> spawn(SpawnUpdateFun(ClientRef)) end,
         Clients),
     
-    ok = receive_complete(0, 60),
+    ok = receive_complete(0, length(Clients)),
     EndTime = os:system_time(millisecond),
 
     {ok, FinalObj} = riakc_pb_socket:get(C1, Bucket, Key),
     <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
 
-    lager:info("Weak condition test took ~w ms", [EndTime - StartTime]),
-    lager:info("Weak condition final value is ~w", [FinalV]),
+    lager:info("Test took ~w ms", [EndTime - StartTime]),
+    lager:info("Test had final value of ~w", [FinalV]),
+    
+    FinalV.
 
-    lists:foreach(fun({_I, C}) -> riakc_pb_socket:stop(C) end, Clients),
-
-    %% Total should be n(n+1)/2
-    FinalV == 1830.
 
 receive_complete(Target, Target) ->
     ok;
@@ -137,3 +167,15 @@ check_match_conflict(rhc, {error, {ok, "412", _Headers, _Message}}) ->
     true;
 check_match_conflict(_, ok) ->
     false.
+
+
+to_key(N) ->
+    list_to_binary(io_lib:format("K~4..0B", [N])).
+
+spawn_stop(Node) ->
+    F = fun() -> rt:stop_and_wait(Node) end,
+    spawn(F).
+
+spawn_start(Node) ->
+    F = fun() -> rt:start_and_wait(Node) end,
+    spawn(F).
