@@ -19,7 +19,7 @@
 -export([confirm/0]).
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEFAULT_RING_SIZE, 64).
+-define(DEFAULT_RING_SIZE, 32).
 -define(TEST_LOOPS, 32).
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
@@ -41,7 +41,7 @@
             {forced_ownership_handoff, 16},
             {handoff_concurrency, 16},
             {choose_claim_fun, choose_claim_v4},
-            {strong_conditional_put, Strong}
+            {stronger_conditional_put, Strong}
           ]},
          {riak_core,
           [
@@ -50,23 +50,37 @@
           ]}]
        ).
 
-
 confirm() ->
     Nodes1 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, false)),
 
-    false = test_conditional({weak, lww}, Nodes1),
+    false =
+        test_conditional(
+            {weak, lww}, Nodes1, <<"pbcWeak">>, ?TEST_LOOPS, riakc_pb_socket
+        ),
+    false =
+        test_conditional(
+            {weak, lww}, Nodes1, <<"httpWeak">>, ?TEST_LOOPS, rhc
+        ),
 
     rt:clean_cluster(Nodes1),
 
     Nodes2 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, true)),
 
-    true = test_conditional({strong, lww}, Nodes2),
+    true =
+        test_conditional(
+            {strong, lww}, Nodes2, <<"pbcStrong">>, ?TEST_LOOPS, riakc_pb_socket
+        ),
+    true =
+        test_conditional(
+            {strong, lww}, Nodes2, <<"httpStrong">>, ?TEST_LOOPS, rhc
+        ),
+
+    true = test_nonematch(Nodes2, <<"pbcNoneMatch">>, riakc_pb_socket),
+    true = test_nonematch(Nodes2, <<"httpNoneMatch">>, rhc),
 
     rt:clean_cluster(Nodes2),
 
     Nodes3 = rt:build_cluster(?NUM_NODES, ?CONF(true, false, true)),
-
-    true = test_conditional({strong, allow_mult}, Nodes3),
 
     [N3|RestNodes3] = Nodes3,
     Me = self(),
@@ -77,8 +91,11 @@ confirm() ->
             RestNodes3,
             <<"AllUpNodeTest">>,
             ?TEST_LOOPS,
-            false
+            riakc_pb_socket
         ),
+    
+    true = test_nonematch(Nodes3, <<"pbcNoneMatch">>, riakc_pb_socket),
+    true = test_nonematch(Nodes3, <<"httpNoneMatch">>, rhc),
 
     spawn_stop(N3, Me),
     true =
@@ -87,7 +104,7 @@ confirm() ->
             RestNodes3,
             <<"StopNodeTest">>,
             ?TEST_LOOPS * 2,
-            false
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -98,8 +115,8 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"StartNodeTest">>,
-            ?TEST_LOOPS * 2,
-            false
+            ?TEST_LOOPS,
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
@@ -110,8 +127,8 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"LeaveNodeTest">>,
-            ?TEST_LOOPS * 12,
-            true
+            ?TEST_LOOPS * 10,
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -122,8 +139,8 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"JoinNodeTest">>,
-            ?TEST_LOOPS * 10,
-            true
+            ?TEST_LOOPS * 8,
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
@@ -134,8 +151,8 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"BrutalKillNodeTest">>,
-            ?TEST_LOOPS * 2,
-            false
+            ?TEST_LOOPS,
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -146,35 +163,94 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ResstartNodeTest">>,
-            ?TEST_LOOPS * 2,
-            false
+            ?TEST_LOOPS,
+            riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
 
+    spawn_kill(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"BrutalReKillNodeTest">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_unpingable(N3),
+
+    spawn_start(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"ReResstartNodeTest">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_pingable(N3),
 
     pass.
 
 
-test_conditional(Type, Nodes) ->
-    test_conditional(Type, Nodes, <<"ConditionBucket">>, ?TEST_LOOPS, false).
-
-test_conditional(Type, Nodes, Bucket, Loops, ExpectTokenErrors) ->
+test_nonematch(Nodes, Bucket, ClientMod) ->
     ClientsPerNode = 10,
-    NCount = length(Nodes),
 
-    Clients =
-        lists:zip(
-            lists:seq(1, ClientsPerNode * NCount),
-            lists:map(
-                fun(N) -> rt:pbc(N) end,
-                lists:flatten(lists:duplicate(10, Nodes)))
-        ),
+    Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
     lager:info("----------------"),
     lager:info(
-        "Testing with ~w condition on PUTs - parallel clients ~s",
-        [Type, Bucket]
+        "Testing none_match condition on PUTs - parallel clients ~s client ~w",
+        [Bucket, ClientMod]
+    ),
+    lager:info("----------------"),
+
+    StartTime = os:system_time(millisecond),
+
+    TestProcess = self(),
+
+    SpawnUpdateFun =
+        fun({_I, C}) ->
+            fun() ->
+                R =
+                    ClientMod:put(
+                        C,
+                        riakc_obj:new(Bucket, to_key(1), <<0:32/integer>>),
+                        [if_none_match]
+                    ),
+                true = check_nomatch_conflict(ClientMod, R),
+                {ok, FinalObj} = ClientMod:get(C, Bucket, to_key(1)),
+                <<0:32/integer>> = riakc_obj:get_value(FinalObj),
+                TestProcess ! complete
+            end
+        end,
+    lists:foreach(
+        fun(ClientRef) -> spawn(SpawnUpdateFun(ClientRef)) end,
+        Clients),
+
+    ok = receive_complete(0, length(Clients)),
+
+    EndTime = os:system_time(millisecond),
+
+    close_clients(Clients, ClientMod),
+
+    lager:info("Test took ~w ms", [EndTime - StartTime]),
+
+    true.
+
+
+test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
+    ClientsPerNode = 10,
+
+    Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
+    
+    lager:info("----------------"),
+    lager:info(
+        "Testing with ~w condition on PUTs - parallel clients ~s client ~w",
+        [Type, Bucket, ClientMod]
     ),
     lager:info("----------------"),
 
@@ -184,25 +260,26 @@ test_conditional(Type, Nodes, Bucket, Loops, ExpectTokenErrors) ->
         lists:map(
             fun(K) ->
                 test_concurrent_conditional_changes(
-                    Bucket, K, Clients, ExpectTokenErrors
+                    Bucket, K, Clients, ClientMod
                 )
             end,
             Keys
         ),
 
-    lists:foreach(fun({_I, C}) -> riakc_pb_socket:stop(C) end, Clients),
+    close_clients(Clients, ClientMod),
 
     % print_stats(hd(Nodes)),
     
+    NCount = length(Nodes),
     %% Total should be n(n+1)/2
     Expected =
         ((ClientsPerNode * NCount) * (ClientsPerNode * NCount + 1)) div 2,
     lists:all(fun(R) -> R == Expected end, Results).
 
-test_concurrent_conditional_changes(Bucket, Key, Clients, ExpectTokenErrors) ->
+test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
     [{1, C1}|_Rest] = Clients,
 
-    ok = riakc_pb_socket:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>)),
+    ok = ClientMod:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>)),
     TestProcess = self(),
 
     StartTime = os:system_time(millisecond),
@@ -212,7 +289,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ExpectTokenErrors) ->
             fun() ->
                 ok =
                     try_conditional_put(
-                        riakc_pb_socket, C, I, Bucket, Key, ExpectTokenErrors
+                        ClientMod, C, I, Bucket, Key
                     ),
                 TestProcess ! complete
             end
@@ -224,7 +301,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ExpectTokenErrors) ->
     ok = receive_complete(0, length(Clients)),
     EndTime = os:system_time(millisecond),
 
-    {ok, FinalObj} = riakc_pb_socket:get(C1, Bucket, Key),
+    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key),
     <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
 
     lager:info("Test took ~w ms", [EndTime - StartTime]),
@@ -238,28 +315,31 @@ receive_complete(Target, Target) ->
 receive_complete(T, Target) ->
     receive complete -> receive_complete(T + 1, Target) end.
 
-try_conditional_put(ClientMod, C, I, B, K, ExpectTokenErrors) ->
+try_conditional_put(ClientMod, C, I, B, K) ->
     {ok, Obj} = ClientMod:get(C, B, K),
     <<V:32/integer>> = riakc_obj:get_value(Obj),
     Obj1 = riakc_obj:update_value(Obj, <<(V + I):32/integer>>),
     PutRsp = ClientMod:put(C, Obj1, [if_not_modified]),
-    case check_match_conflict(ClientMod, PutRsp, ExpectTokenErrors) of
+    case check_match_conflict(ClientMod, PutRsp) of
         true ->
-            try_conditional_put(ClientMod, C, I, B, K, ExpectTokenErrors);
+            try_conditional_put(ClientMod, C, I, B, K);
         false ->
             ok
     end.
 
-check_match_conflict(riakc_pb_socket, {error, <<"modified">>}, _ETE) ->
+check_match_conflict(riakc_pb_socket, {error, <<"modified">>}) ->
     true;
-check_match_conflict(rhc, {error, {ok, "412", _Headers, _Message}}, _ETE) ->
+check_match_conflict(rhc, {error, {ok, "409", _Headers, _Message}}) ->
     true;
-check_match_conflict(riakc_pb_socket, {error, <<"\"Token Error\"">>}, true) ->
-    timer:sleep(1000),
-    true;
-check_match_conflict(_, ok, _ETE) ->
+check_match_conflict(_, ok) ->
     false.
 
+check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}) ->
+    true;
+check_nomatch_conflict(rhc, {error, {ok, "412", _Headers, _Message}}) ->
+    true;
+check_nomatch_conflict(_, ok) ->
+    true.
 
 to_key(N) ->
     list_to_binary(io_lib:format("K~4..0B", [N])).
@@ -332,6 +412,33 @@ change_complete(P) ->
 
 random_sleep() ->
     timer:sleep(rand:uniform(?MAX_RANDOM_SLEEP)).
+
+get_clients(ClientsPerNode, Nodes, ClientMod) ->
+    lists:zip(
+        lists:seq(1, ClientsPerNode * length(Nodes)),
+        lists:map(
+            fun(N) ->
+                case ClientMod of
+                    riakc_pb_socket ->
+                        rt:pbc(N);
+                    rhc ->
+                        rt:httpc(N)
+                end
+            end,
+            lists:flatten(lists:duplicate(10, Nodes)))
+    ).
+
+close_clients(Clients, ClientMod) ->
+    case ClientMod of
+        riakc_pb_socket ->
+            lists:foreach(
+                fun({_I, C}) -> riakc_pb_socket:stop(C) end,
+                Clients
+            );
+        rhc ->
+            ok
+    end.
+
 
 % print_stats(Node) ->
 %     Stats =

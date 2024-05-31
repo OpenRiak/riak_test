@@ -30,6 +30,7 @@ verify_busy_dist_port
 verify_commit_hooks
 verify_conditional_postcommit
 verify_conditionalput_api
+verify_conditionalput_strong
 verify_corruption_filtering
 verify_delete_onreplace
 verify_down
