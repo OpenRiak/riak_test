@@ -41,7 +41,8 @@
             {forced_ownership_handoff, 16},
             {handoff_concurrency, 16},
             {choose_claim_fun, choose_claim_v4},
-            {stronger_conditional_put, Strong}
+            {stronger_conditional_put, Strong},
+            {stronger_conditional_nval, 5}
           ]},
          {riak_core,
           [
@@ -195,8 +196,49 @@ confirm() ->
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
 
+    reset_conditional_nval([N3] ++ RestNodes3, 3),
+    lager:info("----------------"),
+    lager:info("Testing with reduced stronger_conditional_nval"),
+    lager:info("----------------"),
+
+    spawn_kill(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"BrutalReKillNodeTestN3">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket,
+            true
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_unpingable(N3),
+
+    spawn_start(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"ReResstartNodeTestN3">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_pingable(N3),
+
     pass.
 
+reset_conditional_nval([], _NVal) ->
+    ok;
+reset_conditional_nval([Node|Rest], NVal) ->
+    ok =
+        rpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, stronger_conditional_nval, NVal]
+        ),
+    reset_conditional_nval(Rest, NVal).
 
 test_nonematch(Nodes, Bucket, ClientMod) ->
     ClientsPerNode = 10,
