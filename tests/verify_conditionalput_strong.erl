@@ -127,7 +127,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"LeaveNodeTest">>,
-            ?TEST_LOOPS * 10,
+            ?TEST_LOOPS * 12,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -152,7 +152,8 @@ confirm() ->
             RestNodes3,
             <<"BrutalKillNodeTest">>,
             ?TEST_LOOPS,
-            riakc_pb_socket
+            riakc_pb_socket,
+            true
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -176,7 +177,8 @@ confirm() ->
             RestNodes3,
             <<"BrutalReKillNodeTest">>,
             ?TEST_LOOPS,
-            riakc_pb_socket
+            riakc_pb_socket,
+            true
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -243,6 +245,9 @@ test_nonematch(Nodes, Bucket, ClientMod) ->
 
 
 test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
+    test_conditional(Type, Nodes, Bucket, Loops, ClientMod, false).
+
+test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario) ->
     ClientsPerNode = 10,
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
@@ -260,7 +265,7 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
         lists:map(
             fun(K) ->
                 test_concurrent_conditional_changes(
-                    Bucket, K, Clients, ClientMod
+                    Bucket, K, Clients, ClientMod, KillScenario
                 )
             end,
             Keys
@@ -274,9 +279,18 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
     %% Total should be n(n+1)/2
     Expected =
         ((ClientsPerNode * NCount) * (ClientsPerNode * NCount + 1)) div 2,
-    lists:all(fun(R) -> R == Expected end, Results).
+    {FinalValues, Timings} = lists:unzip(Results),
+    lager:info(
+        "Average time per result ~w ms",
+        [lists:sum(Timings) div length(Timings)]
+    ),
+    lager:info(
+        "Maximum time per result ~w ms",
+        [lists:max(Timings)]
+    ),
+    lists:all(fun(R) -> R == Expected end, FinalValues).
 
-test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
+test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenario) ->
     [{1, C1}|_Rest] = Clients,
 
     ok = ClientMod:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>)),
@@ -289,7 +303,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
             fun() ->
                 ok =
                     try_conditional_put(
-                        ClientMod, C, I, Bucket, Key
+                        ClientMod, C, I, Bucket, Key, KillScenario
                     ),
                 TestProcess ! complete
             end
@@ -307,7 +321,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
     lager:info("Test took ~w ms", [EndTime - StartTime]),
     lager:info("Test had final value of ~w", [FinalV]),
     
-    FinalV.
+    {FinalV, EndTime - StartTime}.
 
 
 receive_complete(Target, Target) ->
@@ -315,24 +329,26 @@ receive_complete(Target, Target) ->
 receive_complete(T, Target) ->
     receive complete -> receive_complete(T + 1, Target) end.
 
-try_conditional_put(ClientMod, C, I, B, K) ->
+try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
     {ok, Obj} = ClientMod:get(C, B, K),
     <<V:32/integer>> = riakc_obj:get_value(Obj),
     Obj1 = riakc_obj:update_value(Obj, <<(V + I):32/integer>>),
     PutRsp = ClientMod:put(C, Obj1, [if_not_modified]),
-    case check_match_conflict(ClientMod, PutRsp) of
+    case check_match_conflict(ClientMod, PutRsp, KillScenario) of
         true ->
-            try_conditional_put(ClientMod, C, I, B, K);
+            try_conditional_put(ClientMod, C, I, B, K, KillScenario);
         false ->
             ok
     end.
 
-check_match_conflict(riakc_pb_socket, {error, <<"modified">>}) ->
+check_match_conflict(riakc_pb_socket, {error, <<"modified">>}, _) ->
     true;
-check_match_conflict(rhc, {error, {ok, "409", _Headers, _Message}}) ->
+check_match_conflict(rhc, {error, {ok, "409", _Headers, _Message}}, _) ->
     true;
-check_match_conflict(_, ok) ->
-    false.
+check_match_conflict(_, ok, _) ->
+    false;
+check_match_conflict(riakc_pb_socket, {error, <<"remote_exit">>}, true) ->
+    true.
 
 check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}) ->
     true;
