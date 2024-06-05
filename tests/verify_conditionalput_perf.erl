@@ -16,10 +16,10 @@
 %%
 %% -------------------------------------------------------------------
 -module(verify_conditionalput_perf).
--export([confirm/0]).
+-export([confirm/0, spawn_profile_fun/1]).
 -include_lib("eunit/include/eunit.hrl").
 
--define(DEFAULT_RING_SIZE, 32).
+-define(DEFAULT_RING_SIZE, 16).
 -define(TEST_LOOPS, 32).
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
@@ -54,10 +54,13 @@ confirm() ->
 
     Nodes2 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, true)),
 
+    spawn_profile_fun(hd(Nodes2)),
     true =
         test_conditional(
             {strong, lww}, Nodes2, <<"pbcStrong">>, ?TEST_LOOPS * 2, riakc_pb_socket
         ),
+    
+    spawn_profile_fun(hd(Nodes2)),
     true =
         test_conditional(
             {strong, lww}, Nodes2, <<"httpStrong">>, ?TEST_LOOPS * 2, rhc
@@ -67,7 +70,7 @@ confirm() ->
 
 
 test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
-    ClientsPerNode = 10,
+    ClientsPerNode = 5,
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
@@ -134,7 +137,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
     ok = receive_complete(0, length(Clients)),
     EndTime = os:system_time(millisecond),
 
-    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key),
+    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key, [{r, 3}, {pr, 2}]),
     <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
 
     lager:info("Test took ~w ms", [EndTime - StartTime]),
@@ -183,7 +186,7 @@ get_clients(ClientsPerNode, Nodes, ClientMod) ->
                         rt:httpc(N)
                 end
             end,
-            lists:flatten(lists:duplicate(10, Nodes)))
+            lists:flatten(lists:duplicate(ClientsPerNode, Nodes)))
     ).
 
 close_clients(Clients, ClientMod) ->
@@ -196,3 +199,16 @@ close_clients(Clients, ClientMod) ->
         rhc ->
             ok
     end.
+
+
+spawn_profile_fun(Node) ->
+    spawn(
+        fun() ->
+            timer:sleep(1000),
+            erpc:call(Node, riak_kv_util, profile_riak, [1000]),
+            timer:sleep(1000),
+            erpc:call(Node, riak_kv_util, profile_riak, [1000]),
+            timer:sleep(1000),
+            erpc:call(Node, riak_kv_util, profile_riak, [1000])
+        end
+    ).

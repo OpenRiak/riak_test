@@ -357,7 +357,7 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenari
     ok = receive_complete(0, length(Clients)),
     EndTime = os:system_time(millisecond),
 
-    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key),
+    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key, [{r, 3}, {pr, 2}]),
     <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
 
     lager:info("Test took ~w ms", [EndTime - StartTime]),
