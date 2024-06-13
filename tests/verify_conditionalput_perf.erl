@@ -24,7 +24,7 @@
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
 
--define(CONF(Mult, LWW, Strong),
+-define(CONF(Mult, LWW, CondPutMode, TokenMode),
         [{riak_kv,
           [
             {anti_entropy, {off, []}},
@@ -40,7 +40,8 @@
             {forced_ownership_handoff, 16},
             {handoff_concurrency, 16},
             {choose_claim_fun, choose_claim_v4},
-            {stronger_conditional_put, Strong}
+            {conditional_put_mode, CondPutMode},
+            {token_request_mode, TokenMode}
           ]},
          {riak_core,
           [
@@ -52,7 +53,10 @@
 confirm() ->
     
 
-    Nodes2 = rt:build_cluster(?NUM_NODES, ?CONF(false, true, true)),
+    Nodes2 =
+        rt:build_cluster(
+            ?NUM_NODES, ?CONF(false, true, token_sloppy, small_consensus)
+        ),
 
     spawn_profile_fun(hd(Nodes2)),
     true =

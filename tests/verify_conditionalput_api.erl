@@ -25,7 +25,7 @@
 -define(FRESH_KEY, <<"new_key">>).
 -define(FRESHER_KEY, <<"another_key">>).
 
--define(CONF(Strong, StrongNVal),
+-define(CONF(CondPutMode, TokenMode),
         [{riak_kv,
           [
             {anti_entropy, {off, []}},
@@ -35,8 +35,8 @@
             {tictacaae_storeheads, true},
             {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
             {tictacaae_suspend, true},
-            {stronger_conditional_put, Strong},
-            {stronger_conditional_nval, StrongNVal}
+            {conditional_put_mode, CondPutMode},
+            {token_request_mode, TokenMode}
           ]},
          {riak_core,
           [
@@ -75,7 +75,7 @@ confirm() ->
         "vector clock comparison, rather than a vtag comparison."
     ),
 
-    [CurrentNode1] = rt:build_cluster(1, ?CONF(false, 1)),
+    [CurrentNode1] = rt:build_cluster(1, ?CONF(api_only, head_only)),
     rt:wait_for_service(CurrentNode1, riak_kv),
 
     RPCc1 = rt:pbc(CurrentNode1),
@@ -86,7 +86,8 @@ confirm() ->
 
     rt:clean_cluster([CurrentNode1]),
 
-    [CurrentNode2|OtherNodes] = rt:build_cluster(5, ?CONF(true, 3)),
+    [CurrentNode2|OtherNodes] =
+        rt:build_cluster(5, ?CONF(token_sloppy, small_consensus)),
 
     RPCc2 = rt:pbc(CurrentNode2),
     ok = test_api_consistency(RPCc2, riakc_pb_socket, <<"bucketPB">>, current),
@@ -96,7 +97,7 @@ confirm() ->
     
     rt:clean_cluster([CurrentNode2|OtherNodes]),
 
-    [CurrentNode3] = rt:build_cluster(1, ?CONF(true, 1)),
+    [CurrentNode3] = rt:build_cluster(1, ?CONF(token_sloppy, head_only)),
 
     RPCc3 = rt:pbc(CurrentNode3),
     ok = test_api_consistency(RPCc3, riakc_pb_socket, <<"bucketPB">>, current),
