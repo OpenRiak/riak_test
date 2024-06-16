@@ -70,7 +70,7 @@ confirm() ->
 
     Nodes2 =
         rt:build_cluster(
-            ?NUM_NODES, ?CONF(false, true, token_sloppy, head_only)
+            ?NUM_NODES, ?CONF(false, true, prefer_token, head_only)
         ),
 
     true =
@@ -89,7 +89,7 @@ confirm() ->
 
     Nodes3 =
         rt:build_cluster(
-            ?NUM_NODES, ?CONF(true, false, token_sloppy, small_consensus)
+            ?NUM_NODES, ?CONF(true, false, prefer_token, primary_consensus)
         ),
 
     [N3|RestNodes3] = Nodes3,
@@ -205,7 +205,49 @@ confirm() ->
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
 
+    reset_conditional_trm([N3] ++ RestNodes3, basic_consensus),
+    lager:info("----------------"),
+    lager:info("Testing with reduced stronger_conditional_nval"),
+    lager:info("----------------"),
+
+    spawn_kill(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"BrutalReKillNodeTestN3">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket,
+            true
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_unpingable(N3),
+
+    spawn_start(N3, Me),
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"ReResstartNodeTestN3">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket
+        ),
+    receive node_change_complete -> ok end,
+    rt:wait_until_pingable(N3),
+
     pass.
+
+reset_conditional_trm([], _TRM) ->
+    ok;
+reset_conditional_trm([Node|Rest], TRM) ->
+    ok =
+        rpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, token_request_mode, TRM]
+        ),
+    reset_conditional_trm(Rest, TRM).
 
 test_nonematch(Nodes, Bucket, ClientMod) ->
     ClientsPerNode = 10,
@@ -310,11 +352,16 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenari
     SpawnUpdateFun =
         fun({I, C}) ->
             fun() ->
-                ok =
+                R =
                     try_conditional_put(
                         ClientMod, C, I, Bucket, Key, KillScenario
                     ),
-                TestProcess ! complete
+                case R of
+                    ok ->
+                        TestProcess ! complete;
+                    error ->
+                        TestProcess ! error
+                end
             end
         end,
     lists:foreach(
@@ -336,7 +383,10 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenari
 receive_complete(Target, Target) ->
     ok;
 receive_complete(T, Target) ->
-    receive complete -> receive_complete(T + 1, Target) end.
+    receive
+        complete -> receive_complete(T + 1, Target);
+        error -> error
+    end.
 
 try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
     {ok, Obj} = ClientMod:get(C, B, K),
@@ -347,7 +397,9 @@ try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
         true ->
             try_conditional_put(ClientMod, C, I, B, K, KillScenario);
         false ->
-            ok
+            ok;
+        error ->
+            error
     end.
 
 check_match_conflict(riakc_pb_socket, {error, <<"modified">>}, _) ->
@@ -357,7 +409,10 @@ check_match_conflict(rhc, {error, {ok, "409", _Headers, _Message}}, _) ->
 check_match_conflict(_, ok, _) ->
     false;
 check_match_conflict(riakc_pb_socket, {error, <<"remote_exit">>}, true) ->
-    true.
+    true;
+check_match_conflict(ClientMod, Response, _) ->
+    lager:error("Unexpected: ~w ~w", [ClientMod, Response]),
+    error.
 
 check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}) ->
     true;

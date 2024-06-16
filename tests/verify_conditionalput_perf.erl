@@ -55,7 +55,7 @@ confirm() ->
 
     Nodes2 =
         rt:build_cluster(
-            ?NUM_NODES, ?CONF(false, true, token_sloppy, small_consensus)
+            ?NUM_NODES, ?CONF(false, true, prefer_token, basic_consensus)
         ),
 
     spawn_profile_fun(hd(Nodes2)),

@@ -861,6 +861,7 @@ common_stats() ->
         <<"sys_wordsize">>,
         <<"tictacaae_queue_microsec__max">>,
         <<"tictacaae_queue_microsec_mean">>,
+        <<"tools_version">>,
         <<"vnode_counter_update">>,
         <<"vnode_counter_update_time_100">>,
         <<"vnode_counter_update_time_95">>,
@@ -941,7 +942,8 @@ common_stats() ->
     ]
     ++ pool_stats()
     ++ tictacaae_stats()
-    ++ ttaaefs_stats().
+    ++ ttaaefs_stats()
+    ++ token_stats().
 
 product_stats(riak_ee) ->
     [
@@ -1044,6 +1046,18 @@ ttaaefs_stats() ->
         <<"ttaaefs_allcheck_total">>,
         <<"ttaaefs_daycheck_total">>,
         <<"ttaaefs_hourcheck_total">>].
+
+token_stats() ->
+    [<<"token_session_refusal">>,
+        <<"token_session_timeout">>,
+        <<"token_session_preflist_short">>,
+        <<"token_session_error">>,
+        <<"token_session_time_mean">>,
+        <<"token_session_request_timeout">>,
+        <<"token_session_time_100">>,
+        <<"token_session_complete">>,
+        <<"token_session_unreachable">>,
+        <<"token_session_renewal">>].
 
 
 do_pools(Node) ->

@@ -87,7 +87,7 @@ confirm() ->
     rt:clean_cluster([CurrentNode1]),
 
     [CurrentNode2|OtherNodes] =
-        rt:build_cluster(5, ?CONF(token_sloppy, small_consensus)),
+        rt:build_cluster(5, ?CONF(prefer_token, basic_consensus)),
 
     RPCc2 = rt:pbc(CurrentNode2),
     ok = test_api_consistency(RPCc2, riakc_pb_socket, <<"bucketPB">>, current),
@@ -97,7 +97,7 @@ confirm() ->
     
     rt:clean_cluster([CurrentNode2|OtherNodes]),
 
-    [CurrentNode3] = rt:build_cluster(1, ?CONF(token_sloppy, head_only)),
+    [CurrentNode3] = rt:build_cluster(1, ?CONF(prefer_token, head_only)),
 
     RPCc3 = rt:pbc(CurrentNode3),
     ok = test_api_consistency(RPCc3, riakc_pb_socket, <<"bucketPB">>, current),
