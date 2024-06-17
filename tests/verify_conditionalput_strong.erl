@@ -20,10 +20,11 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(DEFAULT_RING_SIZE, 32).
--define(TEST_LOOPS, 32).
+-define(TEST_LOOPS, 48).
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
 -define(MAX_RANDOM_SLEEP, 10000).
+-define(CLIENTS_PER_NODE, 24).
 
 -define(CONF(Mult, LWW, CondPutMode, TokenMode),
         [{riak_kv,
@@ -75,11 +76,23 @@ confirm() ->
 
     true =
         test_conditional(
-            {strong, lww}, Nodes2, <<"pbcStrong">>, ?TEST_LOOPS, riakc_pb_socket
+            {strong, lww},
+            Nodes2,
+            <<"pbcStrong">>,
+            ?TEST_LOOPS,
+            riakc_pb_socket,
+            false,
+            single
         ),
     true =
         test_conditional(
-            {strong, lww}, Nodes2, <<"httpStrong">>, ?TEST_LOOPS, rhc
+            {strong, lww},
+            Nodes2,
+            <<"httpStrong">>,
+            ?TEST_LOOPS,
+            rhc,
+            false,
+            single
         ),
 
     true = test_nonematch(Nodes2, <<"pbcNoneMatch">>, riakc_pb_socket),
@@ -104,6 +117,15 @@ confirm() ->
             riakc_pb_socket
         ),
     
+    true =
+        test_conditional(
+            {strong, allow_mult},
+            RestNodes3,
+            <<"AllUpNodeTestHTTP">>,
+            ?TEST_LOOPS,
+            rhc
+        ),
+    
     true = test_nonematch(Nodes3, <<"pbcNoneMatch">>, riakc_pb_socket),
     true = test_nonematch(Nodes3, <<"httpNoneMatch">>, rhc),
 
@@ -114,7 +136,9 @@ confirm() ->
             RestNodes3,
             <<"StopNodeTest">>,
             ?TEST_LOOPS * 2,
-            riakc_pb_socket
+            riakc_pb_socket,
+            true,
+            four
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -163,7 +187,8 @@ confirm() ->
             <<"BrutalKillNodeTest">>,
             ?TEST_LOOPS,
             riakc_pb_socket,
-            true
+            true,
+            four
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -188,7 +213,8 @@ confirm() ->
             <<"BrutalReKillNodeTest">>,
             ?TEST_LOOPS,
             riakc_pb_socket,
-            true
+            true,
+            four
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -218,7 +244,8 @@ confirm() ->
             <<"BrutalReKillNodeTestN3">>,
             ?TEST_LOOPS,
             riakc_pb_socket,
-            true
+            true,
+            four
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
@@ -296,10 +323,16 @@ test_nonematch(Nodes, Bucket, ClientMod) ->
 
 
 test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
-    test_conditional(Type, Nodes, Bucket, Loops, ClientMod, false).
+    test_conditional(Type, Nodes, Bucket, Loops, ClientMod, false, four).
 
-test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario) ->
-    ClientsPerNode = 10,
+test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario, Multi) ->
+    ClientsPerNode =
+        case Multi of
+            four ->
+                ?CLIENTS_PER_NODE;
+            single ->
+                ?CLIENTS_PER_NODE div 2
+        end,
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
@@ -310,13 +343,30 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario) ->
     ),
     lager:info("----------------"),
 
-    Keys = lists:map(fun(I) -> to_key(I) end, lists:seq(1, Loops)),
+    Keys =
+        case Multi of
+            four ->
+                lists:map(
+                    fun(I) ->
+                        I4 = 4 * I,
+                        [
+                            to_key(I4),
+                            to_key(I4 - 1),
+                            to_key(I4 - 2),
+                            to_key(I4 - 3)
+                        ]
+                    end,
+                    lists:seq(1, Loops)
+                );
+            single ->
+                lists:map(fun(I) -> [to_key(I)] end, lists:seq(1, Loops))
+        end,
 
     Results =
         lists:map(
-            fun(K) ->
+            fun(KeysPerRun) ->
                 test_concurrent_conditional_changes(
-                    Bucket, K, Clients, ClientMod, KillScenario
+                    Bucket, KeysPerRun, Clients, ClientMod, KillScenario
                 )
             end,
             Keys
@@ -341,10 +391,17 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario) ->
     ),
     lists:all(fun(R) -> R == Expected end, FinalValues).
 
-test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenario) ->
+test_concurrent_conditional_changes(
+        Bucket, KeysPerRun, Clients, ClientMod, KillScenario) ->
     [{1, C1}|_Rest] = Clients,
 
-    ok = ClientMod:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>)),
+    ok =
+        lists:foreach(
+            fun(Key) ->
+                ClientMod:put(C1, riakc_obj:new(Bucket, Key, <<0:32/integer>>))
+            end,
+            KeysPerRun
+        ),
     TestProcess = self(),
 
     StartTime = os:system_time(millisecond),
@@ -352,6 +409,16 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenari
     SpawnUpdateFun =
         fun({I, C}) ->
             fun() ->
+                Key =
+                    case KeysPerRun of
+                        [K] ->
+                            K;
+                        KeyList when length(KeyList) == 4 ->
+                            lists:nth(
+                                (I rem 4) + 1,
+                                KeyList
+                            )
+                    end,
                 R =
                     try_conditional_put(
                         ClientMod, C, I, Bucket, Key, KillScenario
@@ -371,13 +438,23 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod, KillScenari
     ok = receive_complete(0, length(Clients)),
     EndTime = os:system_time(millisecond),
 
-    {ok, FinalObj} = ClientMod:get(C1, Bucket, Key, [{r, 3}, {pr, 2}]),
-    <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
-
-    lager:info("Test took ~w ms", [EndTime - StartTime]),
-    lager:info("Test had final value of ~w", [FinalV]),
+    FinalValue =
+        lists:sum(
+            lists:map(
+                fun(Key) ->
+                    {ok, FinalObj} =
+                        ClientMod:get(C1, Bucket, Key, [{r, 3}, {pr, 2}]),
+                    <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
+                    FinalV
+                end,
+                KeysPerRun
+            )
+        ),
     
-    {FinalV, EndTime - StartTime}.
+    lager:info("Test took ~w ms", [EndTime - StartTime]),
+    lager:info("Test had final value of ~w", [FinalValue]),
+    
+    {FinalValue, EndTime - StartTime}.
 
 
 receive_complete(Target, Target) ->
@@ -389,7 +466,14 @@ receive_complete(T, Target) ->
     end.
 
 try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
-    {ok, Obj} = ClientMod:get(C, B, K),
+    {ok, Obj} =
+        case ClientMod:get(C, B, K) of
+            {ok, FetchedObj} ->
+                {ok, FetchedObj};
+            R ->
+                lager:info("Request error ~p from client ~p", [R, C]),
+                R
+        end,
     <<V:32/integer>> = riakc_obj:get_value(Obj),
     Obj1 = riakc_obj:update_value(Obj, <<(V + I):32/integer>>),
     PutRsp = ClientMod:put(C, Obj1, [if_not_modified]),
@@ -408,7 +492,9 @@ check_match_conflict(rhc, {error, {ok, "409", _Headers, _Message}}, _) ->
     true;
 check_match_conflict(_, ok, _) ->
     false;
-check_match_conflict(riakc_pb_socket, {error, <<"remote_exit">>}, true) ->
+check_match_conflict(riakc_pb_socket, {error, <<"session_remote_exit">>}, true) ->
+    true;
+check_match_conflict(riakc_pb_socket, {error, <<"session_noconnection">>}, true) ->
     true;
 check_match_conflict(ClientMod, Response, _) ->
     lager:error("Unexpected: ~w ~w", [ClientMod, Response]),
@@ -505,7 +591,7 @@ get_clients(ClientsPerNode, Nodes, ClientMod) ->
                         rt:httpc(N)
                 end
             end,
-            lists:flatten(lists:duplicate(10, Nodes)))
+            lists:flatten(lists:duplicate(ClientsPerNode, Nodes)))
     ).
 
 close_clients(Clients, ClientMod) ->
