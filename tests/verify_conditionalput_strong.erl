@@ -25,6 +25,7 @@
 -define(CLAIMANT_TICK, 5000).
 -define(MAX_RANDOM_SLEEP, 10000).
 -define(CLIENTS_PER_NODE, 24).
+-define(MAX_CYCLE_TIME, 30000).
 
 -define(CONF(Mult, LWW, CondPutMode, TokenMode),
         [{riak_kv,
@@ -37,10 +38,9 @@
             {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
             {tictacaae_suspend, true},
             {claimant_tick, ?CLAIMANT_TICK},
-            {vnode_management_timer, 2000},
-            {vnode_inactivity_timeout, 4000},
-            {forced_ownership_handoff, 16},
-            {handoff_concurrency, 16},
+            {vnode_inactivity_timeout, 15000},
+            {forced_ownership_handoff, 8},
+            {handoff_concurrency, 8},
             {choose_claim_fun, choose_claim_v4},
             {conditional_put_mode, CondPutMode},
             {token_request_mode, TokenMode}
@@ -57,6 +57,7 @@ confirm() ->
         rt:build_cluster(
             ?NUM_NODES, ?CONF(false, true, api_only, head_only)
         ),
+    build_wait_loop(Nodes1),
 
     false =
         test_conditional(
@@ -73,6 +74,7 @@ confirm() ->
         rt:build_cluster(
             ?NUM_NODES, ?CONF(false, true, prefer_token, head_only)
         ),
+    build_wait_loop(Nodes2),
 
     true =
         test_conditional(
@@ -104,6 +106,7 @@ confirm() ->
         rt:build_cluster(
             ?NUM_NODES, ?CONF(true, false, prefer_token, primary_consensus)
         ),
+    build_wait_loop(Nodes3),
 
     [N3|RestNodes3] = Nodes3,
     Me = self(),
@@ -149,7 +152,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"StartNodeTest">>,
-            ?TEST_LOOPS,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -199,7 +202,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ResstartNodeTest">>,
-            ?TEST_LOOPS,
+            ?TEST_LOOPS * 8,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -225,7 +228,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ReResstartNodeTest">>,
-            ?TEST_LOOPS,
+            ?TEST_LOOPS * 8,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -256,7 +259,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ReResstartNodeTestN3">>,
-            ?TEST_LOOPS,
+            ?TEST_LOOPS * 8,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -389,6 +392,10 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario, Multi) ->
         "Maximum time per result ~w ms",
         [lists:max(Timings)]
     ),
+
+    ?assert(check_no_tokens(Nodes)),
+    ?assert(lists:max(Timings) < ?MAX_CYCLE_TIME),
+
     lists:all(fun(R) -> R == Expected end, FinalValues).
 
 test_concurrent_conditional_changes(
@@ -467,7 +474,7 @@ receive_complete(T, Target) ->
 
 try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
     {ok, Obj} =
-        case ClientMod:get(C, B, K) of
+        case ClientMod:get(C, B, K, [{timeout, 17000}]) of
             {ok, FetchedObj} ->
                 {ok, FetchedObj};
             R ->
@@ -476,7 +483,7 @@ try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
         end,
     <<V:32/integer>> = riakc_obj:get_value(Obj),
     Obj1 = riakc_obj:update_value(Obj, <<(V + I):32/integer>>),
-    PutRsp = ClientMod:put(C, Obj1, [if_not_modified]),
+    PutRsp = ClientMod:put(C, Obj1, [if_not_modified, {timeout, 23000}]),
     case check_match_conflict(ClientMod, PutRsp, KillScenario) of
         true ->
             try_conditional_put(ClientMod, C, I, B, K, KillScenario);
@@ -513,14 +520,19 @@ to_key(N) ->
 spawn_stop(Node, P) ->
     F =
         fun() ->
-            random_sleep(), rt:stop_and_wait(Node), change_complete(P)
+            random_sleep(),
+            rt:stop_and_wait(Node),
+            change_complete(P)
         end,
     spawn(F).
 
 spawn_start(Node, P) ->
     F =
         fun() ->
-            random_sleep(), rt:start_and_wait(Node), change_complete(P)
+            random_sleep(),
+            rt:start_and_wait(Node),
+            build_wait_loop([Node]),
+            change_complete(P)
         end,
     spawn(F).
 
@@ -606,32 +618,38 @@ close_clients(Clients, ClientMod) ->
     end.
 
 
-% print_stats(Node) ->
-%     Stats =
-%         erpc:call(
-%             Node,
-%             fun() ->
-%                 lists:zip(
-%                     riak_core_node_watcher:nodes(riak_kv),
-%                     erpc:multicall(
-%                         riak_core_node_watcher:nodes(riak_kv),
-%                         fun() -> riak_kv_token_manager:stats() end
-%                     )
-%                 )
-%             end
-%         ),
-%     Status =
-%         erpc:call(
-%             Node,
-%             fun() ->
-%                 lists:zip(
-%                     riak_core_node_watcher:nodes(riak_kv),
-%                     erpc:multicall(
-%                         riak_core_node_watcher:nodes(riak_kv),
-%                         fun() -> sys:get_state(riak_kv_token_manager) end
-%                     )
-%                 )
-%             end
-%         ),
-%     lager:info("Token stats ~p", [Stats]),
-%     lager:info("Token status ~p", [Status]).
+build_wait_loop(Nodes) ->
+    rt:wait_until_transfers_complete(Nodes),
+    wait_until_node_handoffs_complete(Nodes),
+    timer:sleep(10000),
+    rt:wait_until_transfers_complete(Nodes),
+    wait_until_node_handoffs_complete(Nodes).
+
+
+wait_until_node_handoffs_complete([]) ->
+    ok;
+wait_until_node_handoffs_complete([Node0|Rest]) ->
+    lager:info("Wait until Node's transfers complete ~p", [Node0]),
+    F = fun(Node) ->
+                Handoffs = rpc:call(Node, riak_core_handoff_manager, status, [{direction, outbound}]),
+                lager:info("Handoffs: ~p", [Handoffs]),
+                Handoffs =:= []
+        end,
+    ?assertEqual(ok, rt:wait_until(Node0, F)),
+    wait_until_node_handoffs_complete(Rest).
+
+
+check_no_tokens(Nodes) ->
+    check_no_tokens(Nodes, []).
+
+check_no_tokens([], []) ->
+    true;
+check_no_tokens([], Failures) ->
+    Failures;
+check_no_tokens([Node|Rest], Result) ->
+    case rpc:call(Node, riak_kv_token_manager, stats, []) of
+        {0, 0, 0} ->
+            check_no_tokens(Rest, Result);
+        Other ->
+            check_no_tokens(Rest, [{Node, Other}|Result])
+    end.
