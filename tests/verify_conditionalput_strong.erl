@@ -20,7 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(DEFAULT_RING_SIZE, 32).
--define(TEST_LOOPS, 48).
+-define(TEST_LOOPS, 64).
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
 -define(MAX_RANDOM_SLEEP, 10000).
@@ -59,6 +59,11 @@ confirm() ->
         ),
     build_wait_loop(Nodes1),
 
+    lager:info("----------------"),
+    lager:info("Testing with conditional check at API only"),
+    lager:info("... no consensus will be achieved with concurrent PUTs"),
+    lager:info("----------------"),
+
     false =
         test_conditional(
             {weak, lww}, Nodes1, <<"pbcWeak">>, ?TEST_LOOPS, riakc_pb_socket
@@ -68,18 +73,16 @@ confirm() ->
             {weak, lww}, Nodes1, <<"httpWeak">>, ?TEST_LOOPS, rhc
         ),
 
-    rt:clean_cluster(Nodes1),
-
-    Nodes2 =
-        rt:build_cluster(
-            ?NUM_NODES, ?CONF(false, true, prefer_token, head_only)
-        ),
-    build_wait_loop(Nodes2),
+    reset_conditional_cpm(Nodes1, prefer_token),
+    lager:info("----------------"),
+    lager:info("Testing with stronger conditional put - but head_only"),
+    lager:info("Testing without failure, as no consensus used"),
+    lager:info("----------------"),
 
     true =
         test_conditional(
             {strong, lww},
-            Nodes2,
+            Nodes1,
             <<"pbcStrong">>,
             ?TEST_LOOPS,
             riakc_pb_socket,
@@ -89,7 +92,7 @@ confirm() ->
     true =
         test_conditional(
             {strong, lww},
-            Nodes2,
+            Nodes1,
             <<"httpStrong">>,
             ?TEST_LOOPS,
             rhc,
@@ -97,10 +100,10 @@ confirm() ->
             single
         ),
 
-    true = test_nonematch(Nodes2, <<"pbcNoneMatch">>, riakc_pb_socket),
-    true = test_nonematch(Nodes2, <<"httpNoneMatch">>, rhc),
+    true = test_nonematch(Nodes1, <<"pbcNoneMatch">>, riakc_pb_socket),
+    true = test_nonematch(Nodes1, <<"httpNoneMatch">>, rhc),
 
-    rt:clean_cluster(Nodes2),
+    rt:clean_cluster(Nodes1),
 
     Nodes3 =
         rt:build_cluster(
@@ -110,6 +113,11 @@ confirm() ->
 
     [N3|RestNodes3] = Nodes3,
     Me = self(),
+
+    lager:info("----------------"),
+    lager:info("Testing with stronger conditional put and consensus"),
+    lager:info("Testing concurrent to failure and cluster change"),
+    lager:info("----------------"),
 
     true =
         test_conditional(
@@ -138,7 +146,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"StopNodeTest">>,
-            ?TEST_LOOPS * 2,
+            ?TEST_LOOPS,
             riakc_pb_socket,
             true,
             four
@@ -152,7 +160,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"StartNodeTest">>,
-            ?TEST_LOOPS * 6,
+            ?TEST_LOOPS * 4,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -164,7 +172,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"LeaveNodeTest">>,
-            ?TEST_LOOPS * 12,
+            ?TEST_LOOPS * 8,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -176,7 +184,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"JoinNodeTest">>,
-            ?TEST_LOOPS * 8,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -202,7 +210,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ResstartNodeTest">>,
-            ?TEST_LOOPS * 8,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -228,7 +236,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ReResstartNodeTest">>,
-            ?TEST_LOOPS * 8,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -259,7 +267,7 @@ confirm() ->
             {strong, allow_mult},
             RestNodes3,
             <<"ReResstartNodeTestN3">>,
-            ?TEST_LOOPS * 8,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
@@ -277,7 +285,19 @@ reset_conditional_trm([Node|Rest], TRM) ->
             set_env,
             [riak_kv, token_request_mode, TRM]
         ),
-    reset_conditional_trm(Rest, TRM).
+reset_conditional_trm(Rest, TRM).
+
+reset_conditional_cpm([], _CPM) ->
+    ok;
+reset_conditional_cpm([Node|Rest], CPM) ->
+    ok =
+        rpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, conditional_put_mode, CPM]
+        ),
+    reset_conditional_cpm(Rest, CPM).
 
 test_nonematch(Nodes, Bucket, ClientMod) ->
     ClientsPerNode = 10,
@@ -481,7 +501,15 @@ try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
                 lager:info("Request error ~p from client ~p", [R, C]),
                 R
         end,
-    <<V:32/integer>> = riakc_obj:get_value(Obj),
+    <<V:32/integer>> = 
+        try
+            riakc_obj:get_value(Obj)
+        catch
+            exit:siblings ->
+                lager:info("Siblings on ~p ~p ~p", [C, B, K]),
+                <<>>
+        end,
+
     Obj1 = riakc_obj:update_value(Obj, <<(V + I):32/integer>>),
     PutRsp = ClientMod:put(C, Obj1, [if_not_modified, {timeout, 23000}]),
     case check_match_conflict(ClientMod, PutRsp, KillScenario) of
