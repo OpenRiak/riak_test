@@ -65,12 +65,24 @@ confirm() ->
     lager:info("----------------"),
 
     false =
-        test_conditional(
-            {weak, lww}, Nodes1, <<"pbcWeak">>, ?TEST_LOOPS, riakc_pb_socket
+        hd(
+            test_conditional(
+                {weak, lww},
+                Nodes1,
+                <<"pbcWeak - to fail">>,
+                ?TEST_LOOPS,
+                riakc_pb_socket
+            )
         ),
     false =
-        test_conditional(
-            {weak, lww}, Nodes1, <<"httpWeak">>, ?TEST_LOOPS, rhc
+        hd(
+            test_conditional(
+                {weak, lww},
+                Nodes1,
+                <<"httpWeak - to fail">>,
+                ?TEST_LOOPS,
+                rhc
+            )
         ),
 
     reset_conditional_cpm(Nodes1, prefer_token),
@@ -79,7 +91,7 @@ confirm() ->
     lager:info("Testing without failure, as no consensus used"),
     lager:info("----------------"),
 
-    true =
+    R1 =
         test_conditional(
             {strong, lww},
             Nodes1,
@@ -89,7 +101,8 @@ confirm() ->
             false,
             single
         ),
-    true =
+    ?assert(hd(R1)),
+    R2 =
         test_conditional(
             {strong, lww},
             Nodes1,
@@ -99,6 +112,7 @@ confirm() ->
             false,
             single
         ),
+    ?assert(hd(R2)),
 
     true = test_nonematch(Nodes1, <<"pbcNoneMatch">>, riakc_pb_socket),
     true = test_nonematch(Nodes1, <<"httpNoneMatch">>, rhc),
@@ -119,7 +133,7 @@ confirm() ->
     lager:info("Testing concurrent to failure and cluster change"),
     lager:info("----------------"),
 
-    true =
+    R3 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -127,8 +141,9 @@ confirm() ->
             ?TEST_LOOPS,
             riakc_pb_socket
         ),
+    ?assert(hd(R3)),
     
-    true =
+    R4 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -136,12 +151,13 @@ confirm() ->
             ?TEST_LOOPS,
             rhc
         ),
+    ?assert(hd(R4)),
     
     true = test_nonematch(Nodes3, <<"pbcNoneMatch">>, riakc_pb_socket),
     true = test_nonematch(Nodes3, <<"httpNoneMatch">>, rhc),
 
     spawn_stop(N3, Me),
-    true =
+    R5 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -153,21 +169,23 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
+    ?assert(hd(R5)),
 
     spawn_start(N3, Me),
-    true =
+    R6 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
             <<"StartNodeTest">>,
-            ?TEST_LOOPS * 4,
+            ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
+    ?assert(hd(R6)),
 
     spawn_leave(N3, RestNodes3, Me),
-    true =
+    R7 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -177,9 +195,10 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
+    ?assert(hd(R7)),
 
     spawn_join(N3, RestNodes3, Me),
-    true =
+    R8 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -189,9 +208,10 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
+    ?assert(hd(R8)),
 
     spawn_kill(N3, Me),
-    true =
+    R9 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -203,21 +223,23 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
+    ?assert(hd(R9)),
 
     spawn_start(N3, Me),
-    true =
+    R10 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
-            <<"ResstartNodeTest">>,
+            <<"RestartNodeTest">>,
             ?TEST_LOOPS * 6,
             riakc_pb_socket
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
+    ?assert(hd(R10)),
 
     spawn_kill(N3, Me),
-    true =
+    R11 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -229,9 +251,10 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
+    ?assert(hd(R11)),
 
     spawn_start(N3, Me),
-    true =
+    R12 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -241,6 +264,7 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
+    ?assert(hd(R12)),
 
     reset_conditional_trm([N3] ++ RestNodes3, basic_consensus),
     lager:info("----------------"),
@@ -248,7 +272,7 @@ confirm() ->
     lager:info("----------------"),
 
     spawn_kill(N3, Me),
-    true =
+    R13 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -260,9 +284,10 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_unpingable(N3),
+    ?assert(hd(R13)),
 
     spawn_start(N3, Me),
-    true =
+    R14 =
         test_conditional(
             {strong, allow_mult},
             RestNodes3,
@@ -272,6 +297,20 @@ confirm() ->
         ),
     receive node_change_complete -> ok end,
     rt:wait_until_pingable(N3),
+    ?assert(hd(R14)),
+
+    lager:info("----------------"),
+    lager:info("Results summary"),
+    lager:info("----------------"),
+    lists:foreach(
+        fun(R) ->
+            lager:info(
+                "Result ~w for test ~p ~p average time ~w max time ~w",
+                R
+            )
+        end,
+        [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14]
+    ),
 
     pass.
 
@@ -404,19 +443,28 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario, Multi) ->
     Expected =
         ((ClientsPerNode * NCount) * (ClientsPerNode * NCount + 1)) div 2,
     {FinalValues, Timings} = lists:unzip(Results),
+    MeanTimings = lists:sum(Timings) div length(Timings),
+    MaxTimings = lists:max(Timings),
     lager:info(
         "Average time per result ~w ms",
-        [lists:sum(Timings) div length(Timings)]
+        [MeanTimings]
     ),
     lager:info(
         "Maximum time per result ~w ms",
-        [lists:max(Timings)]
+        [MaxTimings]
     ),
 
     ?assert(check_no_tokens(Nodes)),
-    ?assert(lists:max(Timings) < ?MAX_CYCLE_TIME),
 
-    lists:all(fun(R) -> R == Expected end, FinalValues).
+    ?assert(MaxTimings < ?MAX_CYCLE_TIME),
+
+    [
+        lists:all(fun(R) -> R == Expected end, FinalValues),
+        Bucket,
+        ClientMod,
+        MeanTimings,
+        MaxTimings
+    ].
 
 test_concurrent_conditional_changes(
         Bucket, KeysPerRun, Clients, ClientMod, KillScenario) ->
