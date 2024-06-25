@@ -34,18 +34,18 @@
             {tictacaae_storeheads, true},
             {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
             {tictacaae_suspend, true},
-            {claimant_tick, ?CLAIMANT_TICK},
-            {vnode_management_timer, 2000},
-            {vnode_inactivity_timeout, 4000},
-            {forced_ownership_handoff, 16},
-            {handoff_concurrency, 16},
-            {choose_claim_fun, choose_claim_v4},
             {conditional_put_mode, CondPutMode},
             {token_request_mode, TokenMode}
           ]},
          {riak_core,
           [
             {ring_creation_size, ?DEFAULT_RING_SIZE},
+            {claimant_tick, ?CLAIMANT_TICK},
+            {vnode_management_timer, 2000},
+            {vnode_inactivity_timeout, 4000},
+            {forced_ownership_handoff, 16},
+            {handoff_concurrency, 16},
+            {choose_claim_fun, choose_claim_v4},
             {default_bucket_props, [{allow_mult, Mult}, {last_write_wins, LWW}]}
           ]}]
        ).

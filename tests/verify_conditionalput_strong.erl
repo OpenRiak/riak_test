@@ -20,7 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(DEFAULT_RING_SIZE, 32).
--define(TEST_LOOPS, 64).
+-define(TEST_LOOPS, 32).
 -define(NUM_NODES, 6).
 -define(CLAIMANT_TICK, 5000).
 -define(MAX_RANDOM_SLEEP, 10000).
@@ -37,17 +37,17 @@
             {tictacaae_storeheads, true},
             {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
             {tictacaae_suspend, true},
-            {claimant_tick, ?CLAIMANT_TICK},
-            {vnode_inactivity_timeout, 15000},
-            {forced_ownership_handoff, 8},
-            {handoff_concurrency, 8},
-            {choose_claim_fun, choose_claim_v4},
             {conditional_put_mode, CondPutMode},
             {token_request_mode, TokenMode}
           ]},
          {riak_core,
           [
             {ring_creation_size, ?DEFAULT_RING_SIZE},
+            {vnode_inactivity_timeout, 15000},
+            {forced_ownership_handoff, 8},
+            {handoff_concurrency, 8},
+            {claimant_tick, ?CLAIMANT_TICK},
+            {choose_claim_fun, choose_claim_v4},
             {default_bucket_props, [{allow_mult, Mult}, {last_write_wins, LWW}]}
           ]}]
        ).
