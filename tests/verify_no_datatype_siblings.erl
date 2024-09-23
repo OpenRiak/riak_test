@@ -17,7 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %% This test was written in response to a specific Riak bug found
 %% in September 2016. Doing a `get` on a datatype should always
 %% cause any siblings to be merged prior to returning an object,
@@ -42,12 +42,14 @@
 %% I arbitrarily chose HLLs for this test just because it's the newest
 %% datatype and hasn't had a lot of testing yet, but this could just
 %% as well be implemented with any of the CRDTs we have available to us.
-
+%%
 -module(verify_no_datatype_siblings).
+-behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(HLL_TYPE, <<"hlls">>).
 -define(BUCKET, {?HLL_TYPE, <<"testbucket">>}).
@@ -60,13 +62,13 @@ confirm() ->
     PBC1 = rt:pbc(N1),
     PBC2 = rt:pbc(N2),
 
-    lager:info("Partition cluster in two so we can do conflicting writes"),
+    ?LOG_INFO("Partition cluster in two so we can do conflicting writes"),
     PartInfo = rt:partition([N1], [N2]),
     timer:sleep(?NOT_TESTING_PARTITION_SPEED),
 
     write_siblings(PBC1, PBC2),
 
-    lager:info("Heal partition"),
+    ?LOG_INFO("Heal partition"),
     ?assertEqual(ok, rt:heal(PartInfo)),
     timer:sleep(?NOT_TESTING_PARTITION_SPEED),
 
@@ -83,10 +85,10 @@ setup() ->
     {N1, N2}.
 
 write_siblings(PBC1, PBC2) ->
-    lager:info("Write to one side of the partition"),
+    ?LOG_INFO("Write to one side of the partition"),
     ?assertEqual(ok, do_write(PBC1, <<"plugh">>)),
 
-    lager:info("Write to other side of the partition"),
+    ?LOG_INFO("Write to other side of the partition"),
     ?assertEqual(ok, do_write(PBC2, <<"y2">>)).
 
 do_write(PBC, Value) ->
@@ -96,7 +98,7 @@ do_write(PBC, Value) ->
 
 verify_no_siblings(PBC) ->
     {ok, Obj} = do_read(PBC),
-    lager:info("Got object ~p", [Obj]),
+    ?LOG_INFO("Got object ~0p", [Obj]),
 
     NumSiblings = length(riakc_obj:get_values(Obj)),
     ?assertEqual(1, NumSiblings).

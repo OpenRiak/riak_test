@@ -21,9 +21,11 @@
 -behavior(riak_test).
 -export([confirm/0]).
 
+-include_lib("kernel/include/logger.hrl").
+
 confirm() ->
-    lager:info("Deploy some nodes"),
+    ?LOG_INFO("Deploy some nodes"),
     Nodes = rt:deploy_nodes(2),
-    lager:info("Stop the nodes"),
+    ?LOG_INFO("Stop the nodes"),
     [rt:stop(Node) || Node <- Nodes],
     pass.

@@ -18,9 +18,12 @@
 %%
 %% -------------------------------------------------------------------
 -module(bucket_props_roundtrip).
--behaviour(riak_test).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"pbc_props_verify">>).
 -define(COMMIT_HOOK, {struct, [{<<"mod">>, <<"foo">>}, {<<"fun">>, <<"bar">>}]}).
@@ -54,7 +57,7 @@
 
 confirm() ->
     [Node] = Nodes = rt:build_cluster(1),
-    ?assertEqual(ok, rt:wait_until_nodes_ready(Nodes)),
+    ok = rt:wait_until_nodes_ready(Nodes),
 
     [ check_prop_set_and_get(Node, Prop, FirstVal, SecondVal) ||
         {Prop, FirstVal, SecondVal} <- ?PROPS ],
@@ -62,17 +65,17 @@ confirm() ->
     pass.
 
 check_prop_set_and_get(Node, Prop, One, Two) ->
-    lager:info("-------- Testing roundtrip for property '~p' ---------", [Prop]),
+    ?LOG_INFO("-------- Testing roundtrip for property '~0p' ---------", [Prop]),
     HTTP = rt:httpc(Node),
     PBC = rt:pbc(Node),
-    lager:info("HTTP set = ~p", [One]),
+    ?LOG_INFO("HTTP set = ~0p", [One]),
     http_set_property(HTTP, Prop, One),
-    lager:info("PBC get should == ~p", [One]),
+    ?LOG_INFO("PBC get should == ~0p", [One]),
     ?assertEqual(One, pbc_get_property(PBC, Prop)),
 
-    lager:info("PBC set = ~p", [Two]),
+    ?LOG_INFO("PBC set = ~0p", [Two]),
     pbc_set_property(PBC, Prop, Two),
-    lager:info("HTTP get should = ~p", [Two]),
+    ?LOG_INFO("HTTP get should = ~0p", [Two]),
     ?assertEqual(Two, http_get_property(HTTP, Prop)),
     ok.
 

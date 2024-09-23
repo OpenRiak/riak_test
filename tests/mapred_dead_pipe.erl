@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,12 +25,21 @@
 %% testing.
 -module(mapred_dead_pipe).
 -behavior(riak_test).
+
 -export([
-         %% riak_test api
-         confirm/0
-        ]).
--compile([export_all, nowarn_export_all]). %% because we call ?MODULE:Testname
--include_lib("eunit/include/eunit.hrl").
+    %% riak_test api
+    confirm/0,
+
+    %% run on Riak node
+    fake_builder/1,
+
+    %% called via ?MODULE:TestName
+    asynchronous/1,
+    synchronous/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("rt_pipe.hrl").
 
 -define(INTS_BUCKET, <<"foonum">>).
@@ -50,7 +59,7 @@ confirm() ->
     rt:load_modules_on_nodes([?MODULE], Nodes),
 
     [ begin
-          lager:info("Running test ~p", [T]),
+          ?LOG_INFO("Running test ~0p", [T]),
           ?MODULE:T(Nodes)
       end
       || T<- [synchronous,

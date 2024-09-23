@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,11 +18,13 @@
 %%
 %% -------------------------------------------------------------------
 %%
-
 -module(replication2_connections).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(HB_TIMEOUT,  2000).
 
@@ -33,7 +35,7 @@ confirm() ->
     pass.
 
 simple_test() ->
-    lager:info("Running simple_test()~n"),
+    ?LOG_INFO("Running simple_test()~n"),
     Conf = [{riak_repl,
              [
               %% turn off fullsync
@@ -52,57 +54,57 @@ simple_test() ->
     rt:wait_for_cluster_service(ANodes, riak_repl),
     rt:wait_for_cluster_service(BNodes, riak_repl),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Waiting for leader to converge on cluster A"),
+    ?LOG_INFO("Waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
     AFirst = hd(ANodes),
 
-    lager:info("Waiting for leader to converge on cluster B"),
+    ?LOG_INFO("Waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
     BFirst = hd(BNodes),
 
-    lager:info("Naming A"),
+    ?LOG_INFO("Naming A"),
     repl_util:name_cluster(AFirst, "A"),
     ?assertEqual(ok, rt:wait_until_ring_converged(ANodes)),
 
-    lager:info("Naming B"),
+    ?LOG_INFO("Naming B"),
     repl_util:name_cluster(BFirst, "B"),
     ?assertEqual(ok, rt:wait_until_ring_converged(BNodes)),
 
-    lager:info("Connecting A to B"),
+    ?LOG_INFO("Connecting A to B"),
     connect_clusters(AFirst, BFirst),
 
-    lager:info("Enabling realtime replication from A to B."),
+    ?LOG_INFO("Enabling realtime replication from A to B."),
     repl_util:enable_realtime(AFirst, "B"),
     ?assertEqual(ok, rt:wait_until_ring_converged(ANodes)),
     repl_util:start_realtime(AFirst, "B"),
     ?assertEqual(ok, rt:wait_until_ring_converged(ANodes)),
 
-    lager:info("Connecting B to A"),
+    ?LOG_INFO("Connecting B to A"),
     connect_clusters(BFirst, AFirst),
 
-    lager:info("Enabling realtime replication from B to A."),
+    ?LOG_INFO("Enabling realtime replication from B to A."),
     repl_util:enable_realtime(BFirst, "A"),
     ?assertEqual(ok, rt:wait_until_ring_converged(BNodes)),
     repl_util:start_realtime(BFirst, "A"),
     ?assertEqual(ok, rt:wait_until_ring_converged(BNodes)),
 
-    lager:info("Verifying connectivity between clusters."),
+    ?LOG_INFO("Verifying connectivity between clusters."),
     [verify_connectivity(Node, "B") || Node <- ANodes],
     [verify_connectivity(Node, "A") || Node <- BNodes],
 
-    lager:info("Cleaning cluster A"),
+    ?LOG_INFO("Cleaning cluster A"),
     rt:clean_cluster(ANodes),
-    lager:info("Cleaning cluster B"),
+    ?LOG_INFO("Cleaning cluster B"),
     rt:clean_cluster(BNodes),
-    lager:info("Test passed"),
+    ?LOG_INFO("Test passed"),
 
     pass.
 
 disconnect_test() ->
-    lager:info("Running disconnect_test()~n"),
+    ?LOG_INFO("Running disconnect_test()~n"),
     Conf = [{riak_repl,
              [
               %% turn off fullsync
@@ -118,45 +120,45 @@ disconnect_test() ->
 
     [ANodes, BNodes] = rt:build_clusters([3, 3]),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Waiting for leader to converge on cluster A"),
+    ?LOG_INFO("Waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
     AFirst = hd(ANodes),
 
-    lager:info("Waiting for leader to converge on cluster B"),
+    ?LOG_INFO("Waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
     BFirst = hd(BNodes),
 
-    lager:info("Naming A"),
+    ?LOG_INFO("Naming A"),
     repl_util:name_cluster(AFirst, "A"),
     ?assertEqual(ok, rt:wait_until_ring_converged(ANodes)),
 
-    lager:info("Naming B"),
+    ?LOG_INFO("Naming B"),
     repl_util:name_cluster(BFirst, "B"),
     ?assertEqual(ok, rt:wait_until_ring_converged(BNodes)),
 
-    lager:info("Connecting A to B"),
+    ?LOG_INFO("Connecting A to B"),
     connect_clusters(AFirst, BFirst),
 
-    lager:info("Connecting B to A"),
+    ?LOG_INFO("Connecting B to A"),
     connect_clusters(BFirst, AFirst),
 
-    lager:info("Verifying connectivity between clusters."),
+    ?LOG_INFO("Verifying connectivity between clusters."),
     [verify_connectivity(Node, "B") || Node <- ANodes],
     [verify_connectivity(Node, "A") || Node <- BNodes],
 
-    lager:info("Disconnect A to B"),
+    ?LOG_INFO("Disconnect A to B"),
     repl_util:disconnect_cluster(AFirst, "B"),
 
-    lager:info("Verifying disconnect from A to B."),
+    ?LOG_INFO("Verifying disconnect from A to B."),
     [verify_disconnect(Node, "B") || Node <- ANodes],
 
-    lager:info("Disconnect B to A"),
+    ?LOG_INFO("Disconnect B to A"),
     repl_util:disconnect_cluster(BFirst, "A"),
 
-    lager:info("Verifying disconnect from B to A."),
+    ?LOG_INFO("Verifying disconnect from B to A."),
     [verify_disconnect(Node, "A") || Node <- BNodes],
 
     rt:clean_cluster(ANodes),
@@ -165,10 +167,10 @@ disconnect_test() ->
     pass.
 
 error_cleanup_test() ->
-    lager:info("Running error_cleanup_test()~n"),
+    ?LOG_INFO("Running error_cleanup_test()~n"),
     NumNodes = rt_config:get(num_nodes, 6),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Conf = [{riak_repl,
              [
               %% turn off fullsync
@@ -186,54 +188,54 @@ error_cleanup_test() ->
 
     [ANodes, BNodes] = rt:build_clusters([3, 3]),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Waiting for leader to converge on cluster A"),
+    ?LOG_INFO("Waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
     AFirst = hd(ANodes),
 
-    lager:info("Waiting for leader to converge on cluster B"),
+    ?LOG_INFO("Waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
     BFirst = hd(BNodes),
 
-    lager:info("Naming A"),
+    ?LOG_INFO("Naming A"),
     repl_util:name_cluster(AFirst, "A"),
     ?assertEqual(ok, rt:wait_until_ring_converged(ANodes)),
 
-    lager:info("Naming B"),
+    ?LOG_INFO("Naming B"),
     repl_util:name_cluster(BFirst, "B"),
     ?assertEqual(ok, rt:wait_until_ring_converged(BNodes)),
 
     % Insert intercept to cause some errors on connect
-    lager:info("Adding intercept to cause econnrefused errors"),
+    ?LOG_INFO("Adding intercept to cause econnrefused errors"),
     Intercept = {riak_core_connection,[{{sync_connect, 2}, return_econnrefused}]},
     [ok = rt_intercept:add(Target, Intercept) || Target <- ANodes],
 
-    lager:info("Connecting A to B"),
+    ?LOG_INFO("Connecting A to B"),
     connect_clusters(AFirst, BFirst),
 
-    lager:info("Wait until errors in connection_manager status"),
+    ?LOG_INFO("Wait until errors in connection_manager status"),
     ?assertEqual(ok, repl_util:wait_until_connection_errors(repl_util:get_leader(AFirst), BFirst)),
 
-    lager:info("Disconnect A from B via IP/PORT"),
+    ?LOG_INFO("Disconnect A from B via IP/PORT"),
     ?assertEqual(ok, rpc:call(AFirst, riak_repl_console, disconnect,[["127.0.0.1","10046"]])),
 
-    lager:info("Wait until connections clear"),
+    ?LOG_INFO("Wait until connections clear"),
     ?assertEqual(ok, repl_util:wait_until_connections_clear(repl_util:get_leader(AFirst))),
 
-    lager:info("Verify disconnect from A to B"),
+    ?LOG_INFO("Verify disconnect from A to B"),
     [verify_full_disconnect(Node) || Node <- ANodes],
 
     % Insert intercept to allow connections to occur
-    lager:info("Adding intercept to allow connections"),
+    ?LOG_INFO("Adding intercept to allow connections"),
     Intercept2 = {riak_core_connection,[{{sync_connect, 2}, sync_connect}]},
     [ok = rt_intercept:add(Target, Intercept2) || Target <- ANodes],
 
-    lager:info("Connecting A to B"),
+    ?LOG_INFO("Connecting A to B"),
     connect_clusters(AFirst, BFirst),
 
-    lager:info("Verifying connection from A to B"),
+    ?LOG_INFO("Verifying connection from A to B"),
     [verify_connectivity(Node, "B") || Node <- ANodes],
 
     rt:clean_cluster(ANodes),
@@ -275,15 +277,15 @@ print_repl_ring(Node) ->
                         riak_repl_ring,
                         get_clusters,
                         [Ring]),
-    lager:info("REPL ring shows clusters as: ~p", [Clusters]).
+    ?LOG_INFO("REPL ring shows clusters as: ~0p", [Clusters]).
 
 %% @doc Restart a given process by name.
 restart_process(Node, Name) ->
-    lager:info("Restarting ~p on ~p.", [Name, Node]),
+    ?LOG_INFO("Restarting ~0p on ~0p.", [Name, Node]),
 
     %% Find the process.
     Pid0 = rpc:call(Node, erlang, whereis, [Name]),
-    lager:info("Found ~p on node ~p at ~p, killing.",
+    ?LOG_INFO("Found ~0p on node ~0p at ~0p, killing.",
                [Name, Node, Pid0]),
 
     %% Kill it.
@@ -291,12 +293,12 @@ restart_process(Node, Name) ->
 
     %% Verify it restarts.
     rt:wait_until(Node, fun(_) ->
-                lager:info("Waiting for ~p to restart...", [Name]),
+                ?LOG_INFO("Waiting for ~0p to restart...", [Name]),
                 Pid = rpc:call(Node, erlang, whereis, [Name]),
                 Pid =/= Pid0 andalso Pid =/= undefined
         end),
 
-    lager:info("Process restarted.").
+    ?LOG_INFO("Process restarted.").
 
 %% @doc Connect two clusters for replication using their respective
 %%      leader nodes.

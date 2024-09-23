@@ -25,12 +25,14 @@
 -behavior(riak_test).
 -export([confirm/0]).
 
+-include_lib("kernel/include/logger.hrl").
+
 -define(NODE_COUNT, 3).
 
 confirm() ->
-    lager:info("Build ~b node cluster", [?NODE_COUNT]),
+    ?LOG_INFO("Build ~b node cluster", [?NODE_COUNT]),
     Nodes = rt:build_cluster(?NODE_COUNT),
-    
+
     MRVProps = [{node, hd(Nodes)},
                 %% don't need 'path' because riak_test does that for us
                 {keycount, 1000},
@@ -38,8 +40,8 @@ confirm() ->
                 {populate, true},
                 {runjobs, true},
                 {testdef, filename:join("./_build/default/lib/mapred_verify/priv", "tests.def")}],
-    
-    lager:info("Run mapred_verify"),
+
+    ?LOG_INFO("Run mapred_verify"),
     0 = mapred_verify:do_verification(MRVProps),
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.

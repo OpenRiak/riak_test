@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%      +-----+
 %%      | n12 |
@@ -37,7 +38,8 @@
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(bucket, <<"objects">>).
 
@@ -47,7 +49,7 @@ confirm() ->
 
     case rt_config:config_or_os_env(run_rt_cascading_1_3_tests, false) of
         false ->
-            lager:info("mixed_version_clusters_test_ not configured to run!");
+            ?LOG_INFO("mixed_version_clusters_test_ not configured to run!");
         _ ->
             State = mixed_version_clusters_setup(),
             _ = mixed_version_clusters_tests(State)
@@ -99,7 +101,7 @@ mixed_version_clusters_tests(Nodes) ->
             riakc_pb_socket:stop(Client),
             ?assertEqual({error, notfound}, rt_cascading:maybe_eventually_exists([N5, N6], ?bucket, Bin)),
             ?assertEqual(Bin, rt_cascading:maybe_eventually_exists([N3, N4], ?bucket, Bin))
-                                    end},
+        end},
 
         {"no cascading at first 2", fun() ->
             Client = rt:pbc(N2),
@@ -109,7 +111,7 @@ mixed_version_clusters_tests(Nodes) ->
             riakc_pb_socket:stop(Client),
             ?assertEqual({error, notfound}, rt_cascading:maybe_eventually_exists([N5, N6], ?bucket, Bin)),
             ?assertEqual(Bin, rt_cascading:maybe_eventually_exists([N3, N4], ?bucket, Bin))
-                                    end},
+        end},
 
         {"mixed source can send (setup)", fun() ->
             rt:upgrade(N1, current),
@@ -128,7 +130,7 @@ mixed_version_clusters_tests(Nodes) ->
                     true ->
                         false
                 end
-                      end,
+            end,
             ?assertEqual(ok, rt:wait_until(N1, Running)),
             % give the node further time to settle
             StatsNotEmpty = fun(Node) ->
@@ -138,9 +140,9 @@ mixed_version_clusters_tests(Nodes) ->
                     Stats ->
                         is_list(Stats)
                 end
-                            end,
+            end,
             ?assertEqual(ok, rt:wait_until(N1, StatsNotEmpty))
-                                          end},
+        end},
 
         {"node1 put", fun() ->
             Client = rt:pbc(N1),
@@ -150,7 +152,7 @@ mixed_version_clusters_tests(Nodes) ->
             riakc_pb_socket:stop(Client),
             ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(N3, ?bucket, Bin, rt_cascading:timeout(100))),
             ?assertEqual({error, notfound}, rt_cascading:maybe_eventually_exists(N5, ?bucket, Bin, 100000))
-                      end},
+        end},
 
         {"node2 put", fun() ->
             Client = rt:pbc(N2),
@@ -160,7 +162,7 @@ mixed_version_clusters_tests(Nodes) ->
             riakc_pb_socket:stop(Client),
             ?assertEqual({error, notfound}, rt_cascading:maybe_eventually_exists(N5, ?bucket, Bin)),
             ?assertEqual(Bin, rt_cascading:maybe_eventually_exists([N3,N4], ?bucket, Bin))
-                      end},
+        end},
 
         {"upgrade the world, cascade starts working", fun() ->
             [N1 | NotUpgraded] = Nodes,
@@ -175,7 +177,7 @@ mixed_version_clusters_tests(Nodes) ->
                     _ ->
                         fail
                 end
-                           end,
+            end,
             [rt:wait_until(N, ClusterMgrUp) || N <- Nodes],
             rt_cascading:maybe_reconnect_rt(N1, rt_cascading:get_cluster_mgr_port(N3), "n34"),
             rt_cascading:maybe_reconnect_rt(N3, rt_cascading:get_cluster_mgr_port(N5), "n56"),
@@ -189,10 +191,9 @@ mixed_version_clusters_tests(Nodes) ->
                   end,
             ExistsEverywhere = fun(Key, LookupOrder) ->
                 Reses = [rt_cascading:maybe_eventually_exists(Node, ?bucket, Key) || Node <- LookupOrder],
-                ?debugFmt("Node and it's res:~n~p", [lists:zip(LookupOrder,
-                    Reses)]),
+                ?LOG_DEBUG("Node and it's res:~n~p", [lists:zip(LookupOrder, Reses)]),
                 lists:all(fun(E) -> E =:= Key end, Reses)
-                               end,
+            end,
             MakeTest = fun(Node, N) ->
                 Name = "writing " ++ atom_to_list(Node) ++ "-write-" ++ integer_to_list(N),
                 {NewTail, NewHead} = lists:splitwith(fun(E) ->
@@ -200,29 +201,29 @@ mixed_version_clusters_tests(Nodes) ->
                                                      end, Nodes),
                 ExistsLookup = NewHead ++ NewTail,
                 Test = fun() ->
-                    ?debugFmt("Running test ~p", [Name]),
+                    ?LOG_DEBUG("Running test ~0p", [Name]),
                     Client = rt:pbc(Node),
                     Key = <<(ToB(Node))/binary, "-write-", (ToB(N))/binary>>,
                     Obj = riakc_obj:new(?bucket, Key, Key),
                     riakc_pb_socket:put(Client, Obj, [{w, 2}]),
                     riakc_pb_socket:stop(Client),
                     ?assert(ExistsEverywhere(Key, ExistsLookup))
-                       end,
+                end,
                 {Name, Test}
-                       end,
+            end,
             NodeTests = [MakeTest(Node, N) || Node <- Nodes, N <- lists:seq(1, 3)],
             lists:foreach(fun({Name, Eval}) ->
-                lager:info("===== mixed version cluster: upgrade world: ~s =====", [Name]),
+                ?LOG_INFO("===== mixed version cluster: upgrade world: ~s =====", [Name]),
                 Eval()
-                          end, NodeTests)
-                                                      end},
+            end, NodeTests)
+        end},
 
         {"check pendings", fun() ->
             rt_cascading:wait_until_pending_count_zero(Nodes)
-                           end}
+        end}
 
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== mixed version cluster: ~p =====", [Name]),
+        ?LOG_INFO("===== mixed version cluster: ~0p =====", [Name]),
         Eval()
-                  end, Tests).
+    end, Tests).

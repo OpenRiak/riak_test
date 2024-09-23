@@ -1,13 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(nextgenrepl_ttaaefs_semiauto).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
@@ -55,15 +74,15 @@ confirm() ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
     rt:join_cluster(ClusterC),
-    
-    lager:info("Waiting for convergence."),
+
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB ++ ClusterC),
-    
-    lager:info("Ready for test."),
+
+    ?LOG_INFO("Ready for test."),
     test_repl_between_clusters(ClusterA, ClusterB, ClusterC,
                                 fun fullsync_check/2,
                                 fun setup_replqueues/1).
@@ -74,7 +93,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC,
                                 SetupReplFun) ->
     nextgenrepl_ttaaefs_manual:test_repl_between_clusters(ClusterA,
                                                             ClusterB,
-                                                            ClusterC, 
+                                                            ClusterC,
                                                             FullSyncFun,
                                                             SetupReplFun).
 
@@ -102,7 +121,7 @@ fullsync_check({SrcNode, SrcIP, SrcPort, SrcNVal},
     ok = rpc:call(SrcNode, ModRef, set_allsync, [SrcNVal, SinkNVal]),
     AAEResult = rpc:call(SrcNode, riak_client, ttaaefs_fullsync, [all_check, 60]),
 
-    lager:info("Sleeping to await queue drain."),
+    ?LOG_INFO("Sleeping to await queue drain."),
     timer:sleep(2000),
 
     ok = rpc:call(SinkNode, riak_kv_replrtq_snk,

@@ -1,21 +1,44 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
+%% Copyright (c) 2023 Workday, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% Test cluster version migration with BNW replication as "new" version
 -module(replication2_upgrade).
 -behavior(riak_test).
--export([confirm/0, remove_jmx_from_conf/1]).
--include_lib("eunit/include/eunit.hrl").
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     TestMetaData = riak_test_runner:metadata(),
     FromVersion = proplists:get_value(upgrade_version, TestMetaData, previous),
 
-    lager:info("Doing rolling replication upgrade test from ~p to ~p",
+    ?LOG_INFO("Doing rolling replication upgrade test from ~0p to ~0p",
         [FromVersion, "current"]),
 
     NumNodes = rt_config:get(num_nodes, 6),
 
-    UpgradeOrder = rt_config:get(repl_upgrade_order, "forwards"),
+    UpgradeOrder = rt_config:get(repl_upgrade_order, "chunk"),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Conf = [
             {riak_kv,
                 [
@@ -30,89 +53,87 @@ confirm() ->
              ]}
     ],
 
-    NodeConfig = [{FromVersion, Conf} || _ <- lists:seq(1, NumNodes)],
+    NodeConfig = lists:duplicate(NumNodes, {FromVersion, Conf}),
 
     Nodes = rt:deploy_nodes(NodeConfig, [riak_kv, riak_repl]),
 
+    ClusterASize = rt_config:get(cluster_a_size, (NumNodes div 2)),
+    {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
+    [FirstANode | RestANodes] = ANodes,
+    [FirstBNode | RestBNodes] = BNodes,
+
     NodeUpgrades = case UpgradeOrder of
+        "chunk" ->
+            [[FirstBNode], [FirstANode], RestBNodes ++ RestANodes];
         "forwards" ->
-            Nodes;
+            [[Node] || Node <- Nodes];
         "backwards" ->
-            lists:reverse(Nodes);
+            [[Node] || Node <- lists:reverse(Nodes)];
         "alternate" ->
             %% eg 1, 4, 2, 5, 3, 6
-            lists:flatten(lists:foldl(fun(E, [A,B,C]) -> [B, C, A ++ [E]] end,
-                    [[],[],[]], Nodes));
+            [[Node] || Node <- lists:flatten(lists:foldl(fun(E, [A,B,C]) -> [B, C, A ++ [E]] end,
+                    [[],[],[]], Nodes))];
         "random" ->
             %% halfass randomization
-            lists:sort(fun(_, _) -> rand:uniform(100) < 50 end, Nodes);
+            [[Node] || Node <- lists:sort(fun(_, _) -> rand:uniform(100) < 50 end, Nodes)];
         Other ->
-            lager:error("Invalid upgrade ordering ~p", [Other]),
-            erlang:exit()
+            ?LOG_ERROR("Invalid upgrade ordering ~0p", [Other]),
+            erlang:error(case_clause, [Other])
     end,
 
-    ClusterASize = rt_config:get(cluster_a_size, 3),
-    {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
-
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
-    lager:info("Replication First pass...homogenous cluster"),
+    ?LOG_INFO("Replication First pass...homogenous cluster"),
     rt:log_to_nodes(Nodes, "Replication First pass...homogenous cluster"),
 
     %% initial "previous" replication run, homogeneous cluster
     replication2:replication(ANodes, BNodes, false),
 
-    lager:info("Upgrading nodes in order: ~p", [NodeUpgrades]),
-    rt:log_to_nodes(Nodes, "Upgrading nodes in order: ~p", [NodeUpgrades]),
+    ?LOG_INFO("Upgrading nodes in order: ~0p", [NodeUpgrades]),
+    rt:log_to_nodes(Nodes, "Upgrading nodes in order: ~0p", [NodeUpgrades]),
     %% upgrade the nodes, one at a time
-    ok = lists:foreach(fun(Node) ->
-                               lager:info("Upgrade node: ~p", [Node]),
-                               rt:log_to_nodes(Nodes, "Upgrade node: ~p", [Node]),
-                               rt:upgrade(Node, current, fun ?MODULE:remove_jmx_from_conf/1),
-                               %% The upgrade did a wait for pingable
-                               rt:wait_for_service(Node, [riak_kv, riak_pipe, riak_repl]),
-                               [rt:wait_until_ring_converged(N) || N <- [ANodes, BNodes]],
-
-                               %% Prior to 1.4.8 riak_repl registered
-                               %% as a service before completing all
-                               %% initialization including establishing
-                               %% realtime connections.
-                               %%
-                               %% @TODO Ideally the test would only wait
-                               %% for the connection in the case of the
-                               %% node version being < 1.4.8, but currently
-                               %% the rt API does not provide a
-                               %% harness-agnostic method do get the node
-                               %% version. For now the test waits for all
-                               %% source cluster nodes to establish a
-                               %% connection before proceeding.
-                               case lists:member(Node, ANodes) of
-                                   true ->
-                                       repl_util:wait_for_connection(Node, "B");
-                                   false ->
-                                       ok
-                               end,
-                               lager:info("Replication with upgraded node: ~p", [Node]),
-                               rt:log_to_nodes(Nodes, "Replication with upgraded node: ~p", [Node]),
-                               replication2:replication(ANodes, BNodes, true)
-                       end, NodeUpgrades),
+    ok = lists:foreach(
+        fun(UpgradeNodes) ->
+            [upgrade_node(Node, Nodes, ANodes, BNodes)|| Node <- UpgradeNodes],
+            replication2:replication(ANodes, BNodes, true)
+        end,
+        NodeUpgrades
+    ),
     pass.
 
-%% @doc when going from riak_ee to OS riak + repl (>=2.2.5) there are
-%% riak.conf elements that must be removed, as the applications no
-%% longer exist. This is a cfish issue really, see
-%% https://github.com/basho/cuttlefish/issues/176
-remove_jmx_from_conf(Params) ->
-    NewConfPath = proplists:get_value(new_conf_dir, Params),
-    SedCmd = "sed -i.bak '/^jmx/d'",
-    File = filename:join(NewConfPath, "riak.conf"),
-    Cmd = io_lib:format("~s ~s", [SedCmd, File]),
-    lager:info("Removing jmx with cmd ~p", [Cmd]),
-    Res = os:cmd(Cmd),
-    lager:info("jmx cmd res = ~p", [Res]).
+%% @private
+upgrade_node(Node, Nodes, ANodes, BNodes) ->
+    ?LOG_INFO("Upgrade node: ~0p", [Node]),
+    rt:log_to_nodes(Nodes, "Upgrade node: ~0p", [Node]),
+    rt:upgrade(Node, current),
+    %% The upgrade did a wait for pingable
+    rt:wait_for_service(Node, [riak_kv, riak_pipe, riak_repl]),
+    [rt:wait_until_ring_converged(N) || N <- [ANodes, BNodes]],
+
+    %% Prior to 1.4.8 riak_repl registered
+    %% as a service before completing all
+    %% initialization including establishing
+    %% realtime connections.
+    %%
+    %% @TODO Ideally the test would only wait
+    %% for the connection in the case of the
+    %% node version being < 1.4.8, but currently
+    %% the rt API does not provide a
+    %% harness-agnostic method do get the node
+    %% version. For now the test waits for all
+    %% source cluster nodes to establish a
+    %% connection before proceeding.
+    case lists:member(Node, ANodes) of
+        true ->
+            repl_util:wait_for_connection(Node, "B");
+        false ->
+            ok
+    end,
+    ?LOG_INFO("Replication with upgraded node: ~0p", [Node]),
+    rt:log_to_nodes(Nodes, "Replication with upgraded node: ~0p", [Node]).

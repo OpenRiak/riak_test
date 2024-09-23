@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %% +-----------+    +--------+    +-----+
 %% | beginning | -> | middle | -> | end |
@@ -24,9 +25,10 @@
 -module(rt_cascading_simple).
 -behavior(riak_test).
 
--include_lib("eunit/include/eunit.hrl").
-
 -export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -record(simple_state, {
     beginning :: node(),
@@ -113,6 +115,6 @@ simple_tests(State) ->
                            end}
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== simple: ~s =====", [Name]),
+        ?LOG_INFO("===== simple: ~s =====", [Name]),
         Eval()
                   end, Tests).

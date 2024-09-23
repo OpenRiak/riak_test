@@ -17,10 +17,12 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_start_without_aae).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 confirm() ->
 
@@ -28,7 +30,7 @@ confirm() ->
     NVal = 5,
 
     Config = ensemble_util:fast_config(NVal, false),
-    lager:info("Building cluster with consensus enabled and AAE disabled. Waiting for ensemble to stablize ..."),
+    ?LOG_INFO("Building cluster with consensus enabled and AAE disabled. Waiting for ensemble to stablize ..."),
 
     _ = ensemble_util:build_cluster_without_quorum(NumNodes, Config),
     pass.

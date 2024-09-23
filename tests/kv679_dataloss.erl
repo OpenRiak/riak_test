@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 Basho Technologies, Inc.
+%% Copyright (c) 2014-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -31,13 +31,13 @@
 %%% replicas drop write as clock is dominated
 %%% read repair removes value. Data loss.
 %%% @end
-
 -module(kv679_dataloss).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
--export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-export([confirm/0, delete_datadir/1]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"kv679">>).
 -define(KEY, <<"test">>).
@@ -63,11 +63,11 @@ confirm() ->
 
     {ok, Bod} =  write_key(Client, <<"bob">>, [return_body]),
 
-    lager:info("wrote value <<bob>>"),
+    ?LOG_INFO("wrote value <<bob>>"),
 
     VCE0 = riakc_obj:vclock(Bod),
     VC0 = rpc:call(Node, riak_object, decode_vclock, [VCE0]),
-    lager:info("VC ~p~n", [VC0]),
+    ?LOG_INFO("VC ~0p", [VC0]),
 
 
     %% delete the local data for Key
@@ -77,10 +77,10 @@ confirm() ->
 
     VCE1 = riakc_obj:vclock(Bod2),
     VC1 = rpc:call(Node, riak_object, decode_vclock, [VCE1]),
-    lager:info("VC ~p~n", [VC1]),
+    ?LOG_INFO("VC ~0p", [VC1]),
 
 
-    lager:info("wrote value <<jon>>"),
+    ?LOG_INFO("wrote value <<jon>>"),
 
     %% At this point, two puts with empty contexts should be siblings
     %% due to the data loss at the coordinator we lose the second
@@ -93,7 +93,7 @@ confirm() ->
 
     VCE = riakc_obj:vclock(O),
     VC = rpc:call(Node, riak_object, decode_vclock, [VCE]),
-    lager:info("VC ~p~n", [VC]),
+    ?LOG_INFO("VC ~0p", [VC]),
 
     ?assertEqual([<<"bob">>, <<"jon">>, <<"phil">>], lists:sort(riakc_obj:get_values(O))),
 
@@ -106,28 +106,19 @@ write_object(Client, Object, Opts) ->
     riakc_pb_socket:put(Client, Object, Opts).
 
 delete_datadir({{Idx, Node}, Type}) ->
-    lager:info("deleting backend data dir for ~p ~p on ~p",
-               [Idx, Node, Type]),
+    ?LOG_INFO("deleting backend data dir for ~0p ~0p on ~0p", [Idx, Node, Type]),
     %% Get default backend
     Backend = rpc:call(Node, app_helper, get_env, [riak_kv, storage_backend]),
 
     %% get name from mod
     BackendName = backend_name_from_mod(Backend),
-    %% get data root for type
-    DataRoot = rpc:call(Node, app_helper, get_env, [BackendName, data_root]),
-    %% get datadir from Idx
-    Path = filename:join([rtdev:relpath(current),
-                          "dev",
-                          "dev"++ integer_to_list(rtdev:node_id(Node)),
-                          "riak",
-                          DataRoot,
-                          integer_to_list(Idx)]),
-    lager:info("Path ~p~n", [Path]),
 
-    %% stop node
+    %% Data subdirectory
+    DataSubDir = filename:join(BackendName, erlang:integer_to_list(Idx)),
+
+    %% stop, clean, restart node
     rt:stop_and_wait(Node),
-
-    del_dir(Path),
+    rt:clean_data_dir([Node], DataSubDir),
     rt:start_and_wait(Node),
     rt:wait_for_service(Node, riak_kv).
 
@@ -137,26 +128,3 @@ backend_name_from_mod(riak_kv_eleveldb_backend) ->
     eleveldb;
 backend_name_from_mod(riak_kv_leveled_backend) ->
     leveled.
-
-del_dir(Dir) ->
-   lists:foreach(fun(D) ->
-                    ok = file:del_dir(D)
-                 end, del_all_files([Dir], [])).
-
-del_all_files([], EmptyDirs) ->
-   EmptyDirs;
-del_all_files([Dir | T], EmptyDirs) ->
-   {ok, FilesInDir} = file:list_dir(Dir),
-   {Files, Dirs} = lists:foldl(fun(F, {Fs, Ds}) ->
-                                  Path = Dir ++ "/" ++ F,
-                                  case filelib:is_dir(Path) of
-                                     true ->
-                                          {Fs, [Path | Ds]};
-                                     false ->
-                                          {[Path | Fs], Ds}
-                                  end
-                               end, {[],[]}, FilesInDir),
-   lists:foreach(fun(F) ->
-                         ok = file:delete(F)
-                 end, Files),
-   del_all_files(T ++ Dirs, [Dir | EmptyDirs]).

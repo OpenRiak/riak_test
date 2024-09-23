@@ -17,24 +17,28 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_vnode_crash).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
 -compile({parse_transform, rt_intercept_pt}).
+
+-include_lib("kernel/include/logger.hrl").
+
 -define(M, riak_kv_ensemble_backend_orig).
 
 confirm() ->
     NumNodes = 6,
     NVal = 5,
     Config = ensemble_util:fast_config(NVal),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     Nodes = ensemble_util:build_cluster(NumNodes, Config, NVal),
     vnode_util:load(Nodes),
     Node = hd(Nodes),
     ensemble_util:wait_until_stable(Node, NVal),
 
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -48,7 +52,7 @@ confirm() ->
 
     PBC = rt:pbc(Node),
 
-    lager:info("Writing ~p consistent keys", [1000]),
+    ?LOG_INFO("Writing ~b consistent keys", [1000]),
     WriteFun =
         fun(Key) ->
             ok =
@@ -56,19 +60,19 @@ confirm() ->
                     ok ->
                         ok;
                     E ->
-                        lager:info("Error ~w with Key ~p", [E, Key]),
+                        ?LOG_INFO("Error ~w with Key ~0p", [E, Key]),
                         E
                 end
         end,
     lists:foreach(WriteFun, Keys),
 
-    lager:info("Read keys to verify they exist"),
+    ?LOG_INFO("Read keys to verify they exist"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
 
     %% Setting up intercept to ensure that
     %% riak_kv_ensemble_backend:handle_down/4 gets called when a vnode or vnode
     %% proxy crashes for a given key
-    lager:info("Adding Intercept for riak_kv_ensemble_backend:handle_down/4"),
+    ?LOG_INFO("Adding Intercept for riak_kv_ensemble_backend:handle_down/4"),
     Self = self(),
     rt_intercept:add(Key1Node, {riak_kv_ensemble_backend, [{{handle_down, 4},
         {[Self],
@@ -80,33 +84,33 @@ confirm() ->
     {ok, VnodePid} =
         rpc:call(Key1Node, riak_core_vnode_manager, get_vnode_pid,
                     [Key1Idx, riak_kv_vnode]),
-    
-    lager:info("Killing Vnode ~p for Key1 {~p, ~p}",
+
+    ?LOG_INFO("Killing Vnode ~0p for Key1 {~0p, ~0p}",
                 [VnodePid, Key1Node, Key1Idx]),
     spawn(fun() -> kill_vnode(Key1Node, VnodePid) end),
 
-    lager:info("Waiting to receive msg indicating downed vnode"),
+    ?LOG_INFO("Waiting to receive msg indicating downed vnode"),
     NVal = wait_for_all_handle_downs(0),
 
-    lager:info("Wait for stable ensembles"),
+    ?LOG_INFO("Wait for stable ensembles"),
     ensemble_util:wait_until_stable(Node, NVal),
-    lager:info("Re-reading keys"),
+    ?LOG_INFO("Re-reading keys"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
 
-    lager:info("Killing Vnode Proxy for Key1"),
+    ?LOG_INFO("Killing Vnode Proxy for Key1"),
     Proxy = rpc:call(Key1Node, riak_core_vnode_proxy, reg_name, [riak_kv_vnode,
             Key1Idx]),
     ProxyPid = rpc:call(Key1Node, erlang, whereis, [Proxy]),
-    
-    lager:info("Killing Vnode Proxy ~p", [Proxy]),
+
+    ?LOG_INFO("Killing Vnode Proxy ~0p", [Proxy]),
     spawn(fun() -> kill_vnode(Key1Node, ProxyPid) end),
 
-    lager:info("Waiting to receive msg indicating downed vnode proxy:"),
+    ?LOG_INFO("Waiting to receive msg indicating downed vnode proxy:"),
     NVal = wait_for_all_handle_downs(0),
 
-    lager:info("Wait for stable ensembles"),
+    ?LOG_INFO("Wait for stable ensembles"),
     ensemble_util:wait_until_stable(Node, NVal),
-    lager:info("Re-reading keys"),
+    ?LOG_INFO("Re-reading keys"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
 
     pass.
@@ -123,5 +127,5 @@ wait_for_all_handle_downs(Count) ->
 kill_vnode(Key1Node, Pid) ->
     %% Make sure that monitor started
     timer:sleep(1000),
-    lager:info("Actual kill happening"),
+    ?LOG_INFO("Actual kill happening"),
     true = rpc:call(Key1Node, erlang, exit, [Pid, testkill]).

@@ -22,7 +22,9 @@
 -behavior(riak_test).
 -export([confirm/0]).
 -export([read_from_cluster/6]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
@@ -101,14 +103,14 @@ confirm() ->
             {3, ?CONFIG(?A_RING, ?A_NVAL, keep)},
             {3, ?CONFIG(?B_RING, ?B_NVAL, keep)}]),
 
-    lager:info("***************************************************"),
-    lager:info("Test run using PB protocol on a healthy cluster"),
-    lager:info("***************************************************"),
+    ?LOG_INFO("***************************************************"),
+    ?LOG_INFO("Test run using PB protocol on a healthy cluster"),
+    ?LOG_INFO("***************************************************"),
     pass = test_repl_reap(pb, [ClusterA, ClusterB]),
 
-    lager:info("***************************************************"),
-    lager:info("Test run using PB protocol with node failure"),
-    lager:info("***************************************************"),
+    ?LOG_INFO("***************************************************"),
+    ?LOG_INFO("Test run using PB protocol with node failure"),
+    ?LOG_INFO("***************************************************"),
     pass = test_repl_reap_with_node_down(ClusterA, ClusterB),
 
     rt:clean_cluster(ClusterA),
@@ -119,9 +121,9 @@ confirm() ->
             {3, ?CONFIG(?A_RING, ?A_NVAL, keep)},
             {3, ?CONFIG(?B_RING, ?B_NVAL, keep)}]),
 
-    lager:info("***************************************************"),
-    lager:info("Test run using HTTP protocol on a healthy cluster"),
-    lager:info("***************************************************"),
+    ?LOG_INFO("***************************************************"),
+    ?LOG_INFO("Test run using HTTP protocol on a healthy cluster"),
+    ?LOG_INFO("***************************************************"),
     pass = test_repl_reap(http, [ClusterA, ClusterB]),
     
     pass.
@@ -155,7 +157,7 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
     
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     lists:foreach(
@@ -165,27 +167,27 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
     
     {Protocol, {NodeA1ip, NodeA1port}} =
         lists:keyfind(Protocol, 1, rt:connection_info(NodeA1)),
-    lager:info("Following deletes, and waiting for delay - A and B equal"),
+    ?LOG_INFO("Following deletes, and waiting for delay - A and B equal"),
     root_compare(
         Protocol,
         {NodeB1, ?B_NVAL, cluster_a},
         {NodeA1ip, NodeA1port, ?A_NVAL}),
 
-    lager:info("Confirm key count of tombs in both clusters"),
+    ?LOG_INFO("Confirm key count of tombs in both clusters"),
     {ok, TCA1} = find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count),
     {ok, TCB1} = find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count),
     ?assertEqual(?KEY_COUNT, TCA1),
     ?assertEqual(?KEY_COUNT, TCB1),
 
     reap_from_cluster(NodeA1, local, ?TEST_BUCKET),
-    lager:info("Confirm all keys reaped from both clusters"),
+    ?LOG_INFO("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count)
         end),
-    lager:info("All reaped from Cluster A"),
-    lager:info("Now would expect ClusterB to quickly be in sync"),
-    lager:info("So waiting only 5 seconds"),
+    ?LOG_INFO("All reaped from Cluster A"),
+    ?LOG_INFO("Now would expect ClusterB to quickly be in sync"),
+    ?LOG_INFO("So waiting only 5 seconds"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count)
@@ -194,10 +196,10 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
         1000
     ),
 
-    lager:info("Setup bucket type for test on both Clusters"),
+    ?LOG_INFO("Setup bucket type for test on both Clusters"),
     Type = <<"mytype">>,
     TypeProps = [{n_val, 1}],
-    lager:info("Create bucket type ~p, wait for propagation", [Type]),
+    ?LOG_INFO("Create bucket type ~p, wait for propagation", [Type]),
     rt:create_and_activate_bucket_type(NodeA1, Type, TypeProps),
     rt:wait_until_bucket_type_status(Type, active, ClusterA),
     rt:wait_until_bucket_props(ClusterA, {Type, <<"bucket">>}, TypeProps),
@@ -205,10 +207,10 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
     rt:wait_until_bucket_type_status(Type, active, ClusterB),
     rt:wait_until_bucket_props(ClusterB, {Type, <<"bucket">>}, TypeProps),
 
-    lager:info("Load keys into typed bucket"),
+    ?LOG_INFO("Load keys into typed bucket"),
     write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, {Type, ?TEST_BUCKET}),
 
-    lager:info("Confirm key count of tombs in both clusters"),
+    ?LOG_INFO("Confirm key count of tombs in both clusters"),
     {ok, TCA2} =
         find_tombs(NodeA1, {Type, ?TEST_BUCKET}, all, all, return_count),
     {ok, TCB2} =
@@ -217,16 +219,16 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
     ?assertEqual(?KEY_COUNT, TCB2),
 
     reap_from_cluster(NodeA1, local, {Type, ?TEST_BUCKET}),
-    lager:info("Confirm all keys reaped from both clusters"),
+    ?LOG_INFO("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() ->
             {ok, 0} ==
                 find_tombs(
                     NodeA1, {Type, ?TEST_BUCKET}, all, all, return_count)
         end),
-    lager:info("All reaped from Cluster A"),
-    lager:info("Now would expect ClusterB to quickly be in sync"),
-    lager:info("So waiting only 5 seconds"),
+    ?LOG_INFO("All reaped from Cluster A"),
+    ?LOG_INFO("Now would expect ClusterB to quickly be in sync"),
+    ?LOG_INFO("So waiting only 5 seconds"),
     rt:wait_until(
         fun() ->
             {ok, 0} ==
@@ -237,7 +239,7 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
         1000
     ),
 
-    lager:info(
+    ?LOG_INFO(
         "Confirm reaps are not looping around - all reaper queues empty"),
     ReapQueueFun =
         fun(N) ->
@@ -246,7 +248,7 @@ test_repl_reap(Protocol, [ClusterA, ClusterB]) ->
                     mqueue_lengths,
                     1,
                     rpc:call(N, riak_kv_reaper, reap_stats, [])),
-            lager:info("Reap queue lengths ~w on ~w", [MQLs, N]),
+            ?LOG_INFO("Reap queue lengths ~w on ~w", [MQLs, N]),
             QS = lists:sum(lists:map(fun({_P, L}) -> L end, MQLs)),
             ?assert(QS == 0)
         end,
@@ -260,33 +262,33 @@ test_repl_reap_with_node_down(ClusterA, ClusterB) ->
     [NodeA1, NodeA2, _NodeA3] = ClusterA,
     [NodeB1, NodeB2, _NodeB3] = ClusterB,
 
-    lager:info("Test again - but with failure in A"),
+    ?LOG_INFO("Test again - but with failure in A"),
     write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, ?TEST_BUCKET),
-    lager:info("Confirm key count of tombs in both clusters"),
+    ?LOG_INFO("Confirm key count of tombs in both clusters"),
     {ok, TCA1} = find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count),
     {ok, TCB1} = find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count),
     ?assertEqual(?KEY_COUNT, TCA1),
     ?assertEqual(?KEY_COUNT, TCB1),
 
-    lager:info("Stopping node 2 in A"),
+    ?LOG_INFO("Stopping node 2 in A"),
     rt:stop_and_wait(NodeA2),
 
-    lager:info("Fold to trigger reap of all tombs - whilst node down"),
+    ?LOG_INFO("Fold to trigger reap of all tombs - whilst node down"),
     reap_from_cluster(NodeA1, local, ?TEST_BUCKET),
 
     rt:start_and_wait(NodeA2),
     lists:foreach(fun rt:wait_until_node_handoffs_complete/1, ClusterA),
-    lager:info("Node 2 restarted"),
+    ?LOG_INFO("Node 2 restarted"),
 
 
-    lager:info("Confirm all keys reaped from both clusters"),
+    ?LOG_INFO("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count)
         end),
-    lager:info("All reaped from Cluster A"),
-    lager:info("Now would expect ClusterB to quickly be in sync"),
-    lager:info("So waiting only 5 seconds"),
+    ?LOG_INFO("All reaped from Cluster A"),
+    ?LOG_INFO("Now would expect ClusterB to quickly be in sync"),
+    ?LOG_INFO("So waiting only 5 seconds"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count)
@@ -295,31 +297,31 @@ test_repl_reap_with_node_down(ClusterA, ClusterB) ->
         1000
     ),
 
-    lager:info("Test again - but with failure in B"),
+    ?LOG_INFO("Test again - but with failure in B"),
     write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, ?TEST_BUCKET),
-    lager:info("Confirm key count of tombs in both clusters"),
+    ?LOG_INFO("Confirm key count of tombs in both clusters"),
     {ok, TCA1} = find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count),
     {ok, TCB1} = find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count),
     ?assertEqual(?KEY_COUNT, TCA1),
     ?assertEqual(?KEY_COUNT, TCB1),
 
-    lager:info("Stopping node 2 in B"),
+    ?LOG_INFO("Stopping node 2 in B"),
     rt:stop_and_wait(NodeB2),
 
-    lager:info("Fold to trigger reap of all tombs - whilst node down"),
+    ?LOG_INFO("Fold to trigger reap of all tombs - whilst node down"),
     reap_from_cluster(NodeA1, local, ?TEST_BUCKET),
 
     rt:start_and_wait(NodeB2),
     lists:foreach(fun rt:wait_until_node_handoffs_complete/1, ClusterB),
-    lager:info("Node 2 restarted"),
+    ?LOG_INFO("Node 2 restarted"),
 
-    lager:info("Confirm all keys reaped from both clusters"),
+    ?LOG_INFO("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count)
         end),
-    lager:info("All reaped from Cluster A"),
-    lager:info("Now would expect ClusterB to be eventually in sync"),
+    ?LOG_INFO("All reaped from Cluster A"),
+    ?LOG_INFO("Now would expect ClusterB to be eventually in sync"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count)
@@ -343,8 +345,7 @@ to_key(N) ->
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Bucket, Start, End, CommonValBin) -> 
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -353,11 +354,8 @@ write_to_cluster(Node, Bucket, Start, End, CommonValBin) ->
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
                         riak_object:new(
-                            Bucket, to_key(N), <<N:32/integer, CVB/binary>>);
-                    UpdateBin ->
-                        UPDV = <<N:32/integer, UpdateBin/binary>>,
-                        {ok, PrevObj} = riak_client:get(Bucket, to_key(N), C),
-                        riak_object:update_value(PrevObj, UPDV)
+                            Bucket, to_key(N), <<N:32/integer, CVB/binary>>
+                        )
                 end,
             try riak_client:put(Obj, C) of
                 ok ->
@@ -370,12 +368,11 @@ write_to_cluster(Node, Bucket, Start, End, CommonValBin) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~p errors while writing: ~p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 delete_from_cluster(Node, Bucket, Start, End) ->
-    lager:info("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -391,12 +388,12 @@ delete_from_cluster(Node, Bucket, Start, End) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while deleting: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~p errors while deleting: ~p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 
 reap_from_cluster(Node, local, Bucket) ->
-    lager:info("Auto-reaping found tombs from node ~p", [Node]),
+    ?LOG_INFO("Auto-reaping found tombs from node ~p", [Node]),
     {ok, C} = riak:client_connect(Node),
     Query = {reap_tombs, Bucket, all, all, all, local},
     {ok, Count} = riak_client:aae_fold(Query, C),
@@ -404,7 +401,7 @@ reap_from_cluster(Node, local, Bucket) ->
     
 
 read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
+    ?LOG_INFO("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -416,7 +413,7 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
                         [ExpectedVal] ->
                             Acc;
                         Siblings when length(Siblings) > 1 ->
-                            lager:info(
+                            ?LOG_INFO(
                                 "Siblings for Key ~s:~n ~w", [Key, Obj]),
                             [{wrong_value, Key, siblings}|Acc];
                         [UnexpectedVal] ->
@@ -429,7 +426,7 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
     ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
     case Errors of
         undefined ->
-            lager:info("Errors Found in read_from_cluster ~w",
+            ?LOG_INFO("Errors Found in read_from_cluster ~w",
                         [length(ErrorsFound)]),
             length(ErrorsFound);
         _ ->
@@ -438,11 +435,9 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
 
 
 find_tombs(Node, Bucket, KR, MR, ResultType) ->
-    lager:info("Finding tombstones from node ~p.", [Node]),
+    ?LOG_INFO("Finding tombstones from node ~p.", [Node]),
     {ok, C} = riak:client_connect(Node),
     case ResultType of
-        return_keys ->
-            riak_client:aae_fold({find_tombs, Bucket, KR, all, MR}, C);
         return_count ->
             riak_client:aae_fold({reap_tombs, Bucket, KR, all, MR, count}, C)
     end.
@@ -458,16 +453,16 @@ wait_for_outcome(Module, Func, Args, ExpOutcome, LoopCount, MaxLoops) ->
         ExpOutcome ->
             ExpOutcome;
         NotRightYet ->
-            lager:info("~w not yet ~w ~w", [Func, ExpOutcome, NotRightYet]),
+            ?LOG_INFO("~w not yet ~w ~w", [Func, ExpOutcome, NotRightYet]),
             timer:sleep(LoopCount * 2000),
             wait_for_outcome(Module, Func, Args, ExpOutcome,
                                 LoopCount + 1, MaxLoops)
     end.
 
 write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, Bucket) ->
-    lager:info("Write ~w objects into A and read from B", [?KEY_COUNT]),
+    ?LOG_INFO("Write ~w objects into A and read from B", [?KEY_COUNT]),
     write_to_cluster(NodeA1, Bucket, 1, ?KEY_COUNT, new_obj),
-    lager:info("Waiting to read sample"),
+    ?LOG_INFO("Waiting to read sample"),
     0 = 
         wait_for_outcome(?MODULE,
                             read_from_cluster,
@@ -475,7 +470,7 @@ write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, Bucket) ->
                                 ?COMMMON_VAL_INIT, undefined],
                             0,
                             ?LOOP_COUNT),
-    lager:info("Waiting to read all"),
+    ?LOG_INFO("Waiting to read all"),
     0 = 
         wait_for_outcome(?MODULE,
                             read_from_cluster,
@@ -484,9 +479,9 @@ write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, Bucket) ->
                             0,
                             ?LOOP_COUNT),
     
-    lager:info("Deleting ~w objects from B and read not_found from A", [?KEY_COUNT]),
+    ?LOG_INFO("Deleting ~w objects from B and read not_found from A", [?KEY_COUNT]),
     delete_from_cluster(NodeB2, Bucket, 1, ?KEY_COUNT),
-    lager:info("Waiting for missing sample"),
+    ?LOG_INFO("Waiting for missing sample"),
     32 =
         wait_for_outcome(?MODULE,
                         read_from_cluster,
@@ -494,7 +489,7 @@ write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, Bucket) ->
                             ?COMMMON_VAL_INIT, undefined],
                         32,
                         ?LOOP_COUNT),
-    lager:info("Waiting for all missing"),
+    ?LOG_INFO("Waiting for all missing"),
     ?KEY_COUNT =
         wait_for_outcome(?MODULE,
                         read_from_cluster,
@@ -502,7 +497,7 @@ write_then_delete(NodeA1, NodeA2, NodeB1, NodeB2, Bucket) ->
                             ?COMMMON_VAL_INIT, undefined],
                         ?KEY_COUNT,
                         ?LOOP_COUNT),
-    lager:info("Write and delete cycle confirmed").
+    ?LOG_INFO("Write and delete cycle confirmed").
 
 
 root_compare(
@@ -525,7 +520,7 @@ root_compare(
                 %% but amending this cannot stop an intermittent issue
                 %% Workaround for the purpose of this test is to permit
                 %% a small discrepancy in this case
-                lager:warning(
+                ?LOG_WARNING(
                     "Immediate delete issue - ~w not cleared ~w",
                     [N, Outcome]),
                 timer:sleep(2 * ?DELETE_WAIT),

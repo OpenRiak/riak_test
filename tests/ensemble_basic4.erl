@@ -17,21 +17,23 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_basic4).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 confirm() ->
     NumNodes = 6,
     NVal = 5,
     Quorum = NVal div 2 + 1,
     Config = ensemble_util:fast_config(NVal, 32),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     Nodes = ensemble_util:build_cluster(NumNodes, Config, NVal),
     Node = hd(Nodes),
 
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -50,18 +52,18 @@ confirm() ->
 
     PBC = rt:pbc(Node),
 
-    lager:info("Partitioning quorum minority: ~p", [Partitioned]),
+    ?LOG_INFO("Partitioning quorum minority: ~0p", [Partitioned]),
     Part = rt:partition(Nodes -- Partitioned, Partitioned),
     rpc:multicall(Nodes, riak_kv_entropy_manager, set_mode, [manual]),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Writing ~p consistent keys", [1000]),
+    ?LOG_INFO("Writing ~b consistent keys", [1000]),
     [ok = rt:pbc_write(PBC, Bucket, Key, Key) || Key <- Keys],
 
-    lager:info("Read keys to verify they exist"),
+    ?LOG_INFO("Read keys to verify they exist"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
 
-    lager:info("Healing partition"),
+    ?LOG_INFO("Healing partition"),
     rt:heal(Part),
 
     pass.

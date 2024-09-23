@@ -1,13 +1,29 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2015 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
 %%
 %% -------------------------------------------------------------------
 -module(repl_bucket_types).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(ENSURE_READ_ITERATIONS, 5).
 -define(ENSURE_READ_INTERVAL, 1000).
@@ -83,14 +99,14 @@ realtime_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     {DefinedType, UndefType} = BucketTypes,
 
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling realtime between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling realtime between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_rt(LeaderA, ANodes),
 
     Bin = <<"data data data">>,
     Key = <<"key">>,
     Bucket = <<"kicked">>,
     DefaultObj = riakc_obj:new(Bucket, Key, Bin),
-    lager:info("doing untyped put on A, bucket:~p", [Bucket]),
+    ?LOG_INFO("doing untyped put on A, bucket:~0p", [Bucket]),
     riakc_pb_socket:put(PBA, DefaultObj, [{w,3}]),
 
     UntypedWait = make_pbget_fun(PBB, Bucket, Key, Bin),
@@ -100,7 +116,7 @@ realtime_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     KeyTyped = <<"keytyped">>,
     ObjTyped = riakc_obj:new(BucketTyped, KeyTyped, Bin),
 
-    lager:info("doing typed put on A, bucket:~p", [BucketTyped]),
+    ?LOG_INFO("doing typed put on A, bucket:~0p", [BucketTyped]),
     riakc_pb_socket:put(PBA, ObjTyped, [{w,3}]),
 
     TypedWait = make_pbget_fun(PBB, BucketTyped, KeyTyped, Bin),
@@ -111,11 +127,11 @@ realtime_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     UndefObjTyped = riakc_obj:new(UndefBucketTyped, UndefKeyTyped, Bin),
     UndefObjTyped2 = riakc_obj:new(UndefBucketTyped, UndefKeyTyped, <<"data1">>),
 
-    lager:info("doing typed put on A where type is not defined on B, bucket:~p", [UndefBucketTyped]),
+    ?LOG_INFO("doing typed put on A where type is not defined on B, bucket:~0p", [UndefBucketTyped]),
     riakc_pb_socket:put(PBA, UndefObjTyped, [{w,3}]),
     riakc_pb_socket:put(PBA, UndefObjTyped2, [{w,3}]),
 
-    lager:info("waiting for undefined type pb get on B, should get error <<\"no_type\">>"),
+    ?LOG_INFO("waiting for undefined type pb get on B, should get error <<\"no_type\">>"),
 
     ErrorResult = riakc_pb_socket:get(PBB, UndefBucketTyped, UndefKeyTyped),
     ?assertEqual({error, <<"no_type">>}, ErrorResult),
@@ -134,11 +150,11 @@ realtime_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
 
     UnequalObjBin = <<"unequal props val">>,
     UnequalPropsObj = riakc_obj:new(BucketTyped, KeyTyped, UnequalObjBin),
-    lager:info("doing put of typed bucket on A where bucket properties "
+    ?LOG_INFO("doing put of typed bucket on A where bucket properties "
                "(n_val 3 versus n_val 1) are not equal on B"),
     riakc_pb_socket:put(PBA, UnequalPropsObj, [{w,3}]),
 
-    lager:info("checking to ensure the bucket contents were not updated."),
+    ?LOG_INFO("checking to ensure the bucket contents were not updated."),
     ensure_bucket_not_updated(PBB, BucketTyped, KeyTyped, Bin),
     disable_rt(LeaderA, ANodes),
 
@@ -155,14 +171,14 @@ realtime_mixed_version_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     {DefinedType, _UndefType} = BucketTypes,
 
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling realtime between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling realtime between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_rt(LeaderA, ANodes),
 
     Bin = <<"data data data">>,
     Key = <<"key">>,
     Bucket = <<"kicked">>,
     DefaultObj = riakc_obj:new(Bucket, Key, Bin),
-    lager:info("doing untyped put on A, bucket:~p", [Bucket]),
+    ?LOG_INFO("doing untyped put on A, bucket:~0p", [Bucket]),
     riakc_pb_socket:put(PBA, DefaultObj, [{w,3}]),
 
     %% make sure we rt replicate a "default" type bucket
@@ -173,10 +189,10 @@ realtime_mixed_version_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     KeyTyped = <<"keytyped">>,
     ObjTyped = riakc_obj:new(DowngradedBucketTyped, KeyTyped, Bin),
 
-    lager:info("doing typed put on A with downgraded B, bucket:~p", [DowngradedBucketTyped]),
+    ?LOG_INFO("doing typed put on A with downgraded B, bucket:~0p", [DowngradedBucketTyped]),
     riakc_pb_socket:put(PBA, ObjTyped, [{w,3}]),
 
-    lager:info("checking to ensure the bucket contents were not sent to previous version B."),
+    ?LOG_INFO("checking to ensure the bucket contents were not sent to previous version B."),
     ensure_bucket_not_sent(PBB, DowngradedBucketTyped, KeyTyped).
 
 fullsync_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
@@ -184,29 +200,29 @@ fullsync_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     {DefinedType, UndefType} = BucketTypes,
 
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling fullsync between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling fullsync between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_fullsync(LeaderA, ANodes),
 
     Bin = <<"data data data">>,
     Key = <<"key">>,
     Bucket = <<"fullsync-kicked">>,
     DefaultObj = riakc_obj:new(Bucket, Key, Bin),
-    lager:info("doing untyped put on A, bucket:~p", [Bucket]),
+    ?LOG_INFO("doing untyped put on A, bucket:~0p", [Bucket]),
     riakc_pb_socket:put(PBA, DefaultObj, [{w,3}]),
 
     BucketTyped = {DefinedType, <<"fullsync-typekicked">>},
     KeyTyped = <<"keytyped">>,
     ObjTyped = riakc_obj:new(BucketTyped, KeyTyped, Bin),
 
-    lager:info("doing typed put on A, bucket:~p", [BucketTyped]),
+    ?LOG_INFO("doing typed put on A, bucket:~0p", [BucketTyped]),
     riakc_pb_socket:put(PBA, ObjTyped, [{w,3}]),
 
     UndefBucketTyped = {UndefType, <<"fullsync-badtype">>},
     UndefKeyTyped = <<"badkeytyped">>,
     UndefObjTyped = riakc_obj:new(UndefBucketTyped, UndefKeyTyped, Bin),
 
-    lager:info("doing typed put on A where type is not "
-               "defined on B, bucket:~p",
+    ?LOG_INFO("doing typed put on A where type is not "
+               "defined on B, bucket:~0p",
                [UndefBucketTyped]),
 
     riakc_pb_socket:put(PBA, UndefObjTyped, [{w,3}]),
@@ -215,7 +231,7 @@ fullsync_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
                               start_and_wait_until_fullsync_complete,
                               [LeaderA]),
 
-    lager:info("Fullsync completed in ~p seconds", [SyncTime1/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [SyncTime1/1000/1000]),
 
     ReadResult1 =  riakc_pb_socket:get(PBB, Bucket, Key),
     ReadResult2 =  riakc_pb_socket:get(PBB, BucketTyped, KeyTyped),
@@ -243,16 +259,16 @@ fullsync_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
 
     UnequalObjBin = <<"unequal props val">>,
     UnequalPropsObj = riakc_obj:new(BucketTyped, KeyTyped, UnequalObjBin),
-    lager:info("doing put of typed bucket on A where bucket properties (n_val 3 versus n_val 1) are not equal on B"),
+    ?LOG_INFO("doing put of typed bucket on A where bucket properties (n_val 3 versus n_val 1) are not equal on B"),
     riakc_pb_socket:put(PBA, UnequalPropsObj, [{w,3}]),
 
     {SyncTime2, _} = timer:tc(repl_util,
                               start_and_wait_until_fullsync_complete,
                               [LeaderA]),
 
-    lager:info("Fullsync completed in ~p seconds", [SyncTime2/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [SyncTime2/1000/1000]),
 
-    lager:info("checking to ensure the bucket contents were not updated."),
+    ?LOG_INFO("checking to ensure the bucket contents were not updated."),
     ensure_bucket_not_updated(PBB, BucketTyped, KeyTyped, Bin).
 
 fullsync_mixed_version_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
@@ -260,14 +276,14 @@ fullsync_mixed_version_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     {DefinedType, _UndefType} = BucketTypes,
 
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling fullsync between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling fullsync between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_fullsync(LeaderA, ANodes),
 
     Bin = <<"good data">>,
     Key = <<"key">>,
     Bucket = <<"fullsync-kicked">>,
     DefaultObj = riakc_obj:new(Bucket, Key, Bin),
-    lager:info("doing untyped put on A, bucket:~p", [Bucket]),
+    ?LOG_INFO("doing untyped put on A, bucket:~0p", [Bucket]),
     riakc_pb_socket:put(PBA, DefaultObj, [{w,3}]),
 
     BucketTyped = {DefinedType, Bucket},
@@ -275,14 +291,14 @@ fullsync_mixed_version_test({ClusterNodes, BucketTypes, PBA, PBB}) ->
     BadBin = <<"overwritten">>,
     ObjTyped = riakc_obj:new(BucketTyped, KeyTyped, BadBin),
 
-    lager:info("doing typed put on A, bucket:~p", [BucketTyped]),
+    ?LOG_INFO("doing typed put on A, bucket:~0p", [BucketTyped]),
     riakc_pb_socket:put(PBA, ObjTyped, [{w,3}]),
 
     {SyncTime1, _} = timer:tc(repl_util,
                               start_and_wait_until_fullsync_complete,
                               [LeaderA]),
 
-    lager:info("Fullsync completed in ~p seconds", [SyncTime1/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [SyncTime1/1000/1000]),
 
     ReadResult1 = riakc_pb_socket:get(PBB, Bucket, Key),
     ?assertMatch({ok, _}, ReadResult1),
@@ -318,17 +334,17 @@ enable_fullsync(LeaderA, ANodes) ->
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes).
 
-%% @doc Connect two clusters using a given name.
-connect_cluster(Source, Port, Name) ->
-    lager:info("Connecting ~p to ~p for cluster ~p.",
-               [Source, Port, Name]),
-    repl_util:connect_cluster(Source, "127.0.0.1", Port),
-    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
+%% @ doc Connect two clusters using a given name.
+%%connect_cluster(Source, Port, Name) ->
+%%    ?LOG_INFO("Connecting ~0p to ~0p for cluster ~0p.",
+%%               [Source, Port, Name]),
+%%    repl_util:connect_cluster(Source, "127.0.0.1", Port),
+%%    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
 
 %% @doc Connect two clusters for replication using their respective leader nodes.
 connect_clusters(LeaderA, LeaderB) ->
     Port = repl_util:get_port(LeaderB),
-    lager:info("connect cluster A:~p to B on port ~p", [LeaderA, Port]),
+    ?LOG_INFO("connect cluster A:~0p to B on port ~0p", [LeaderA, Port]),
     repl_util:connect_cluster(LeaderA, "127.0.0.1", Port),
     ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, "B")).
 
@@ -358,16 +374,16 @@ make_clusters(Type) ->
     NumNodes = rt_config:get(num_nodes, 2),
     ClusterASize = rt_config:get(cluster_a_size, 1),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Nodes = deploy_nodes(NumNodes, Type),
     {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
     AFirst = hd(ANodes),
@@ -377,26 +393,26 @@ make_clusters(Type) ->
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
     %% get the leader for the first cluster
-    lager:info("waiting for leader to converge on cluster A"),
+    ?LOG_INFO("waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
 
     %% get the leader for the second cluster
-    lager:info("waiting for leader to converge on cluster B"),
+    ?LOG_INFO("waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
 
     ALeader = repl_util:get_leader(hd(ANodes)),
     BLeader = repl_util:get_leader(hd(BNodes)),
 
-    lager:info("ALeader: ~p BLeader: ~p", [ALeader, BLeader]),
+    ?LOG_INFO("ALeader: ~0p BLeader: ~0p", [ALeader, BLeader]),
     {ALeader, BLeader, ANodes, BNodes}.
 
 make_pbget_fun(Pid, Bucket, Key, Bin) ->
@@ -421,7 +437,7 @@ ensure_bucket_not_updated(Pid, Bucket, Key, Bin) ->
 value_unchanged(Pid, Bucket, Key, Bin) ->
     case riakc_pb_socket:get(Pid, Bucket, Key) of
         {error, E} ->
-            lager:info("Got error:~p from get on cluster B", [E]),
+            ?LOG_INFO("Got error:~0p from get on cluster B", [E]),
             false;
         {ok, Res} ->
             ?assertEqual(Bin, riakc_obj:get_value(Res)),
@@ -437,12 +453,12 @@ assert_bucket_not_found(Pid, Bucket, Key) ->
         {error, <<"no_type">>} ->
             true;
         {ok, Res} ->
-            lager:error("Found bucket:~p and key:~p on sink when we should not have", [Res, Key]),
+            ?LOG_ERROR("Found bucket:~0p and key:~0p on sink when we should not have", [Res, Key]),
             false
     end.
 
 update_props(Type, Updates, Node, Nodes) ->
-    lager:info("Setting bucket properties ~p for bucket type ~p on node ~p",
+    ?LOG_INFO("Setting bucket properties ~0p for bucket type ~0p on node ~0p",
                [Updates, Type, Node]),
     rpc:call(Node, riak_core_bucket_type, update, [Type, Updates]),
     rt:wait_until_ring_converged(Nodes),
@@ -461,7 +477,7 @@ get_current_bucket_props(Node, Type) when is_atom(Node) ->
              [Type]).
 
 ensure_rtq_drained(ANodes) ->
-    lager:info("making sure the rtq has drained"),
+    ?LOG_INFO("making sure the rtq has drained"),
     Got = lists:map(fun(Node) ->
                     [] =:= rpc:call(Node, riak_repl2_rtq, dumpq, [])
                     end, ANodes),

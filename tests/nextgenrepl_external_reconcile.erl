@@ -1,13 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(nextgenrepl_external_reconcile).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
@@ -47,7 +66,7 @@
 confirm() ->
     [ClusterA1, ClusterB1] = setup_clusters(),
     SLP = test_reconcile_between_clusters(ClusterA1, ClusterB1, pb_seg),
-    
+
     PBids = lists:map(fun({SI, _SH}) -> SI end, SLP),
 
     rt:clean_cluster(ClusterA1),
@@ -61,7 +80,7 @@ confirm() ->
 
     [ClusterA3, ClusterB3] = setup_clusters(),
     [] = test_reconcile_between_clusters(ClusterA3, ClusterB3, pb),
-    
+
     rt:clean_cluster(ClusterA3),
     rt:clean_cluster(ClusterB3),
 
@@ -71,7 +90,7 @@ confirm() ->
     HTids = lists:map(fun({SI, _SH}) -> SI end, SLH),
 
     ?assertEqual(PBids, HTids),
-    
+
     pass.
 
 setup_clusters() ->
@@ -81,17 +100,17 @@ setup_clusters() ->
             {4, ?CONFIG(?B_RING, ?B_NVAL)}]),
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB),
-    
-    lager:info("Ready for test."),
+
+    ?LOG_INFO("Ready for test."),
     [ClusterA, ClusterB].
 
 test_reconcile_between_clusters(ClusterA, ClusterB, QueueFun) ->
-    lager:info("Spoof reconciliation with an external cluster QueueFun=~w",
+    ?LOG_INFO("Spoof reconciliation with an external cluster QueueFun=~w",
                 [QueueFun]),
     {DrainQueueFun, Protocol} =
         case QueueFun of
@@ -108,41 +127,41 @@ test_reconcile_between_clusters(ClusterA, ClusterB, QueueFun) ->
     NodeA = hd(ClusterA),
     NodeB = hd(ClusterB),
 
-    lager:info("Test empty clusters don't show any differences"),
+    ?LOG_INFO("Test empty clusters don't show any differences"),
     {http, {IPA, PortA}} = lists:keyfind(http, 1, rt:connection_info(NodeA)),
     {http, {IPB, PortB}} = lists:keyfind(http, 1, rt:connection_info(NodeB)),
-    lager:info("Cluster A ~s ~w Cluster B ~s ~w", [IPA, PortA, IPB, PortB]),
-    
+    ?LOG_INFO("Cluster A ~s ~w Cluster B ~s ~w", [IPA, PortA, IPB, PortB]),
+
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
-    
+
     nextgenrepl_ttaaefs_manual:write_to_cluster(NodeA, 1, 100),
 
-    lager:info("Discover deltas, and request qeueuing"),
+    ?LOG_INFO("Discover deltas, and request qeueuing"),
 
-    SegList = 
+    SegList =
         fullsync_push({NodeA, IPA, PortA, ?A_NVAL},
                         {NodeB, IPB, PortB, ?B_NVAL},
                         ?TEST_BUCKET,
                         DrainQueueFun,
                         Protocol),
-    
+
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
-    
-    lager:info("Discover deletes, and request qeueuing"),
+
+    ?LOG_INFO("Discover deletes, and request qeueuing"),
 
     nextgenrepl_ttaaefs_manual:delete_from_cluster(NodeA, 1, 50, ?TEST_BUCKET),
 
-    _SegListD = 
+    _SegListD =
         fullsync_push({NodeA, IPA, PortA, ?A_NVAL},
                         {NodeB, IPB, PortB, ?B_NVAL},
                         ?TEST_BUCKET,
                         DrainQueueFun,
                         Protocol),
-    
+
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
@@ -161,22 +180,22 @@ test_reconcile_between_clusters(ClusterA, ClusterB, QueueFun) ->
     CommonValBin = <<"CommonValueToWriteForNV4Objects">>,
     nextgenrepl_ttaaefs_manual:write_to_cluster(NodeA, 1, 100, Nv4B, true, CommonValBin),
 
-    lager:info("Discover deltas, and request qeueuing - typed bucket"),
+    ?LOG_INFO("Discover deltas, and request qeueuing - typed bucket"),
 
-    _TypeSegList = 
+    _TypeSegList =
         fullsync_push({NodeA, IPA, PortA, 4},
                         {NodeB, IPB, PortB, 4},
                         Nv4B,
-                        DrainQueueFun, 
+                        DrainQueueFun,
                         Protocol),
-    
+
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, 4},
                             {NodeB, IPB, PortB, 4}),
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
-       
+
     SegList.
 
 
@@ -190,7 +209,7 @@ fullsync_check({SrcNode, _SrcIP, _SrcPort, SrcNVal},
     AAEResult = rpc:call(SrcNode, riak_client, ttaaefs_fullsync, [all_check, 60]),
     {ok, SnkC} = riak:client_connect(SinkNode),
     {N, []} = drain_queue_http(SrcNode, SnkC),
-    lager:info("Drained queue and pushed ~w objects (check)", [N]),
+    ?LOG_INFO("Drained queue and pushed ~w objects (check)", [N]),
     AAEResult.
 
 
@@ -208,7 +227,7 @@ fullsync_push({SrcNode, _SrcIP, _SrcPort, SrcNVal},
 
     {ok, SnkC} = riak:client_connect(SnkNode),
     {N, SegList} = DrainQueueFun(SrcNode, SnkC),
-    lager:info("Drained queue and pushed ~w objects (push)", [N]),
+    ?LOG_INFO("Drained queue and pushed ~w objects (push)", [N]),
     ExpectedBody = lists:flatten(io_lib:format("Queue q1_ttaaefs: 0 ~w 0", [N])),
     ?assertEqual(ExpectedBody, binary_to_list(Body)),
     SegList.

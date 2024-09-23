@@ -11,11 +11,12 @@
 %%% Created : 28 Feb 2018 by Russell Brown <russell@wombat.me>
 %%%-------------------------------------------------------------------
 -module(repl_aae_bloom).
-
 -behaviour(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(B_TYPE, <<"b_type">>).
 
@@ -70,18 +71,18 @@ fullsync_test({ClusterNodes, PBA, PBB}) ->
     {LeaderA, LeaderB, ANodes, _BNodes} = ClusterNodes,
 
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling fullsync between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling fullsync between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_fullsync(LeaderA, ANodes),
 
     Bucket = <<"fullsync-kicked">>,
 
-    lager:info("doing untyped puts on A, bucket:~p", [Bucket]),
+    ?LOG_INFO("doing untyped puts on A, bucket:~0p", [Bucket]),
 
     write_n(10, Bucket, PBA),
 
     BucketTyped = {?B_TYPE, <<"fullsync-typekicked">>},
 
-    lager:info("doing typed puts on A, bucket:~p", [BucketTyped]),
+    ?LOG_INFO("doing typed puts on A, bucket:~0p", [BucketTyped]),
 
     write_n(10, BucketTyped, PBA),
 
@@ -89,7 +90,7 @@ fullsync_test({ClusterNodes, PBA, PBB}) ->
                               start_and_wait_until_fullsync_complete,
                               [LeaderA]),
 
-    lager:info("Fullsync completed in ~p seconds", [SyncTime1/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [SyncTime1/1000/1000]),
 
     read_verify_n(10, Bucket, PBB),
     read_verify_n(10, BucketTyped, PBB),
@@ -102,17 +103,17 @@ enable_fullsync(LeaderA, ANodes) ->
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes).
 
-%% @doc Connect two clusters using a given name.
-connect_cluster(Source, Port, Name) ->
-    lager:info("Connecting ~p to ~p for cluster ~p.",
-               [Source, Port, Name]),
-    repl_util:connect_cluster(Source, "127.0.0.1", Port),
-    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
+%% @ doc Connect two clusters using a given name.
+%%connect_cluster(Source, Port, Name) ->
+%%    ?LOG_INFO("Connecting ~0p to ~0p for cluster ~0p.",
+%%               [Source, Port, Name]),
+%%    repl_util:connect_cluster(Source, "127.0.0.1", Port),
+%%    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
 
 %% @doc Connect two clusters for replication using their respective leader nodes.
 connect_clusters(LeaderA, LeaderB) ->
     Port = repl_util:get_port(LeaderB),
-    lager:info("connect cluster A:~p to B on port ~p", [LeaderA, Port]),
+    ?LOG_INFO("connect cluster A:~0p to B on port ~0p", [LeaderA, Port]),
     repl_util:connect_cluster(LeaderA, "127.0.0.1", Port),
     ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, "B")).
 
@@ -125,16 +126,16 @@ make_clusters() ->
     NumNodes = rt_config:get(num_nodes, 2),
     ClusterASize = rt_config:get(cluster_a_size, 1),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Nodes = deploy_nodes(NumNodes),
     {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
     AFirst = hd(ANodes),
@@ -144,26 +145,26 @@ make_clusters() ->
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
     %% get the leader for the first cluster
-    lager:info("waiting for leader to converge on cluster A"),
+    ?LOG_INFO("waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
 
     %% get the leader for the second cluster
-    lager:info("waiting for leader to converge on cluster B"),
+    ?LOG_INFO("waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
 
     ALeader = repl_util:get_leader(hd(ANodes)),
     BLeader = repl_util:get_leader(hd(BNodes)),
 
-    lager:info("ALeader: ~p BLeader: ~p", [ALeader, BLeader]),
+    ?LOG_INFO("ALeader: ~0p BLeader: ~0p", [ALeader, BLeader]),
     {ALeader, BLeader, ANodes, BNodes}.
 
 write_n(0, _B, _C) ->

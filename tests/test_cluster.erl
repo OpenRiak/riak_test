@@ -18,9 +18,12 @@
 %%
 %% -------------------------------------------------------------------
 -module(test_cluster).
+-deprecated(module).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     Config = [{riak_search, [{enabled, true}]}],

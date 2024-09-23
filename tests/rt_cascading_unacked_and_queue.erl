@@ -22,7 +22,8 @@
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(POSTCOMMIT_HOOKS, [{postcommit, [{struct, [{<<"mod">>, <<"riak_repl_leader">>},
                                                    {<<"fun">>, <<"postcommit">>}]},
@@ -63,7 +64,7 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
                 Consumers = proplists:get_value(consumers, RTQStatus),
                 Data = proplists:get_value("n456", Consumers),
                 Unacked = proplists:get_value(unacked, Data),
-                ?debugFmt("unacked: ~p", [Unacked]),
+                ?LOG_DEBUG("unacked: ~0p", [Unacked]),
                 0 == Unacked
                                 end),
             ?assertEqual(ok, Res)
@@ -84,7 +85,7 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
                 {Node, rpc:call(Node, riak_repl2_rtq, dumpq, [])}
                              end, Nodes),
             lists:map(fun({Node, Got}) ->
-                ?debugFmt("Checking data from ~p", [Node]),
+                ?LOG_DEBUG("Checking data from ~0p", [Node]),
                 ?assertEqual([], Got)
                       end, Gots)
                                                       end},
@@ -92,12 +93,12 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
         {"dual loads keeps unacked satisfied", fun() ->
             LoadN123Pid = spawn(fun() ->
                 {Time, Val} = timer:tc(fun rt_cascading:write_n_keys/5, [N123Leader, N456Leader, TestBucket, 20001, 30000]),
-                ?debugFmt("loading 123 to 456 took ~p to get ~p", [Time, Val]),
+                ?LOG_DEBUG("loading 123 to 456 took ~0p to get ~0p", [Time, Val]),
                 Val
                                 end),
             LoadN456Pid = spawn(fun() ->
                 {Time, Val} = timer:tc(fun rt_cascading:write_n_keys/5, [N456Leader, N123Leader, TestBucket, 30001, 40000]),
-                ?debugFmt("loading 456 to 123 took ~p to get ~p", [Time, Val]),
+                ?LOG_DEBUG("loading 456 to 123 took ~0p to get ~0p", [Time, Val]),
                 Val
                                 end),
             Exits = rt_cascading:wait_exit([LoadN123Pid, LoadN456Pid], infinity),
@@ -112,7 +113,7 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
 
             N123UnackedRes = rt:wait_until(fun() ->
                 Unacked = StatusDig("n456", N123Leader),
-                ?debugFmt("Unacked: ~p", [Unacked]),
+                ?LOG_DEBUG("Unacked: ~0p", [Unacked]),
                 0 == Unacked
                                            end),
             ?assertEqual(ok, N123UnackedRes),
@@ -123,8 +124,8 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
                     ?assert(true);
                 _ ->
                     N456Unacked2 = StatusDig("n123", N456Leader),
-                    ?debugFmt("Not 0, are they at least decreasing?~n"
-                    "    ~p, ~p", [N456Unacked2, N456Unacked]),
+                    ?LOG_DEBUG("Not 0, are they at least decreasing?~n"
+                    "    ~0p, ~0p", [N456Unacked2, N456Unacked]),
                     ?assert(N456Unacked2 < N456Unacked)
             end
                                                end},
@@ -144,7 +145,7 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
                 {Node, rpc:call(Node, riak_repl2_rtq, dumpq, [])}
                              end, Nodes),
             lists:map(fun({Node, Got}) ->
-                ?debugFmt("Checking data from ~p", [Node]),
+                ?LOG_DEBUG("Checking data from ~0p", [Node]),
                 ?assertEqual([], Got)
                       end, Gots)
                                                                 end},
@@ -156,7 +157,7 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
                 proplists:get_value(pending, ConnTo)
                          end,
             lists:map(fun(Node) ->
-                ?debugFmt("Checking node ~p", [Node]),
+                ?LOG_DEBUG("Checking node ~0p", [Node]),
                 Status = rpc:call(Node, riak_repl_console, status, [quiet]),
                 Sinks = proplists:get_value(sinks, Status),
                 lists:map(fun(SStats) ->
@@ -168,6 +169,6 @@ ensure_unacked_and_queue_tests([{N123Leader, N123}, {N456Leader, N456}], TestBuc
 
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== ensure_unacked_and_queue: ~s =====", [Name]),
+        ?LOG_INFO("===== ensure_unacked_and_queue: ~s =====", [Name]),
         Eval()
                   end, Tests).

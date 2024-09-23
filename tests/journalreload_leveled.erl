@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -17,12 +15,15 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-%% @doc Prove restart from an empty ledger in recalc mode 
+%% @doc Prove restart from an empty ledger in recalc mode
 %%
-
 -module(journalreload_leveled).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
 -define(DEFAULT_RING_SIZE, 8).
@@ -92,10 +93,10 @@ confirm() ->
     pass.
 
 data_load(Nodes, KVBackend) ->
-    
+
     KeyCount = key_count(KVBackend, Nodes),
     NumKeysPerNode = KeyCount div length(Nodes),
-    
+
     KeyLoadFun =
         fun(Value) ->
             fun(Node, AccCount) ->
@@ -106,11 +107,11 @@ data_load(Nodes, KVBackend) ->
                 AccCount + NumKeysPerNode
             end
         end,
-    
+
     DeleteFun =
         fun(Node, AccCount) ->
             PBC = rt:pbc(Node),
-            ok = lists:foreach(fun(N) -> 
+            ok = lists:foreach(fun(N) ->
                                     ok = riakc_pb_socket:delete(PBC,
                                                                 ?BUCKET,
                                                                 to_key(N))
@@ -121,15 +122,15 @@ data_load(Nodes, KVBackend) ->
         end,
 
     lists:foldl(KeyLoadFun(?VAL_FLAG1), 1, Nodes),
-    lager:info("Loaded ~w objects", [KeyCount]),
+    ?LOG_INFO("Loaded ~w objects", [KeyCount]),
     lists:foldl(DeleteFun, 1, Nodes),
-    lager:info("Deleted ~w objects", [KeyCount]),
+    ?LOG_INFO("Deleted ~w objects", [KeyCount]),
     lists:foldl(KeyLoadFun(?VAL_FLAG2), 1, Nodes),
-    lager:info("Reloaded ~w objects", [KeyCount]),
+    ?LOG_INFO("Reloaded ~w objects", [KeyCount]),
     lists:foldl(KeyLoadFun(?VAL_FLAG3), 1, Nodes),
-    lager:info("Reloaded ~w objects", [KeyCount]),
+    ?LOG_INFO("Reloaded ~w objects", [KeyCount]),
     lists:foldl(KeyLoadFun(?VAL_FLAG4), 1, Nodes),
-    lager:info("Reloaded ~w objects", [KeyCount]),
+    ?LOG_INFO("Reloaded ~w objects", [KeyCount]),
 
     check_objects(hd(Nodes), 1, KeyCount, ?VAL_FLAG4).
 
@@ -140,11 +141,11 @@ bad_switchback(leveled, Node) ->
     P = spawn(fun() ->
                     rt:update_app_config(Node, ?CFG(false, immediate))
                 end),
-    lager:info("Prompted config update - sleep then fail ping"),
+    ?LOG_INFO("Prompted config update - sleep then fail ping"),
     timer:sleep(30000),
     C0 = rhc:create(IP, Port, "riak", []),
     {error, _Error} = rhc:ping(C0),
-    lager:info("Ping failed as tried to switch from reload to recalc"),
+    ?LOG_INFO("Ping failed as tried to switch from reload to recalc"),
     exit(P, kill);
 bad_switchback(_, _Node) ->
     true.
@@ -152,7 +153,7 @@ bad_switchback(_, _Node) ->
 
 backend_compact(leveled, Nodes) ->
     prompt_compactions(Nodes),
-    lager:info("Sleep for ~w seconds to wait for compaction",
+    ?LOG_INFO("Sleep for ~w seconds to wait for compaction",
                 [?COMPACTION_WAIT]),
     timer:sleep(?COMPACTION_WAIT * 1000);
 backend_compact(_Backend, _Nodes) ->
@@ -166,34 +167,34 @@ test_by_backend(bitcask, Nodes, _IM) ->
 test_by_backend(eleveldb, Nodes, IndexMultiple) ->
     KeyCount = key_count(eleveldb, Nodes),
     IndexEntries = check_index(hd(Nodes)),
-    lager:info("Number of IndexEntries ~w~n", [IndexEntries]),
+    ?LOG_INFO("Number of IndexEntries ~w", [IndexEntries]),
     true = IndexEntries == IndexMultiple * KeyCount,
     not_supported_test(Nodes);
 test_by_backend(CapableBackend, Nodes, IndexMultiple) ->
 
     KeyCount= key_count(CapableBackend, Nodes),
     IndexEntries = check_index(hd(Nodes)),
-    lager:info("Number of IndexEntries ~w~n", [IndexEntries]),
+    ?LOG_INFO("Number of IndexEntries ~w", [IndexEntries]),
     true = IndexEntries == IndexMultiple * KeyCount,
 
-    lager:info("Clean backup folder if present"),
+    ?LOG_INFO("Clean backup folder if present"),
     rt:clean_data_dir(Nodes, "backup"),
 
     {CoverNumber, RVal} = {?N_VAL, 2},
 
-    lager:info("Testing capable backend ~w", [CapableBackend]),
+    ?LOG_INFO("Testing capable backend ~w", [CapableBackend]),
     {ok, C} = riak:client_connect(hd(Nodes)),
 
-    lager:info("Backup all nodes to succeed"),
+    ?LOG_INFO("Backup all nodes to succeed"),
     {ok, true} =
         riak_client:hotbackup("./data/backup/", ?N_VAL, CoverNumber, C),
-    
-    lager:info("Change some keys"),
+
+    ?LOG_INFO("Change some keys"),
     Changes2 = test_data(1, ?DELTA_COUNT, list_to_binary(?VAL_FLAG5)),
     ok = write_data(hd(Nodes), Changes2),
     check_objects(hd(Nodes), 1, ?DELTA_COUNT, ?VAL_FLAG5),
 
-    lager:info("Stop the primary cluster and start from backup"),
+    ?LOG_INFO("Stop the primary cluster and start from backup"),
     lists:foreach(fun rt:stop_and_wait/1, Nodes),
     rt:clean_data_dir(Nodes, backend_dir()),
     rt:restore_data_dir(Nodes, backend_dir(), "backup/"),
@@ -201,12 +202,12 @@ test_by_backend(CapableBackend, Nodes, IndexMultiple) ->
 
     rt:wait_for_cluster_service(Nodes, riak_kv),
 
-    lager:info("Confirm changed objects are unchanged"),
+    ?LOG_INFO("Confirm changed objects are unchanged"),
     check_objects(hd(Nodes), 1, ?DELTA_COUNT, ?VAL_FLAG4, RVal),
-    lager:info("Confirm last 5K unchanged objects are unchanged"),
+    ?LOG_INFO("Confirm last 5K unchanged objects are unchanged"),
     check_objects(hd(Nodes), 1, KeyCount, ?VAL_FLAG4, RVal),
     IndexEntries = check_index(hd(Nodes)),
-    lager:info("Number of IndexEntries ~w~n", [IndexEntries]),
+    ?LOG_INFO("Number of IndexEntries ~w", [IndexEntries]),
     true = IndexEntries == IndexMultiple * KeyCount,
 
     ok.
@@ -223,7 +224,7 @@ key_count(leveled, Nodes) ->
 
 not_supported_test(Nodes) ->
     {ok, C} = riak:client_connect(hd(Nodes)),
-    lager:info("Backup all nodes to fail"),
+    ?LOG_INFO("Backup all nodes to fail"),
     {ok, false} = riak_client:hotbackup("./data/backup/", ?N_VAL, ?N_VAL, C),
     ok.
 
@@ -267,7 +268,7 @@ check_objects(Node, KCStart, KCEnd, VFlag, RVal) ->
     V = list_to_binary(VFlag),
     PBC = rt:pbc(Node),
     Opts = [{notfound_ok, false}, {r, RVal}],
-    CheckFun = 
+    CheckFun =
         fun(K, Acc) ->
             Key = to_key(K),
             case riakc_pb_socket:get(PBC, ?BUCKET, Key, Opts) of
@@ -276,7 +277,7 @@ check_objects(Node, KCStart, KCEnd, VFlag, RVal) ->
                     ?assertMatch(RetValue, <<Key/binary, V/binary>>),
                     Acc;
                 {error, notfound} ->
-                    lager:error("Search for Key ~w not found", [K]),
+                    ?LOG_ERROR("Search for Key ~w not found", [K]),
                     [K|Acc]
             end
         end,
@@ -287,11 +288,14 @@ check_objects(Node, KCStart, KCEnd, VFlag, RVal) ->
 
 check_index(Node) ->
     PBC = rt:pbc(Node),
-    {ok, Results} = 
-        riakc_pb_socket:get_index_range(PBC,
-                                        ?BUCKET, ?INDEX ++ "_bin",
-                                        integer_to_binary(0),
-                                        integer_to_binary(999999)),
+    {ok, Results} =
+        riakc_pb_socket:get_index_range(
+            PBC,
+            ?BUCKET,
+            {binary_index, ?INDEX},
+            integer_to_binary(0),
+            integer_to_binary(999999)
+        ),
     length(Results?INDEX_RESULTS.keys).
 
 backend_dir() ->

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_basic_upgrade).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(NUM_KEYS, 60000).
 
@@ -86,14 +89,14 @@
     ]).
 
 confirm() ->
-    
+
     TestMetaData = riak_test_runner:metadata(),
     KVBackend = proplists:get_value(backend, TestMetaData),
     OldVsn = proplists:get_value(upgrade_version, TestMetaData, previous),
 
-    lager:info("*****************************"),
-    lager:info("Testing without compression"),
-    lager:info("*****************************"),
+    ?LOG_INFO("*****************************"),
+    ?LOG_INFO("Testing without compression"),
+    ?LOG_INFO("*****************************"),
 
     [NodesPlainText] =
         rt:build_clusters([{4, OldVsn, ?CONFIG_PLAINTEXT(?CONFIG_CORE(8,3))}]),
@@ -105,9 +108,9 @@ confirm() ->
         _ ->
             rt:clean_cluster(NodesPlainText),
 
-            lager:info("*****************************"),
-            lager:info("Testing with native compression"),
-            lager:info("*****************************"),
+            ?LOG_INFO("*****************************"),
+            ?LOG_INFO("Testing with native compression"),
+            ?LOG_INFO("*****************************"),
             [NodesNative] =
                 rt:build_clusters(
                     [{4, OldVsn, ?CONFIG_NATIVE(?CONFIG_CORE(8,3))}]),
@@ -116,9 +119,9 @@ confirm() ->
             
             rt:clean_cluster(NodesNative),
 
-            lager:info("*****************************"),
-            lager:info("Testing with lz4 compression"),
-            lager:info("*****************************"),
+            ?LOG_INFO("*****************************"),
+            ?LOG_INFO("Testing with lz4 compression"),
+            ?LOG_INFO("*****************************"),
             [NodesLZ4] =
                 rt:build_clusters(
                     [{4, OldVsn, ?CONFIG_LZ4(?CONFIG_CORE(8, 3))}]),
@@ -131,7 +134,7 @@ verify_basic_upgrade(Nodes, OldVsn) ->
     [Node1|_] = Nodes,
     V = compressable_value(),
 
-    lager:info("Writing ~w keys to ~p", [?NUM_KEYS, Node1]),
+    ?LOG_INFO("Writing ~w keys to ~p", [?NUM_KEYS, Node1]),
     rt:systest_write(Node1, 1, ?NUM_KEYS, <<"B1">>, 2, V),
     validate_value(Node1, <<"B1">>, 1, ?NUM_KEYS, V, 0.1),
 
@@ -139,7 +142,7 @@ verify_basic_upgrade(Nodes, OldVsn) ->
     
     validate_value(Node1, <<"B1">>, 1, ?NUM_KEYS, V, 1.0),
     
-    lager:info("Writing ~w keys to ~p", [?NUM_KEYS div 4, Node1]),
+    ?LOG_INFO("Writing ~w keys to ~p", [?NUM_KEYS div 4, Node1]),
     rt:systest_write(Node1, 1, ?NUM_KEYS div 4, <<"B2">>, 2, V),
 
     %% Umm.. technically, it'd downgrade
@@ -151,7 +154,7 @@ verify_basic_upgrade(Nodes, OldVsn) ->
     backend_size(Node1).
 
 upgrade(Node, NewVsn) ->
-    lager:info("Upgrading ~p to ~p", [Node, NewVsn]),
+    ?LOG_INFO("Upgrading ~0p to ~0p", [Node, NewVsn]),
     rt:upgrade(Node, NewVsn),
     rt:wait_for_service(Node, riak_kv),
     ok.
@@ -163,7 +166,7 @@ backend_size(Node) ->
         rpc:call(Node, application, get_env, [riak_core, platform_data_dir]),
     BackendDir = filename:join(DataDir, base_dir_for_backend(KVBackend)),
     SzTxt = rpc:call(Node, os, cmd, ["du -sh " ++ BackendDir]),
-    lager:info("Backend size ~s", [SzTxt]),
+    ?LOG_INFO("Backend size ~s", [SzTxt]),
     {match, [SzOnly]} =
         re:run(SzTxt, "(?<SzOnly>[0-9]+)M.*", [{capture, all_names, list}]),
     list_to_integer(SzOnly).
@@ -183,7 +186,7 @@ compressable_value() ->
 
 validate_value(Node, Bucket, StartKey, EndKey, Value, CheckPerc) ->
     KeyCount = (1 + EndKey - StartKey),
-    lager:info(
+    ?LOG_INFO(
         "Verifying ~w keys of ~w from Bucket ~p Node ~p",
         [floor(CheckPerc * KeyCount), KeyCount, Bucket, Node]),
     {ok, C} = riak:client_connect(Node),

@@ -17,10 +17,13 @@
 %% -------------------------------------------------------------------
 %% @doc Verification of AAE fold's find_keys and object stats
 %% operational fold features
-
 -module(verify_aaefold_listbuckets).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -53,16 +56,16 @@
 
 confirm() ->
 
-    lager:info("Testing AAE bucket list - key-ordered parallel store"),
+    ?LOG_INFO("Testing AAE bucket list - key-ordered parallel store"),
     Cko = rt:build_cluster(?NUM_NODES, ?CFG_NOREBUILD(leveled_ko)),
     ok = verify_list_buckets(Cko, ?NUM_KEYS),
 
     rt:clean_cluster(Cko),
 
-    lager:info("Testing AAE bucket list - segment-ordered parallel store"),
-    lager:info("This is a repeat test if backend is leveled"),
+    ?LOG_INFO("Testing AAE bucket list - segment-ordered parallel store"),
+    ?LOG_INFO("This is a repeat test if backend is leveled"),
     Cso = rt:build_cluster(?NUM_NODES, ?CFG_NOREBUILD(leveled_so)),
-    lager:info("Testing with less keys as segment-ordered"),
+    ?LOG_INFO("Testing with less keys as segment-ordered"),
     ok = verify_list_buckets(Cso, ?NUM_KEYS div 10),
 
 
@@ -102,10 +105,10 @@ verify_list_buckets(Nodes, KeyCount) ->
     {TS1, {ok, BL}} =
         timer:tc(ModP, aae_list_buckets, [ClientP, ?DEFAULT_RING_SIZE]),
 
-    lager:info("List bucket queries took ~w ms (nv=1) and ~w ms (nv=8)",
+    ?LOG_INFO("List bucket queries took ~w ms (nv=1) and ~w ms (nv=8)",
                 [TS0/1000, TS1/1000]),
 
-    lager:info("Testing with HTTP client"),
+    ?LOG_INFO("Testing with HTTP client"),
     {ok, BL} = ModH:aae_list_buckets(ClientH),
     {ok, BL} = ModH:aae_list_buckets(ClientH, ?DEFAULT_RING_SIZE),
 

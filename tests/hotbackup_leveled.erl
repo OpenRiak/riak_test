@@ -20,11 +20,14 @@
 %% @doc Run a hot backup and a restore
 %%
 %% Confirm that if the backend is not leveled, then not_supported is
-%% returned as expeceted
-
+%% returned as expected
 -module(hotbackup_leveled).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -58,8 +61,8 @@ confirm() ->
     pass.
 
 hot_backup(Nodes, FullCoverage) ->
-    
-    KeyLoadFun = 
+
+    KeyLoadFun =
         fun(Node, KeyCount) ->
             KVs = test_data(KeyCount,
                                 KeyCount + ?NUM_KEYS_PERNODE,
@@ -70,7 +73,7 @@ hot_backup(Nodes, FullCoverage) ->
 
     KeyCount= ?NUM_KEYS_PERNODE * length(Nodes),
     lists:foldl(KeyLoadFun, 1, Nodes),
-    lager:info("Loaded ~w objects", [KeyCount]),
+    ?LOG_INFO("Loaded ~w objects", [KeyCount]),
 
     check_objects(hd(Nodes), 1, KeyCount, ?VAL_FLAG1),
 
@@ -85,7 +88,7 @@ test_by_backend(bitcask, Nodes, _FC) ->
 test_by_backend(eleveldb, Nodes, _Fc) ->
     not_supported_test(Nodes);
 test_by_backend(CapableBackend, Nodes, FullCoverage) ->
-    lager:info("Clean backup folder if present"),
+    ?LOG_INFO("Clean backup folder if present"),
     rt:clean_data_dir(Nodes, "backup"),
     {CoverNumber, RVal} =
         case FullCoverage of
@@ -94,23 +97,23 @@ test_by_backend(CapableBackend, Nodes, FullCoverage) ->
         end,
 
     KeyCount= ?NUM_KEYS_PERNODE * length(Nodes),
-    lager:info("Testing capable backend ~w", [CapableBackend]),
+    ?LOG_INFO("Testing capable backend ~w", [CapableBackend]),
     {ok, C} = riak:client_connect(hd(Nodes)),
 
-    lager:info("Backup to self to fail"),
+    ?LOG_INFO("Backup to self to fail"),
     {ok, false} =
         riak_client:hotbackup("./data/leveled/", ?N_VAL, CoverNumber, C),
 
-    lager:info("Backup all nodes to succeed"),
+    ?LOG_INFO("Backup all nodes to succeed"),
     {ok, true} =
         riak_client:hotbackup("./data/backup/", ?N_VAL, CoverNumber, C),
-    
-    lager:info("Change some keys"),
+
+    ?LOG_INFO("Change some keys"),
     Changes2 = test_data(1, ?DELTA_COUNT, list_to_binary(?VAL_FLAG2)),
     ok = write_data(hd(Nodes), Changes2),
     check_objects(hd(Nodes), 1, ?DELTA_COUNT, ?VAL_FLAG2),
 
-    lager:info("Stop the primary cluster and start from backup"),
+    ?LOG_INFO("Stop the primary cluster and start from backup"),
     lists:foreach(fun rt:stop_and_wait/1, Nodes),
     rt:clean_data_dir(Nodes, backend_dir()),
     rt:restore_data_dir(Nodes, backend_dir(), "backup/"),
@@ -118,9 +121,9 @@ test_by_backend(CapableBackend, Nodes, FullCoverage) ->
 
     rt:wait_for_cluster_service(Nodes, riak_kv),
 
-    lager:info("Confirm changed objects are unchanged"),
+    ?LOG_INFO("Confirm changed objects are unchanged"),
     check_objects(hd(Nodes), 1, ?DELTA_COUNT, ?VAL_FLAG1, RVal),
-    lager:info("Confirm last 5K unchanged objects are unchanged"),
+    ?LOG_INFO("Confirm last 5K unchanged objects are unchanged"),
     check_objects(hd(Nodes), KeyCount - 5000, KeyCount, ?VAL_FLAG1, RVal),
     ok.
 
@@ -128,7 +131,7 @@ test_by_backend(CapableBackend, Nodes, FullCoverage) ->
 
 not_supported_test(Nodes) ->
     {ok, C} = riak:client_connect(hd(Nodes)),
-    lager:info("Backup all nodes to fail"),
+    ?LOG_INFO("Backup all nodes to fail"),
     {ok, false} = riak_client:hotbackup("./data/backup/", ?N_VAL, ?N_VAL, C),
     ok.
 
@@ -166,7 +169,7 @@ check_objects(Node, KCStart, KCEnd, VFlag, RVal) ->
     V = list_to_binary(VFlag),
     PBC = rt:pbc(Node),
     Opts = [{notfound_ok, false}, {r, RVal}],
-    CheckFun = 
+    CheckFun =
         fun(K, Acc) ->
             Key = to_key(K),
             case riakc_pb_socket:get(PBC, ?BUCKET, Key, Opts) of
@@ -175,7 +178,7 @@ check_objects(Node, KCStart, KCEnd, VFlag, RVal) ->
                     ?assertMatch(RetValue, <<Key/binary, V/binary>>),
                     Acc;
                 {error, notfound} ->
-                    lager:error("Search for Key ~w not found", [K]),
+                    ?LOG_ERROR("Search for Key ~w not found", [K]),
                     [K|Acc]
             end
         end,

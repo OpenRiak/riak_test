@@ -1,16 +1,36 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2012-2015 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(pr_pw).
-
 -behavior(riak_test).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TYPE_ALL, <<"ptype_all">>).
 -define(TYPE_QUORUM, <<"ptype_quorum">>).
 
 confirm() ->
     application:start(inets),
-    lager:info("Deploy some nodes"),
+    ?LOG_INFO("Deploy some nodes"),
     Nodes = rt:build_cluster(4),
 
     %% calculate the preflist for foo/bar
@@ -20,34 +40,34 @@ confirm() ->
         rpc:call(hd(Nodes), riak_core_node_watcher, nodes, [riak_kv]),
     N = 3,
 
-    lager:info("Setting Custom bucket types for pr/pw test"),
+    ?LOG_INFO("Setting Custom bucket types for pr/pw test"),
     TypePropsAll = [{pr, 3}, {pw, 3}, {allow_mult, false}],
-    lager:info("Create bucket type ~p, wait for propagation", [?TYPE_ALL]),
+    ?LOG_INFO("Create bucket type ~0p, wait for propagation", [?TYPE_ALL]),
     rt:create_and_activate_bucket_type(hd(Nodes), ?TYPE_ALL, TypePropsAll),
     rt:wait_until_bucket_type_status(?TYPE_ALL, active, Nodes),
     rt:wait_until_bucket_props(Nodes, {?TYPE_ALL, <<"bucket">>}, TypePropsAll),
     TypePropsQ = [{pr, quorum}, {pw, quorum}, {allow_mult, false}],
-    lager:info("Create bucket type ~p, wait for propagation", [?TYPE_QUORUM]),
+    ?LOG_INFO("Create bucket type ~0p, wait for propagation", [?TYPE_QUORUM]),
     rt:create_and_activate_bucket_type(hd(Nodes), ?TYPE_QUORUM, TypePropsQ),
     rt:wait_until_bucket_type_status(?TYPE_QUORUM, active, Nodes),
     rt:wait_until_bucket_props(Nodes, {?TYPE_QUORUM, <<"bucket">>}, TypePropsQ),
 
-    PreflistFun = 
+    PreflistFun =
         fun(B, K) ->
             H = rpc:call(hd(Nodes), riak_core_util, chash_key, [{B, K}]),
             riak_core_apl:get_apl_ann(H, N, Ring, UpNodes)
         end,
     Preflist2 = PreflistFun(<<"foo">>, <<"bar">>),
 
-    lager:info("Beginning key search"),
+    ?LOG_INFO("Beginning key search"),
     AllKey = find_key(PreflistFun, {?TYPE_ALL, <<"foo">>}, Preflist2),
     QKey = find_key(PreflistFun, {?TYPE_QUORUM, <<"foo">>}, Preflist2),
 
-    lager:info("Preflist is ~p", [Preflist2]),
+    ?LOG_INFO("Preflist is ~0p", [Preflist2]),
     PLNodes = [Node || {{_Index, Node}, _Status} <- Preflist2],
-    lager:info("Nodes in preflist ~p", [PLNodes]),
+    ?LOG_INFO("Nodes in preflist ~0p", [PLNodes]),
     [SafeNode] = Nodes -- PLNodes,
-    lager:info("Node not involved in this preflist ~p", [SafeNode]),
+    ?LOG_INFO("Node not involved in this preflist ~0p", [SafeNode]),
     %% connect to the only node in the preflist we won't break, to avoid
     %% random put forwarding
     {ok, C} = riak:client_connect(hd(PLNodes)),
@@ -71,7 +91,7 @@ confirm() ->
 
     check_typed_bucket_ok(C, ObjTBAll, AllKey, ?TYPE_ALL),
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
-    
+
 
     %% check pr/pw can't be violated
     ?assertEqual({error, {pw_val_violation, evil}},
@@ -94,8 +114,8 @@ confirm() ->
     rt_intercept:add(Node, {riak_kv_vnode,  [{{do_get,4}, drop_do_get},
                                                 {{do_head, 4}, drop_do_head},
                                                 {{do_put, 7}, drop_do_put}]}),
-    lager:info("disabling do_get and do_head for index ~p on ~p", [Index, Node]),
-    rt:log_to_nodes(Nodes, "disabling do_get and do_head for index ~p on ~p", [Index, Node]),
+    ?LOG_INFO("disabling do_get and do_head for index ~0p on ~0p", [Index, Node]),
+    rt:log_to_nodes(Nodes, "disabling do_get and do_head for index ~0p on ~0p", [Index, Node]),
     timer:sleep(100),
 
     %% one vnode will never return, so we get timeouts
@@ -103,7 +123,7 @@ confirm() ->
         riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
     ?assertEqual({error, timeout},
         riak_client:put(Obj, [{pw, all}], C)),
-    
+
     check_typed_bucket_error(C, ObjTBAll, ?TYPE_ALL, AllKey, {error, timeout}),
 
     %% we can still meet quorum, though
@@ -111,7 +131,7 @@ confirm() ->
                     riak_client:put(Obj, [{pw, quorum}], C)),
     ?assertMatch({ok, _},
                     riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
-    
+
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
     rt:stop_and_wait(Node),
@@ -125,7 +145,7 @@ confirm() ->
 
     check_typed_bucket_error(
         C, ObjTBAll, ?TYPE_ALL, AllKey, unsatisfied),
-    
+
     ?assertMatch({ok, {{_, 503, _}, _, "PR-value unsatisfied: 2/3\n"}},
         httpc:request(get, {UrlFun(<<"foo">>, <<"bar">>, <<"?pr=all">>), []}, [], [])),
 
@@ -141,14 +161,14 @@ confirm() ->
     rt_intercept:add(Node2, {riak_kv_vnode,  [{{do_get,4}, drop_do_get},
                                                 {{do_head, 4}, drop_do_head},
                                                 {{do_put, 7}, drop_do_put}]}),
-    lager:info("disabling do_get, do_put and do_head for index ~p on ~p", [Index2, Node2]),
-    rt:log_to_nodes(Nodes, "disabling do_get, do_put and do_head for index ~p on ~p", [Index2, Node2]),
+    ?LOG_INFO("disabling do_get, do_put and do_head for index ~0p on ~0p", [Index2, Node2]),
+    rt:log_to_nodes(Nodes, "disabling do_get, do_put and do_head for index ~0p on ~0p", [Index2, Node2]),
     timer:sleep(100),
 
     %% can't even meet quorum now
     ?assertEqual({error, timeout},
                     riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
-    ?assertEqual({error, timeout}, 
+    ?assertEqual({error, timeout},
                     riak_client:put(Obj, [{pw, quorum}], C)),
 
     check_typed_bucket_error(C, ObjTBQ, ?TYPE_QUORUM, QKey, {error, timeout}),
@@ -162,7 +182,7 @@ confirm() ->
                     riak_client:put(Obj, [{pw, quorum}], C)),
     ?assertMatch({ok, _},
                     riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
-    
+
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
     %% intercepts still in force on second node, so we'll get timeouts
@@ -170,7 +190,7 @@ confirm() ->
                     riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
     ?assertEqual({error, timeout},
                     riak_client:put(Obj, [{pw, all}], C)),
-    
+
     check_typed_bucket_error(C, ObjTBAll, ?TYPE_ALL, AllKey, {error, timeout}),
 
     %% reboot the node
@@ -181,17 +201,17 @@ confirm() ->
     %% everything is happy again
     ?assertEqual(ok,
                     riak_client:put(Obj, [{pw, all}], C)),
-    ?assertMatch({ok, _}, 
+    ?assertMatch({ok, _},
                     riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
-    
+
     check_typed_bucket_ok(C, ObjTBAll, AllKey, ?TYPE_ALL),
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
     %% make a vnode start to fail puts
     make_intercepts_tab(Node2, Index2),
     rt_intercept:add(Node2, {riak_kv_vnode,  [{{do_put, 7}, error_do_put}]}),
-    lager:info("failing do_put for index ~p on ~p", [Index2, Node2]),
-    rt:log_to_nodes(Nodes, "failing do_put for index ~p on ~p", [Index2, Node2]),
+    ?LOG_INFO("failing do_put for index ~0p on ~0p", [Index2, Node2]),
+    rt:log_to_nodes(Nodes, "failing do_put for index ~0p on ~0p", [Index2, Node2]),
     timer:sleep(100),
 
     %% there's now a failing vnode in the preflist, so PW/DW won't be satisfied
@@ -248,8 +268,8 @@ find_key(PreflistFun, Bucket, TargetPreflist) ->
                 io_lib:format("K~8..0B", [leveled_rand:uniform(1000000)]))),
     case PreflistFun(Bucket, TestK) of
         TargetPreflist ->
-            lager:info(
-                "Found key ~p with preflist ~p for Bucket ~p",
+            ?LOG_INFO(
+                "Found key ~0p with preflist ~0p for Bucket ~0p",
                 [TestK, TargetPreflist, Bucket]),
             TestK;
         _ ->

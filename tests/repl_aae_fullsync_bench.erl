@@ -1,3 +1,22 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active Anti-Entropy Fullsync replication.
 %% It sets up two clusters, runs a fullsync over all partitions, and verifies the missing keys
@@ -6,7 +25,9 @@
 -module(repl_aae_fullsync_bench).
 -behavior(riak_test).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     NumNodesWanted = 6,         %% total number of nodes needed
@@ -54,18 +75,18 @@ aae_fs_test(NumKeysAOnly, NumKeysBoth, ANodes, BNodes) ->
     %% keys: 1..NumKeysAOnly
     %%---------------------------------------------------------
 
-    rt:log_to_nodes(AllNodes, "Test fullsync from cluster A leader ~p to cluster B", [LeaderA]),
-    lager:info("Test fullsync from cluster A leader ~p to cluster B", [LeaderA]),
+    rt:log_to_nodes(AllNodes, "Test fullsync from cluster A leader ~0p to cluster B", [LeaderA]),
+    ?LOG_INFO("Test fullsync from cluster A leader ~0p to cluster B", [LeaderA]),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
     {Time,_} = timer:tc(repl_util,start_and_wait_until_fullsync_complete,[LeaderA]),
-    lager:info("Fullsync completed in ~p seconds", [Time/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time/1000/1000]),
 
     %% verify data is replicated to B
     NumKeysToVerify = min(1000, NumKeysAOnly),
-    rt:log_to_nodes(AllNodes, "Verify: Reading ~p keys repl'd from A(~p) to B(~p)",
+    rt:log_to_nodes(AllNodes, "Verify: Reading ~b keys repl'd from A(~0p) to B(~0p)",
                     [NumKeysToVerify, LeaderA, BFirst]),
-    lager:info("Verify: Reading ~p keys repl'd from A(~p) to B(~p)",
+    ?LOG_INFO("Verify: Reading ~b keys repl'd from A(~0p) to B(~0p)",
                [NumKeysToVerify, LeaderA, BFirst]),
     ?assertEqual(0, repl_util:wait_for_reads(BFirst, 1, NumKeysToVerify, TestBucket, 2)),
 

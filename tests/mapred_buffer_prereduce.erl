@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,11 +25,11 @@
 %% broke eunit testing.
 -module(mapred_buffer_prereduce).
 -behavior(riak_test).
--export([
-         %% riak_test api
-         confirm/0
-        ]).
--include_lib("eunit/include/eunit.hrl").
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(INTS_BUCKET, <<"foonum">>).
 -define(NUM_INTS, 1000).
@@ -38,9 +38,9 @@ confirm() ->
     Nodes = rt:build_cluster(3),
 
     load_test_data(Nodes),
-    
+
     [ begin
-          lager:info("Running test ~s (m:~p, r:~p)",
+          ?LOG_INFO("Running test ~s (m:~0p, r:~0p)",
                      [T, M, R]),
           test_batch(Nodes, M, R)
       end
@@ -58,7 +58,7 @@ confirm() ->
 
 load_test_data([Node|_]) ->
     %% creates foonum/1..5 - this is what populates ?INTS_BUCKET
-    lager:info("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
+    ?LOG_INFO("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
     ok = rpc:call(Node, riak_kv_mrc_pipe, example_setup, [?NUM_INTS]).
 
 rpcmr(Node, Inputs, Query) ->

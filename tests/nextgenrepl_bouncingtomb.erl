@@ -1,3 +1,20 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to prove real-time repl
 %% works as expected with automated discovery of peers
@@ -5,7 +22,9 @@
 -module(nextgenrepl_bouncingtomb).
 -behavior(riak_test).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 16).
@@ -98,9 +117,9 @@
 
 confirm() ->
 
-    lager:info("***************"),
-    lager:info("Testing rotating tombs with key insomnia"),
-    lager:info("***************"),
+    ?LOG_INFO("***************"),
+    ?LOG_INFO("Testing rotating tombs with key insomnia"),
+    ?LOG_INFO("***************"),
     
     [ClusterA1, ClusterB1] =
         rt:deploy_clusters([
@@ -112,9 +131,9 @@ confirm() ->
     rt:clean_cluster(ClusterA1),
     rt:clean_cluster(ClusterB1),
 
-    lager:info("***************"),
-    lager:info("Testing rotating tombs without key insomnia"),
-    lager:info("***************"),
+    ?LOG_INFO("***************"),
+    ?LOG_INFO("Testing rotating tombs without key insomnia"),
+    ?LOG_INFO("***************"),
 
     [ClusterA2, ClusterB2, ClusterC2] =
         rt:deploy_clusters([
@@ -130,7 +149,7 @@ no_insomnia_test(ClusterA, ClusterB, ClusterC) ->
     rt:join_cluster(ClusterB),
     rt:join_cluster(ClusterC),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
@@ -159,27 +178,27 @@ no_insomnia_test(ClusterA, ClusterB, ClusterC) ->
         NodeB2, cluster_b, ?B_RING, ?B_NVAL, cluster_a,
         PeerConfigFun(NodeA2), keep),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
-    lager:info("Confirm riak_kv is up on all nodes."),
+    ?LOG_INFO("Confirm riak_kv is up on all nodes."),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB),
     
-    lager:info("Wait for peer discovery"),
+    ?LOG_INFO("Wait for peer discovery"),
     timer:sleep((?INIT_MAX_DELAY + 1) * 1000),
 
-    lager:info("Ready for test - writing keys"),
+    ?LOG_INFO("Ready for test - writing keys"),
     write_to_cluster(NodeC1, 1, 1000, new_obj),
 
-    lager:info("Manual push of keys to A and B"),
+    ?LOG_INFO("Manual push of keys to A and B"),
     {IPc, Portc} = PeerConfigFun(NodeC1),
     {ok, SrcC} = riakc_pb_socket:start(IPc, Portc),
     {ok, SnkA} = riak:client_connect(NodeA1),
     {ok, SnkB} = riak:client_connect(NodeB1),
     ?assertMatch(1000, drain_queue(SrcC, SnkA)),
 
-    lager:info("Ready for test - deleting keys"),
+    ?LOG_INFO("Ready for test - deleting keys"),
     delete_from_cluster(NodeC1, 1, 1000),
 
     ?assertMatch(1000, drain_queue(SrcC, SnkB)),
@@ -187,7 +206,7 @@ no_insomnia_test(ClusterA, ClusterB, ClusterC) ->
 
     riakc_pb_socket:stop(SrcC),
 
-    lager:info("Resetting delete_mode on Cluster B"),
+    ?LOG_INFO("Resetting delete_mode on Cluster B"),
     reset_peer_config(
         NodeB1, cluster_b, ?B_RING, ?B_NVAL, cluster_a, 
         PeerConfigFun(NodeA1), ?DELETE_TIMEOUT),
@@ -197,16 +216,16 @@ no_insomnia_test(ClusterA, ClusterB, ClusterC) ->
 
     GetStatsFun =
         fun() ->
-            lager:info("Cluster A stats"),
+            ?LOG_INFO("Cluster A stats"),
             get_stats(NodeA1),
             get_stats(NodeA2),
-            lager:info("Cluster B stats"),
+            ?LOG_INFO("Cluster B stats"),
             get_stats(NodeB1),
             get_stats(NodeB2)
         end,
     
-    lager:info("Cluster B has tombstones, but Cluster A has objects"),
-    lager:info("Enabling AAE to avoid inconsistent results on coverage"),
+    ?LOG_INFO("Cluster B has tombstones, but Cluster A has objects"),
+    ?LOG_INFO("Enabling AAE to avoid inconsistent results on coverage"),
     rpc:multicall(ClusterA, riak_client, tictacaae_resume_node, []),
     rpc:multicall(ClusterB, riak_client, tictacaae_resume_node, []),
     {_InitACount, _InitBCount} = log_fun(NodeA1, NodeB1),
@@ -226,21 +245,21 @@ log_fun(NodeA, NodeB) ->
             riak_client,
             aae_fold,
             [{find_tombs, ?TEST_BUCKET, all, all, all}]),
-    lager:info("Cluster A ~w tombs", [length(A1C)]),
+    ?LOG_INFO("Cluster A ~w tombs", [length(A1C)]),
 
     {ok, B1C} =
         rpc:call(NodeB,
             riak_client,
             aae_fold,
             [{find_tombs, ?TEST_BUCKET, all, all, all}]),
-    lager:info("Cluster B ~w tombs", [length(B1C)]),
+    ?LOG_INFO("Cluster B ~w tombs", [length(B1C)]),
 
     case {length(A1C), length(B1C)} of
         {0, 0} ->
             ok;
         {N, M} when N < 10, M < 10 ->
-            lager:info("Cluster A tombs ~p", [A1C]),
-            lager:info("Cluster B tombs ~p", [B1C]);
+            ?LOG_INFO("Cluster A tombs ~0p", [A1C]),
+            ?LOG_INFO("Cluster B tombs ~0p", [B1C]);
         _ ->
             ok
     end,
@@ -254,7 +273,7 @@ with_insomnia_test(ClusterA, ClusterB) ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
 
@@ -287,46 +306,46 @@ with_insomnia_test(ClusterA, ClusterB) ->
         NodeB3, cluster_b, ?B_RING, ?B_NVAL, cluster_a,
         PeerConfigFun(NodeA3), keep),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
-    lager:info("Confirm riak_kv is up on all nodes."),
+    ?LOG_INFO("Confirm riak_kv is up on all nodes."),
     lists:foreach(
         fun(N) -> rt:wait_for_service(N, riak_kv) end,
         ClusterA ++ ClusterB),
 
-    lager:info("Wait for peer discovery"),
+    ?LOG_INFO("Wait for peer discovery"),
     timer:sleep((?INIT_MAX_DELAY + 1) * 1000),
 
-    lager:info("Ready for test"),
+    ?LOG_INFO("Ready for test"),
     write_to_cluster(NodeA1, 1, 1000, new_obj),
     rt:wait_until(count_keys_fun(NodeA1, 1000, erase_keys)),
     rt:wait_until(count_keys_fun(NodeB1, 1000, erase_keys)),
-    lager:info("Deleting objects from other cluster"),
+    ?LOG_INFO("Deleting objects from other cluster"),
     delete_from_cluster(NodeB1, 1, 1000),
     rt:wait_until(count_keys_fun(NodeB1, 1000, reap_tombs)),
     rt:wait_until(count_keys_fun(NodeA1, 0, reap_tombs)),
     rt:wait_until(count_keys_fun(NodeB1, 1000, reap_tombs)),
 
-    lager:info("Switching delete mode from keep on Cluster B"),
+    ?LOG_INFO("Switching delete mode from keep on Cluster B"),
     reset_peer_config(NodeB1, cluster_b, ?B_RING, ?B_NVAL, cluster_a,  PeerConfigFun(NodeA1), 1000),
     reset_peer_config(NodeB2, cluster_b, ?B_RING, ?B_NVAL, cluster_a,  PeerConfigFun(NodeA2), 1000),
     reset_peer_config(NodeB3, cluster_b, ?B_RING, ?B_NVAL, cluster_a,  PeerConfigFun(NodeA3), 1000),
 
     GetStatsFun =
         fun() ->
-            lager:info("Cluster A stats"),
+            ?LOG_INFO("Cluster A stats"),
             get_stats(NodeA1),
             get_stats(NodeA2),
             get_stats(NodeA3),
-            lager:info("Cluster B stats"),
+            ?LOG_INFO("Cluster B stats"),
             get_stats(NodeB1),
             get_stats(NodeB2),
             get_stats(NodeB3)
         end,
 
-    lager:info("Cluster B has tombstones, but Cluster A should have reaped"),
-    lager:info("Enabling AAE to avoid inconsistent results on coverage"),
+    ?LOG_INFO("Cluster B has tombstones, but Cluster A should have reaped"),
+    ?LOG_INFO("Enabling AAE to avoid inconsistent results on coverage"),
     rpc:multicall(ClusterA, riak_client, tictacaae_resume_node, []),
     rpc:multicall(ClusterB, riak_client, tictacaae_resume_node, []),
     {_InitACount, _InitBCount} = log_fun(NodeA1, NodeB1),
@@ -343,18 +362,18 @@ with_insomnia_test(ClusterA, ClusterB) ->
 rotating_full_sync(NodeA, NodeB, GetStatsFun, LogFun, 0) ->
     LoopLogFun = 
         fun(X) ->
-            lager:info("Closing count loop ~w", [X]),
+            ?LOG_INFO("Closing count loop ~w", [X]),
             _ = LogFun(NodeA, NodeB)
         end,
     GetStatsFun(),
     lists:foreach(LoopLogFun, lists:seq(1, ?LOOP_COUNT)),
     GetStatsFun();
 rotating_full_sync(NodeA, NodeB, GetStatsFun, LogFun, Rotations) ->
-    lager:info("Full sync from Cluster B - loops to go ~w", [Rotations]),
+    ?LOG_INFO("Full sync from Cluster B - loops to go ~w", [Rotations]),
     rpc:call(NodeB, riak_client, ttaaefs_fullsync, [all_check, 60]),
     timer:sleep(?BIG_REPL_SLEEP),
     _ = LogFun(NodeA, NodeB),
-    lager:info("Full sync from Cluster A - loops to go ~w", [Rotations]),
+    ?LOG_INFO("Full sync from Cluster A - loops to go ~w", [Rotations]),
     rpc:call(NodeA, riak_client, ttaaefs_fullsync, [all_check, 60]),
     timer:sleep(?BIG_REPL_SLEEP),
     _ = LogFun(NodeA, NodeB),
@@ -364,7 +383,8 @@ rotating_full_sync(NodeA, NodeB, GetStatsFun, LogFun, Rotations) ->
 reset_peer_config(Node, ClusterName, RS, NV, Q, PeerX, DeleteMode) ->
     {IP, Port} = PeerX,
     ClusterSNkCfg = ?SNK_CONFIG(RS, NV, Q, ClusterName, IP, Port, DeleteMode),
-    rt:set_advanced_conf(Node, ClusterSNkCfg).
+    rt:set_advanced_conf(Node, ClusterSNkCfg),
+    rt:wait_for_service(Node, [riak_kv]).
 
 count_keys_fun(N, ExpectedC, Type) ->
     fun() ->
@@ -373,14 +393,13 @@ count_keys_fun(N, ExpectedC, Type) ->
                 riak_client,
                 aae_fold,
                 [{Type, ?TEST_BUCKET, all, all, all, count}]),
-        lager:info("Count of ~w on ~w for ~w", [C, N, Type]),
+        ?LOG_INFO("Count of ~w on ~w for ~w", [C, N, Type]),
         ExpectedC == C
     end.
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End, CommonValBin) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~0p keys to node ~0p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -389,13 +408,11 @@ write_to_cluster(Node, Start, End, CommonValBin) ->
                 case CommonValBin of
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
-                        riak_object:new(?TEST_BUCKET,
-                                        Key,
-                                        <<N:32/integer, CVB/binary>>);
-                    UpdateBin ->
-                        UPDV = <<N:32/integer, UpdateBin/binary>>,
-                        {ok, PrevObj} = riak_client:get(?TEST_BUCKET, Key, C),
-                        riak_object:update_value(PrevObj, UPDV)
+                        riak_object:new(
+                            ?TEST_BUCKET,
+                            Key,
+                            <<N:32/integer, CVB/binary>>
+                        )
                 end,
             try riak_client:put(Obj, C) of
                 ok ->
@@ -408,12 +425,11 @@ write_to_cluster(Node, Start, End, CommonValBin) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~w errors while writing: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 delete_from_cluster(Node, Start, End) ->
-    lager:info("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Deleting ~0p keys from node ~0p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -429,7 +445,7 @@ delete_from_cluster(Node, Start, End) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while deleting: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~w errors while deleting: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 
@@ -449,7 +465,7 @@ drain_queue(SrcC, SnkA, N) ->
     end.
 
 get_stats(Node) ->
-    S = verify_riak_stats:get_stats(Node, ?STATS_WAIT),
+    S = rt:get_stats(Node, ?STATS_WAIT),
     {<<"ngrfetch_prefetch_total">>, PFT} =
         lists:keyfind(<<"ngrfetch_prefetch_total">>, 1, S),
     {<<"ngrfetch_tofetch_total">>, TFT} =
@@ -464,6 +480,6 @@ get_stats(Node) ->
         lists:keyfind(<<"ngrrepl_empty_total">>, 1, S),
     {<<"read_repairs_total">>, RRT} =
         lists:keyfind(<<"read_repairs_total">>, 1, S),
-    lager:info(
+    ?LOG_INFO(
         "Stats for Node ~w, PFT=~w TFT=~w NFT=~w FOT=~w FErT=~w FEmT=~w RRT=~w",
         [Node, PFT, TFT, NFT, FOT, FErT, FEmT, RRT]).

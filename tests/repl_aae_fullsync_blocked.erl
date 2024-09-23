@@ -1,13 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(repl_aae_fullsync_blocked).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(NUM_KEYS,    1000).
@@ -45,7 +64,7 @@
         ]).
 
 confirm() ->
-    lager:notice("blocking test"),
+    ?LOG_NOTICE("blocking test"),
     blocking_test(),
     pass.
 
@@ -56,35 +75,35 @@ blocking_test() ->
     %% Break up the 6 nodes into three clustes.
     {ANodes, BNodes} = lists:split(3, Nodes),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Building two clusters."),
+    ?LOG_INFO("Building two clusters."),
     [repl_util:make_cluster(N) || N <- [ANodes, BNodes]],
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = get_leader(AFirst),
     LeaderB = get_leader(BFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     BPort = get_port(LeaderB),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     connect_cluster(LeaderA, BPort, "B"),
 
     %% Write keys prior to fullsync.
@@ -97,7 +116,7 @@ blocking_test() ->
     rt:wait_until_aae_trees_built(ANodes),
     rt:wait_until_aae_trees_built(BNodes),
 
-    lager:info("Test fullsync from cluster A leader ~p to cluster B",
+    ?LOG_INFO("Test fullsync from cluster A leader ~0p to cluster B",
                [LeaderA]),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
@@ -134,7 +153,7 @@ validate_completed_fullsync(ReplicationLeader,
                             Start,
                             End) ->
     ok = check_fullsync(ReplicationLeader, DestinationCluster, 0),
-    lager:info("Verify: Reading ~p keys repl'd from A(~p) to ~p(~p)",
+    ?LOG_INFO("Verify: Reading ~b keys repl'd from A(~0p) to ~0p(~0p)",
                [?NUM_KEYS, ReplicationLeader,
                 DestinationCluster, DestinationNode]),
     ?assertEqual(0,
@@ -150,7 +169,7 @@ check_fullsync(Node, Cluster, ExpectedFailures) ->
     {Time, _} = timer:tc(repl_util,
                          start_and_wait_until_fullsync_complete,
                          [Node, Cluster]),
-    lager:info("Fullsync completed in ~p seconds", [Time/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time/1000/1000]),
 
     Status = rpc:call(Node, riak_repl_console, status, [quiet]),
 
@@ -177,7 +196,7 @@ validate_intercepted_fullsync(InterceptTarget,
                                   riak_core_ring,
                                   my_indices,
                                   [rt:get_ring(InterceptTarget)])),
-    lager:info("~p owns ~p indices",
+    ?LOG_INFO("~0p owns ~0p indices",
                [InterceptTarget, NumIndicies]),
 
     %% Before enabling fullsync, ensure trees on one source node return
@@ -223,7 +242,7 @@ validate_intercepted_fullsync(InterceptTarget,
                               ReplicationLeader,
                               ReplicationCluster,
                               NumIndicies) ->
-    lager:info("Validating intercept ~p on ~p.",
+    ?LOG_INFO("Validating intercept ~0p on ~0p.",
                [Intercept, InterceptTarget]),
 
     %% Add intercept.
@@ -261,20 +280,20 @@ get_leader(Node) ->
 
 %% @doc Connect two clusters using a given name.
 connect_cluster(Source, Port, Name) ->
-    lager:info("Connecting ~p to ~p for cluster ~p.",
+    ?LOG_INFO("Connecting ~0p to ~0p for cluster ~0p.",
                [Source, Port, Name]),
     repl_util:connect_cluster(Source, "127.0.0.1", Port),
     ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start, Node]),
     ?assertEqual([],
                  repl_util:do_write(Node, Start, End, ?TEST_BUCKET, 1)).
 
 %% @doc Read from cluster a series of keys, asserting a certain number
 %%      of errors.
 read_from_cluster(Node, Start, End, Errors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start, Node]),
     Res2 = rt:systest_read(Node, Start, End, ?TEST_BUCKET, 1),
     ?assertEqual(Errors, length(Res2)).

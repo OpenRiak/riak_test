@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_leave).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -import(rt, [build_cluster/1,
              leave/1,
@@ -34,24 +37,24 @@ confirm() ->
     [Node1, Node2, Node3] = Nodes,
 
     %% Have node2 leave
-    lager:info("Have ~p leave", [Node2]),
+    ?LOG_INFO("Have ~0p leave", [Node2]),
     leave(Node2),
     ?assertEqual(ok, wait_until_unpingable(Node2)),
 
     %% Verify node2 no longer owns partitions, all node believe it invalid
-    lager:info("Verify ~p no longer owns partitions and all nodes believe "
+    ?LOG_INFO("Verify ~0p no longer owns partitions and all nodes believe "
                "it is invalid", [Node2]),
     Remaining1 = Nodes -- [Node2],
     rt:wait_until_nodes_agree_about_ownership(Remaining1),
     [?assertEqual(invalid, status_of_according_to(Node2, Node)) || Node <- Remaining1],
 
     %% Have node1 remove node3
-    lager:info("Have ~p remove ~p", [Node1, Node3]),
+    ?LOG_INFO("Have ~0p remove ~0p", [Node1, Node3]),
     remove(Node1, Node3),
     ?assertEqual(ok, wait_until_unpingable(Node3)),
 
     %% Verify node3 no longer owns partitions, all node believe it invalid
-    lager:info("Verify ~p no longer owns partitions, and all nodes believe "
+    ?LOG_INFO("Verify ~0p no longer owns partitions, and all nodes believe "
                "it is invalid", [Node3]),
     Remaining2 = Remaining1 -- [Node3],
     rt:wait_until_nodes_agree_about_ownership(Remaining2),

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2015-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,10 +19,12 @@
 %% -------------------------------------------------------------------
 -module(riak667_mixed).
 -behavior(riak_test).
--export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
--define(HARNESS, (rt_config:get(rt_harness))).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 -define(TYPE, <<"maps">>).
 -define(KEY, <<"cmeiklejohn">>).
 -define(KEY2, <<"cmeik">>).
@@ -46,7 +48,7 @@ confirm() ->
 
     CurrentVer = rt:get_version(),
 
-    lager:info("mdc_crdt_epoch? ~p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
+    ?LOG_INFO("mdc_crdt_epoch? ~0p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
 
     %% Create PB connection.
     N1C1 = rt:pbc(Node1),
@@ -77,7 +79,7 @@ confirm() ->
     upgrade(Node2, "2.0.4"),
     rt:wait_until_ring_converged([Node1, Node2]),
 
-    lager:notice("running mixed 2.0.2 and 2.0.4"),
+    ?LOG_NOTICE("running mixed 2.0.2 and 2.0.4"),
 
     %% Create PB connection.
     N2C1 = rt:pbc(Node2),
@@ -87,7 +89,7 @@ confirm() ->
     ?assertMatch({error, <<"Error processing incoming message: error:{badrecord,dict}", _/binary>>},
                  riakc_pb_socket:fetch_type(N2C1, ?BUCKET, ?KEY)),
 
-    lager:notice("Can't read a 2.0.2 map from 2.0.4 node"),
+    ?LOG_NOTICE("Can't read a 2.0.2 map from 2.0.4 node"),
     riakc_pb_socket:stop(N2C1),
     %% auto_reconnect/queue_if_disconnected doesn't work correctly - open a new connection instead
     N2C2 = rt:pbc(Node2),
@@ -100,7 +102,7 @@ confirm() ->
     Oh4Map2 = riakc_map:update({<<"profile">>, map},
                             fun(M) ->
                                     riakc_map:update(
-                                      {"name", register},
+                                      {<<"name">>, register},
                                       fun(R) ->
                                               riakc_register:set(<<"Bob">>, R)
                                       end, M)
@@ -108,13 +110,13 @@ confirm() ->
 
     ok = riakc_pb_socket:update_type(N2C2, ?BUCKET, ?KEY2, riakc_map:to_op(Oh4Map2)),
 
-    lager:notice("Created a 2.0.4 map"),
+    ?LOG_NOTICE("Created a 2.0.4 map"),
 
     %% and read 2.0.4 data?? Nope, dict is not an orddict
     ?assertMatch({error,<<"Error processing incoming message: error:function_clause:[{orddict,fold", _/binary>>},
                  riakc_pb_socket:fetch_type(N1C1, ?BUCKET, ?KEY2)),
 
-    lager:notice("Can't read 2.0.4 map from 2.0.2 node"),
+    ?LOG_NOTICE("Can't read 2.0.4 map from 2.0.2 node"),
     riakc_pb_socket:stop(N1C1),
     N1C2 = rt:pbc(Node1),
 
@@ -122,7 +124,7 @@ confirm() ->
     riakc_pb_socket:stop(N2C2),
     upgrade(Node2, current),
 
-    lager:notice("running mixed 2.0.2 and ~s", [CurrentVer]),
+    ?LOG_NOTICE("running mixed 2.0.2 and ~s", [CurrentVer]),
 
     %% Create PB connection.
     N2C3 = rt:pbc(Node2),
@@ -132,8 +134,8 @@ confirm() ->
     {ok, K1O} = riakc_pb_socket:fetch_type(N2C3, ?BUCKET, ?KEY),
     {ok, K2O} = riakc_pb_socket:fetch_type(N2C3, ?BUCKET, ?KEY2),
 
-    lager:notice("2.0.2 map ~p", [K1O]),
-    lager:notice("2.0.4 map ~p", [K2O]),
+    ?LOG_NOTICE("2.0.2 map ~0p", [K1O]),
+    ?LOG_NOTICE("2.0.4 map ~0p", [K2O]),
 
     %% update 2.0.2 map on new node ?KEY Pid3
     K1OU = riakc_map:update({<<"profile">>, map},
@@ -146,11 +148,11 @@ confirm() ->
                             end, K1O),
 
     ok = riakc_pb_socket:update_type(N2C3, ?BUCKET, ?KEY, riakc_map:to_op(K1OU)),
-    lager:notice("Updated 2.0.2 map on ~s", [CurrentVer]),
+    ?LOG_NOTICE("Updated 2.0.2 map on ~s", [CurrentVer]),
 
     %% read 2.0.2 map from 2.0.2 node ?KEY Pid
     {ok, K1OR} = riakc_pb_socket:fetch_type(N1C2, ?BUCKET, ?KEY),
-    lager:notice("Read 2.0.2 map from 2.0.2 node: ~p", [K1OR]),
+    ?LOG_NOTICE("Read 2.0.2 map from 2.0.2 node: ~0p", [K1OR]),
 
     ?assertEqual(<<"Rita">>, orddict:fetch({<<"name">>, register},
                                            riakc_map:fetch({<<"profile">>, map}, K1OR))),
@@ -166,11 +168,11 @@ confirm() ->
                             end, K1OR),
 
     ok = riakc_pb_socket:update_type(N1C2, ?BUCKET, ?KEY, riakc_map:to_op(K1O2)),
-    lager:notice("Updated 2.0.2 map on 2.0.2 node"),
+    ?LOG_NOTICE("Updated 2.0.2 map on 2.0.2 node"),
 
     %% read it from 2.0.5 node ?KEY Pid3
     {ok, K1OC} = riakc_pb_socket:fetch_type(N2C3, ?BUCKET, ?KEY),
-    lager:notice("Read 2.0.2 map from ~s node: ~p", [CurrentVer, K1OC]),
+    ?LOG_NOTICE("Read 2.0.2 map from ~s node: ~0p", [CurrentVer, K1OC]),
 
     ?assertEqual(<<"Sue">>, orddict:fetch({<<"name">>, register},
                                           riakc_map:fetch({<<"profile">>, map}, K1OC))),
@@ -182,12 +184,12 @@ confirm() ->
                             end, riakc_map:new()),
 
     ok = riakc_pb_socket:update_type(N2C3, ?BUCKET, ?KEY2, riakc_map:to_op(K2OU)),
-    lager:notice("Updated 2.0.4 map on ~s node", [CurrentVer]),
+    ?LOG_NOTICE("Updated 2.0.4 map on ~s node", [CurrentVer]),
     %% upgrade 2.0.2 node
 
     riakc_pb_socket:stop(N1C2),
     upgrade(Node1, current),
-    lager:notice("Upgraded 2.0.2 node to ~s", [CurrentVer]),
+    ?LOG_NOTICE("Upgraded 2.0.2 node to ~s", [CurrentVer]),
 
     rt:wait_until_capability_contains(Node1, {riak_kv,crdt_epoch_versions}, [{riak_dt_map,2}]),
 
@@ -201,7 +203,7 @@ confirm() ->
     {ok, K2N1} = riakc_pb_socket:fetch_type(N1C3, ?BUCKET, ?KEY2),
     {ok, K2N2} = riakc_pb_socket:fetch_type(N2C3, ?BUCKET, ?KEY2),
     ?assertEqual(K2N1, K2N2),
-    lager:notice("Maps fetched from both nodes are same K1:~p K2:~p", [K1N1, K2N1]),
+    ?LOG_NOTICE("Maps fetched from both nodes are same K1:~0p K2:~0p", [K1N1, K2N1]),
 
     K1M = riakc_map:update({<<"people">>, set},
                            fun(S) -> riakc_set:add_element(<<"Roger">>, S) end,
@@ -219,13 +221,13 @@ confirm() ->
 
     {ok, Robj2} = riakc_pb_socket:get(N1C3, ?BUCKET, ?KEY2),
 
-    lager:info("mdc_crdt_epoch? ~p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
+    ?LOG_INFO("mdc_crdt_epoch? ~0p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
 
     ?assert(map_contents_are_lists(Robj2)),
     %% unset env var
     rpc:multicall(Nodes, application, set_env, [riak_kv, mdc_crdt_epoch, false]),
 
-    lager:info("mdc_crdt_epoch? ~p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
+    ?LOG_INFO("mdc_crdt_epoch? ~0p", [rpc:multicall(Nodes, application, get_env, [riak_kv, mdc_crdt_epoch])]),
 
     %% read and write maps
     {ok, Up1N1} = riakc_pb_socket:fetch_type(N1C3, ?BUCKET, ?KEY),
@@ -235,7 +237,7 @@ confirm() ->
     {ok, Up2N1} = riakc_pb_socket:fetch_type(N1C3, ?BUCKET, ?KEY2),
     {ok, Up2N2} = riakc_pb_socket:fetch_type(N2C3, ?BUCKET, ?KEY2),
     ?assertEqual(Up2N1, Up2N2),
-    lager:notice("Maps fetched from both nodes are same K1:~p K2:~p", [Up1N1, Up2N1]),
+    ?LOG_NOTICE("Maps fetched from both nodes are same K1:~0p K2:~0p", [Up1N1, Up2N1]),
 
     Up1M = riakc_map:update({<<"people">>, set},
                            fun(S) -> riakc_set:add_element(<<"Betty">>, S) end,
@@ -261,7 +263,7 @@ confirm() ->
     pass.
 
 upgrade(Node, NewVsn) ->
-    lager:notice("Upgrading ~p to ~p", [Node, NewVsn]),
+    ?LOG_NOTICE("Upgrading ~0p to ~0p", [Node, NewVsn]),
     rt:upgrade(Node, NewVsn),
     rt:wait_for_service(Node, riak_kv),
     ok.
@@ -269,7 +271,7 @@ upgrade(Node, NewVsn) ->
 map_contents_are_lists(RObj) ->
     [{_MD, V}] = riakc_obj:get_contents(RObj),
     {riak_dt_map, {_Clock, Entries, Deferred}} = map_from_binary(V),
-    lager:info("Top-level map: ~p || ~p", [Entries, Deferred]),
+    ?LOG_INFO("Top-level map: ~0p || ~0p", [Entries, Deferred]),
     is_list(Entries) andalso is_list(Deferred) andalso nested_are_lists(Entries).
 
 nested_are_lists(Entries) ->
@@ -294,7 +296,7 @@ map_is_list({_Clock, Entries, Deferred}) ->
 map_contents_are_dicts(RObj) ->
     [{_MD, V}] = riakc_obj:get_contents(RObj),
     {riak_dt_map, {_Clock, Entries, Deferred}} = map_from_binary(V),
-    lager:info("Top-level map: ~p || ~p", [Entries, Deferred]),
+    ?LOG_INFO("Top-level map: ~0p || ~0p", [Entries, Deferred]),
     is_dict(Entries) andalso is_dict(Deferred) andalso nested_are_dicts(Entries).
 
 is_dict(V) ->
@@ -329,6 +331,6 @@ map_is_dict({_Clock, Entries, Deferred}) ->
 %%    ?TAG is 77 in riak_dt_types.hrl, version is 1 or 2
 map_from_binary(<<69:8, 2:8, TypeLen:32/integer, Type:TypeLen/binary, 77:8, MapVer:8,
                   CRDTBin/binary>>) ->
-    lager:notice("Deserialized Map: ~s v~p", [Type, MapVer]),
+    ?LOG_NOTICE("Deserialized Map: ~s v~0p", [Type, MapVer]),
     Mod = binary_to_atom(Type, latin1),
     {Mod, riak_dt:from_binary(CRDTBin)}.

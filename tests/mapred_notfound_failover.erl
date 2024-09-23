@@ -25,12 +25,21 @@
 %% broke eunit testing.
 -module(mapred_notfound_failover).
 -behavior(riak_test).
+
 -export([
-         %% riak_test api
-         confirm/0
-        ]).
--compile([export_all, nowarn_export_all]). %% because we run ?MODULE:PrepareFun later
--include_lib("eunit/include/eunit.hrl").
+    %% riak_test api
+    confirm/0,
+
+    %% run on Riak node
+    reduce_wait_for_signal/2,
+
+    %% called via ?MODULE:TestName
+    actual_notfound/5,
+    replica_notfound/5
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("rt_pipe.hrl").
 
 -define(INTS_BUCKET, <<"foonum">>).
@@ -49,7 +58,7 @@ confirm() ->
     load_test_data(Nodes),
 
     [ begin
-          lager:info("Running test ~p", [T]),
+          ?LOG_INFO("Running test ~0p", [T]),
           run_test(Nodes, T)
       end
       || T <- [actual_notfound,
@@ -58,11 +67,11 @@ confirm() ->
 
 load_test_data([Node|_]) ->
     %% creates foonum/1..?NUM_INTS - this is what populates ?INTS_BUCKET
-    lager:info("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
+    ?LOG_INFO("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
     ok = rpc:call(Node, riak_kv_mrc_pipe, example_setup, [?NUM_INTS]).
 
-rpcmr(Node, Inputs, Query) ->
-    rpc:call(Node, riak_kv_mrc_pipe, mapred, [Inputs, Query]).
+%%rpcmr(Node, Inputs, Query) ->
+%%    rpc:call(Node, riak_kv_mrc_pipe, mapred, [Inputs, Query]).
 
 %% @doc check the condition that used to bring down a pipe in
 %% https://github.com/basho/riak_kv/issues/290 (this version checks it
@@ -218,13 +227,13 @@ reduce_wait_for_signal(Inputs, Args) ->
             Inputs
     end.
 
-wait_until_dead(Pid) when is_pid(Pid) ->
-    Ref = monitor(process, Pid),
-    receive
-        {'DOWN', Ref, process, _Obj, Info} ->
-            Info
-    after 10*1000 ->
-            exit({timeout_waiting_for, Pid})
-    end;
-wait_until_dead(_) ->
-    ok.
+%%wait_until_dead(Pid) when is_pid(Pid) ->
+%%    Ref = monitor(process, Pid),
+%%    receive
+%%        {'DOWN', Ref, process, _Obj, Info} ->
+%%            Info
+%%    after 10*1000 ->
+%%            exit({timeout_waiting_for, Pid})
+%%    end;
+%%wait_until_dead(_) ->
+%%    ok.

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,14 +19,12 @@
 %% -------------------------------------------------------------------
 -module(verify_corruption_filtering).
 -behavior(riak_test).
--export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
--import(rt, [build_cluster/1,
-             leave/1,
-             wait_until_unpingable/1,
-             status_of_according_to/2,
-             remove/2]).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 %% Test plan:
 %%   - build a 2-node cluster
 %%   - load values
@@ -34,23 +32,20 @@
 %%     bad data
 %%   - test puts, gets, folds, and handoff.
 
-
-
-
 confirm() ->
-    Nodes = build_cluster(2),
+    Nodes = rt:build_cluster(2),
     [Node1, Node2] = Nodes,
     rt:wait_until_pingable(Node2),
 
     load_cluster(Node1),
 
-    lager:info("Cluster loaded"),
+    ?LOG_INFO("Cluster loaded"),
 
     case rt_config:get(rt_backend, undefined) of
         riak_kv_eleveldb_backend ->
             load_level_intercepts(Nodes);
         riak_kv_leveled_backend ->
-	    load_leveled_intercepts(Nodes);
+            load_leveled_intercepts(Nodes);
         _ ->
             load_bitcask_intercepts(Nodes)
     end,
@@ -58,9 +53,9 @@ confirm() ->
     get_put_mix(Node1),
 
     %% Have node2 leave
-    lager:info("Have ~p leave", [Node2]),
-    leave(Node2),
-    ?assertEqual(ok, wait_until_unpingable(Node2)),
+    ?LOG_INFO("Have ~0p leave", [Node2]),
+    rt:leave(Node2),
+    ?assertEqual(ok, rt:wait_until_unpingable(Node2)),
 
     %% we'll never get here or timeout if this issue
     %% isn't fixed.
@@ -81,11 +76,10 @@ get_put_mix(Node) ->
                      {error, notfound} ->
                          ok;
                      {error, Reason} ->
-                         lager:error("got unexpected return: ~p",
+                         ?LOG_ERROR("got unexpected return: ~0p",
                                      [Reason]),
                          throw(Reason);
-                     {ok, _O} -> ok;
-                     Else -> throw(Else)
+                     {ok, _O} -> ok
                  end
          end
      end

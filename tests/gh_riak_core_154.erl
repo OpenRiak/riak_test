@@ -17,13 +17,16 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %% Automated test for issue riak_core#154
 %% Hinted handoff does not occur after a node has been restarted in Riak 1.1
 -module(gh_riak_core_154).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% Increase handoff concurrency on nodes
@@ -32,26 +35,26 @@ confirm() ->
     ?assertEqual(ok, rt:wait_until_nodes_ready(Nodes)),
     [Node1, Node2] = Nodes,
 
-    lager:info("Write data while ~p is offline", [Node2]),
+    ?LOG_INFO("Write data while ~0p is offline", [Node2]),
     rt:stop(Node2),
     rt:wait_until_unpingable(Node2),
     ?assertEqual([], rt:systest_write(Node1, 1000, 3)),
 
-    lager:info("Verify that ~p is missing data", [Node2]),
+    ?LOG_INFO("Verify that ~0p is missing data", [Node2]),
     rt:start(Node2),
     rt:stop(Node1),
     rt:wait_until_unpingable(Node1),
     ?assertMatch([{_,{error,notfound}}|_],
                  rt:systest_read(Node2, 1000, 3)),
 
-    lager:info("Restart ~p and wait for handoff to occur", [Node1]),
+    ?LOG_INFO("Restart ~0p and wait for handoff to occur", [Node1]),
     rt:start(Node1),
     rt:wait_for_service(Node1, riak_kv),
     rt:wait_until_transfers_complete([Node1]),
 
-    lager:info("Verify that ~p has all data", [Node2]),
+    ?LOG_INFO("Verify that ~0p has all data", [Node2]),
     rt:stop(Node1),
     ?assertEqual([], rt:systest_read(Node2, 1000, 3)),
 
-    lager:info("gh_riak_core_154: passed"),
+    ?LOG_INFO("gh_riak_core_154: passed"),
     pass.

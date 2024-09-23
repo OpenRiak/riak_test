@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -19,8 +17,12 @@
 %% -------------------------------------------------------------------
 -module(verify_multibackend_head).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 -define(DEFAULT_RING_SIZE, 16).
 
 -define(CONF,
@@ -35,20 +37,20 @@
        ).
 
 confirm() ->
-    lager:info("Overriding backend set in configuration"),
-    lager:info("Multi backend with default settings (rt) to be used"),
+    ?LOG_INFO("Overriding backend set in configuration"),
+    ?LOG_INFO("Multi backend with default settings (rt) to be used"),
 
     {BackendRef, HeadSupport} = get_backendref(),
 
     rt:set_backend(riak_kv_multi_backend),
     [Node1] = rt:deploy_nodes(1, ?CONF),
-    
+
     Stats1 = get_stats(Node1),
-    
+
     C = rt:httpc(Node1),
     PBC = rt:pbc(Node1),
 
-    lager:info("Setting up a bucket type to use backend and test"),
+    ?LOG_INFO("Setting up a bucket type to use backend and test"),
     Type = <<"backend">>,
     TypedBucket = <<"TB0">>,
     UnTypedBucket = <<"B0">>,
@@ -58,7 +60,7 @@ confirm() ->
     rt:wait_until_bucket_props([Node1], {Type, TypedBucket}, BucketProps),
     rt:pbc_set_bucket_prop(PBC, UnTypedBucket, BucketProps),
     rt:wait_until_bucket_props([Node1], UnTypedBucket, BucketProps),
-    lager:info("Backend now setup for typed and untyped"),
+    ?LOG_INFO("Backend now setup for typed and untyped"),
 
     [rt:httpc_write(C, {Type, TypedBucket}, <<X>>, <<"sample_value">>)
         || X <- lists:seq(1, 3)],
@@ -68,18 +70,18 @@ confirm() ->
         || X <- lists:seq(4, 5)],
     [rt:httpc_read(C, UnTypedBucket, <<X>>)
         || X <- lists:seq(4, 5)],
-    
+
 
     Stats2 = get_stats(Node1),
 
-    ExpectedNodeStats = 
+    ExpectedNodeStats =
         case HeadSupport of
             true ->
                 [{<<"node_gets">>, 5},
                     {<<"node_puts">>, 5},
                     {<<"node_gets_total">>, 5},
                     {<<"node_puts_total">>, 5},
-                    {<<"vnode_gets">>, 5}, 
+                    {<<"vnode_gets">>, 5},
                         % The five PUTS will require only HEADs
                     {<<"vnode_heads">>, 15},
                         % There is no reduction in the count of HEADs
@@ -109,7 +111,7 @@ confirm() ->
 
 get_backendref() ->
     Backend = proplists:get_value(backend, riak_test_runner:metadata()),
-    lager:info("Running with backend ~p", [Backend]),
+    ?LOG_INFO("Running with backend ~0p", [Backend]),
     {get_backendref(Backend), Backend == leveled}.
 
 get_backendref(eleveldb) ->
@@ -126,16 +128,9 @@ verify_inc(Prev, Props, Keys) ->
     [begin
          Old = proplists:get_value(Key, Prev, 0),
          New = proplists:get_value(Key, Props, 0),
-         lager:info("~s: ~p -> ~p (expected ~p)", [Key, Old, New, Old + Inc]),
+         ?LOG_INFO("~s: ~0p -> ~0p (expected ~0p)", [Key, Old, New, Old + Inc]),
          ?assertEqual(New, (Old + Inc))
      end || {Key, Inc} <- Keys].
 
 get_stats(Node) ->
-    timer:sleep(2000),
-    lager:info("Retrieving stats from node ~s", [Node]),
-    StatsCommand = io_lib:format("curl -s -S ~s/stats", [rt:http_url(Node)]),
-    lager:debug("Retrieving stats using command ~s", [StatsCommand]),
-    StatString = os:cmd(StatsCommand),
-    {struct, Stats} = mochijson2:decode(StatString),
-    %%lager:debug(StatString),
-    Stats.
+    rt:get_stats(Node, 2000).

@@ -1,6 +1,7 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013-2014 Basho Technologies, Inc.
+%% Copyright (c) 2014-2015 Basho Technologies, Inc.
+%% Copyright (c) 2022-2023 Workday, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,12 +18,13 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_byzantine).
--export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
 
--define(HARNESS, (rt_config:get(rt_harness))).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(NUM_NODES, 8).
 -define(NVAL, 5).
@@ -32,7 +34,7 @@ confirm() ->
     NVal = ?NVAL,
     _Quorum = NVal div 2 + 1,
     Config = config(),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     Nodes = ensemble_util:build_cluster(NumNodes, Config, NVal),
     vnode_util:load(Nodes),
     Node = hd(Nodes),
@@ -46,7 +48,7 @@ confirm() ->
 
     {ok, PL} = get_preflist(Node, Bucket, Key, NVal),
     ?assertEqual(NVal, length(PL)),
-    lager:info("PREFERENCE LIST: ~n  ~p", [PL]),
+    ?LOG_INFO("PREFERENCE LIST: ~0p", [PL]),
 
     PBC = rt:pbc(Node),
 
@@ -113,7 +115,7 @@ test_lose_all_but_one_partition(PBC, Bucket, Key, Val, PL) ->
     Wiped = tl(PL),
     {{Idx0, Node0}, primary} = hd(PL),
     Ensemble = {kv, Idx0, 5},
-    lager:info("Wiping Data on Following Vnodes: ~p", [Wiped]),
+    ?LOG_INFO("Wiping Data on Following Vnodes: ~0p", [Wiped]),
     wipe_partitions(Wiped),
     ensemble_util:wait_until_quorum(Node0, Ensemble),
     assert_valid_read(PBC, Bucket, Key, Val).
@@ -124,7 +126,7 @@ test_lose_one_node_one_partition(PBC, Bucket, Key, Val, PL) ->
     Leader = ensemble_util:get_leader_pid(Node0, Ensemble),
     LeaderNode = node(Leader),
     LeaderIdx = get_leader_idx(PL, LeaderNode),
-    lager:info("Wiping Idx ~p data on LeaderNode ~p", [LeaderIdx, LeaderNode]),
+    ?LOG_INFO("Wiping Idx ~0p data on LeaderNode ~0p", [LeaderIdx, LeaderNode]),
     wipe_partition(LeaderIdx, LeaderNode),
     ensemble_util:wait_until_quorum(LeaderNode, Ensemble),
     assert_valid_read(PBC, Bucket, Key, Val).
@@ -180,7 +182,7 @@ test_backup_restore_data_not_trees(Bucket, Key, _Val, PL) ->
 test_lose_all_data(PBC, Bucket, Key, PL) ->
     wipe_partitions(PL),
     {error, _}=E = riakc_pb_socket:get(PBC, Bucket, Key, []),
-    lager:info("All data loss error = ~p", [E]).
+    ?LOG_INFO("All data loss error = ~0p", [E]).
 
 assert_valid_read(PBC, Bucket, Key, Val) ->
     ReadFun = fun() ->
@@ -193,9 +195,9 @@ assert_failed_read(PBC, Bucket, Key) ->
     ?assertMatch({error, _}, riakc_pb_socket:get(PBC, Bucket, Key, [])).
 
 normal_write_and_read(PBC, Bucket, Key, Val) ->
-    lager:info("Writing a consistent key"),
+    ?LOG_INFO("Writing a consistent key"),
     ok = rt:pbc_write(PBC, Bucket, Key, Val),
-    lager:info("Read key to verify it exists"),
+    ?LOG_INFO("Read key to verify it exists"),
     assert_valid_read(PBC, Bucket, Key, Val).
 
 stop_nodes(PL) ->
@@ -205,7 +207,7 @@ start_nodes(PL) ->
     [rt:start_and_wait(Node) || {{_, Node}, _} <- PL].
 
 data_path(Node) ->
-    ?HARNESS:node_path(Node) ++ "/data/"++backend_dir().
+    rt:get_node_path(Node) ++ "/data/" ++ backend_dir().
 
 backup_path(Node, N) ->
     data_path(Node) ++ integer_to_list(N) ++ ".bak".
@@ -216,8 +218,7 @@ backup_data(N, PL) ->
 backup_node(Node, N) ->
     Path = data_path(Node),
     BackupPath = backup_path(Node, N),
-    Cmd = "cp -R "++Path++" "++BackupPath,
-    lager:info("~p", [os:cmd(Cmd)]).
+    ?assertMatch({0, []}, rt:cmd("/bin/cp", ["-pPR", Path, BackupPath])).
 
 restore_data(N, PL) ->
     [restore_node(Node, N) || {{_, Node}, _} <- PL].
@@ -226,8 +227,7 @@ restore_node(Node, N) ->
     Path = data_path(Node),
     BackupPath = backup_path(Node, N),
     rm_backend_dir(Node),
-    Cmd = "mv "++BackupPath++" "++Path,
-    ?assertEqual([], os:cmd(Cmd)).
+    ?assertMatch({0, []}, rt:cmd("/bin/mv", [BackupPath, Path])).
 
 assert_lose_synctrees_and_recover(PBC, Bucket, Key, Val, PL, ToLose) ->
     {{Idx0, Node0}, primary} = hd(PL),
@@ -254,7 +254,7 @@ kill_peers(Ensemble, Nodes) ->
     Node = hd(Nodes),
     {_, [View | _]} = rpc:call(Node, riak_ensemble_manager, get_views, [Ensemble]),
     Peers = [P || P={_Id, N} <- View, lists:member(N, Nodes)],
-    lager:info("Killing Peers: ~p", [Peers]),
+    ?LOG_INFO("Killing Peers: ~0p", [Peers]),
     Pids = [rpc:call(Node, riak_ensemble_manager, get_peer_pid,
                      [Ensemble, Peer]) || Peer <- Peers],
     [exit(Pid, kill) || Pid <- Pids, Pid =/= undefined].
@@ -270,7 +270,7 @@ wipe_tree(Ensemble, Idx, Node) ->
     {_, [View | _]} = rpc:call(Node, riak_ensemble_manager, get_views, [Ensemble]),
     [Peer] = [P || P={_Id, N} <- View, Node =:= N],
     Pid = rpc:call(Node, riak_ensemble_manager, get_peer_pid, [Ensemble, Peer]),
-    lager:info("Peer= ~p, Pid = ~p", [Peer, Pid]),
+    ?LOG_INFO("Peer= ~0p, Pid = ~0p", [Peer, Pid]),
     exit(Pid, kill).
 
 wipe_partition(Idx, Node) ->
@@ -305,7 +305,7 @@ get_preflist(Node, Bucket, Key, NVal) ->
     {ok, PL}.
 
 create_strong_bucket_type(Node, NVal) ->
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal).

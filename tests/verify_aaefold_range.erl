@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -21,10 +19,13 @@
 %%
 %% Confirm that trees are returned that vary along with the data in the
 %% store
-
 -module(verify_aaefold_range).
--export([confirm/0, verify_aae_fold/1]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -49,59 +50,69 @@
           ]}]
        ).
 
--define(NUM_NODES, 3).
--define(NUM_KEYS_PERNODE, 10000).
+-define(NUM_KEYS, 12000). % must be divisible by node count
 -define(BUCKET, <<"test_bucket">>).
--define(N_VAL, 3).
 -define(DELTA_COUNT, 10).
 
 confirm() ->
-    Nodes0 = rt:build_cluster(?NUM_NODES, ?CFG_NOREBUILD),
+    rt:set_advanced_conf(all, ?CFG_NOREBUILD),
+    Nodes0 = rt:build_cluster([previous, previous, current, current]),
     ok = verify_aae_fold(Nodes0),
     pass.
 
 
 verify_aae_fold(Nodes) ->
-    
+
+    CountPerNode = ?NUM_KEYS div length(Nodes),
+    ?assertMatch(?NUM_KEYS, CountPerNode * length(Nodes)),
+
     {ok, CH} = riak:client_connect(hd(Nodes)),
     {ok, CT} = riak:client_connect(lists:last(Nodes)),
 
-    lager:info("Fold for empty tree range"),
+    ?LOG_INFO("Fold for empty tree range"),
     TreeQuery = {merge_tree_range, ?BUCKET, all, small, all, all, pre_hash},
     {ok, RH0} = riak_client:aae_fold(TreeQuery, CH),
     {ok, RT0} = riak_client:aae_fold(TreeQuery, CT),
 
-    lager:info("Commencing object load"),
-    KeyLoadFun = 
+    ?LOG_INFO("Commencing object load"),
+    KeyLoadFun =
         fun(Node, KeyCount) ->
-            KVs = test_data(KeyCount + 1,
-                                KeyCount + ?NUM_KEYS_PERNODE,
-                                list_to_binary("U1")),
+            KVs = test_data(
+                KeyCount + 1,
+                KeyCount + CountPerNode,
+                list_to_binary("U1")),
             ok = write_data(Node, KVs),
-            KeyCount + ?NUM_KEYS_PERNODE
+            KeyCount + CountPerNode
         end,
 
-    lists:foldl(KeyLoadFun, 1, Nodes),
-    lager:info("Loaded ~w objects", [?NUM_KEYS_PERNODE * length(Nodes)]),
+    lists:foldl(KeyLoadFun, 0, Nodes),
+    ?LOG_INFO("Loaded ~b objects", [?NUM_KEYS]),
 
-    lager:info("Fold for busy tree"),
+    ?LOG_INFO("Fold for busy tree"),
     {ok, RH1} = riak_client:aae_fold(TreeQuery, CH),
-    {ok, RT1} = riak_client:aae_fold(TreeQuery, CT),
-    
-    ?assertMatch(true, RH1 == RT1),
-    ?assertMatch(true, RH0 == RT0),
-    ?assertMatch(false, RH0 == RH1),
 
+    ?LOG_INFO("Force use of old trees on comparator"),
+    ok =
+        erpc:call(
+            lists:last(Nodes),
+            application,
+            set_env,
+            [riak_kv, legacyformat_tictacaae_tree, true]
+        ),
+    {ok, RT1} = riak_client:aae_fold(TreeQuery, CT),
+
+    ?assertMatch(false, RH0 == RH1),
+    ?assertMatch(true, [] == aae_exchange:compare_trees(RH0, RT0)),
     ?assertMatch(true, [] == aae_exchange:compare_trees(RH1, RT1)),
-    
-    lager:info("Make ~w changes", [?DELTA_COUNT]),
+
+    ?LOG_INFO("Make ~b changes", [?DELTA_COUNT]),
     Changes2 = test_data(1, ?DELTA_COUNT, list_to_binary("U2")),
     ok = write_data(hd(Nodes), Changes2),
 
     {ok, RH2} = riak_client:aae_fold(TreeQuery, CH),
     DirtySegments1 = aae_exchange:compare_trees(RH1, RH2),
 
-    lager:info("Found ~w mismatched segments", [length(DirtySegments1)]),
+    ?LOG_INFO("Found ~b mismatched segments", [length(DirtySegments1)]),
     ?assertMatch(true, length(DirtySegments1) > 0),
     ?assertMatch(true, length(DirtySegments1) =< ?DELTA_COUNT),
 
@@ -113,62 +124,60 @@ verify_aae_fold(Nodes) ->
 
     {ok, KCL1} = riak_client:aae_fold(FetchClocksQuery, CH),
 
-    lager:info("Found ~w mismatched keys", [length(KCL1)]),
+    ?LOG_INFO("Found ~b mismatched keys", [length(KCL1)]),
 
     ?assertMatch(true, length(KCL1) >= ?DELTA_COUNT),
     MappedKCL1 = lists:map(fun({B, K, VC}) -> {{B, K}, VC} end, KCL1),
 
-    lager:info("Checking all mismatched keys in result"),
-    MatchFun = 
+    ?LOG_INFO("Checking all mismatched keys in result"),
+    MatchFun =
         fun(I) ->
             K = to_key(I),
             InFetchClocks = lists:keyfind({?BUCKET, K}, 1, MappedKCL1),
             ?assertMatch(true, {?BUCKET, K} == element(1, InFetchClocks))
         end,
     lists:foreach(MatchFun, lists:seq(1, ?DELTA_COUNT)),
-    
-    lager:info("Activate bucket type and load objects"),
-    rt:create_and_activate_bucket_type(hd(Nodes),
-                                       <<"nval4">>,
-                                       [{n_val, 4},
-                                            {allow_mult, false}]),
+
+    ?LOG_INFO("Activate bucket type and load objects"),
+    rt:create_and_activate_bucket_type(
+        hd(Nodes), <<"nval4">>, [{n_val, 4}, {allow_mult, false}]
+    ),
 
     Nv4B = {<<"nval4">>, <<"test_typed_buckets">>},
     timer:sleep(1000),
 
-    KeyLoadTypeBFun = 
+    KeyLoadTypeBFun =
         fun(Node, KeyCount) ->
-            KVs = test_data(KeyCount + 1,
-                                KeyCount + ?NUM_KEYS_PERNODE div 4,
-                                list_to_binary("U1")),
+            KVs =
+                test_data(
+                    KeyCount + 1,
+                    KeyCount + CountPerNode,
+                    list_to_binary("U1")
+                ),
             ok = write_data(Node, KVs, [], Nv4B),
-            KeyCount + ?NUM_KEYS_PERNODE div 4
+            KeyCount + CountPerNode
         end,
-    lists:foldl(KeyLoadTypeBFun, 1, Nodes),
-    TypedBucketObjectCount = (?NUM_KEYS_PERNODE div 4) * length(Nodes),
-    lager:info(
-        "Loaded ~w objects",
-        [TypedBucketObjectCount]),
+    lists:foldl(KeyLoadTypeBFun, 0, Nodes),
+    TypedBucketObjectCount = ?NUM_KEYS,
+    ?LOG_INFO("Loaded ~b objects", [TypedBucketObjectCount]),
     timer:sleep(1000),
-    
+
     ObjectStatsTypedBucketQuery = {object_stats, Nv4B, all, all},
     {ok, ObjStatsTypedBucket0} =
         riak_client:aae_fold(ObjectStatsTypedBucketQuery, CH),
-    lager:info("Object Stats ~p", [ObjStatsTypedBucket0]),
+    ?LOG_INFO("Object Stats ~0p", [ObjStatsTypedBucket0]),
     {total_count, TCBT0} = hd(ObjStatsTypedBucket0),
     ?assertMatch(TCBT0, TypedBucketObjectCount),
 
-    lager:info("Stopping a node - query results should be unchanged"),
+    ?LOG_INFO("Stopping a node - query results should be unchanged"),
     rt:stop_and_wait(hd(tl(Nodes))),
-    
+
     {ok, KCL2} = riak_client:aae_fold(FetchClocksQuery, CH),
-    ?assertMatch(true, lists:sort(KCL1) == lists:sort(KCL2)),
-    
-    ok.
+    ?assertMatch(true, lists:sort(KCL1) == lists:sort(KCL2)).
 
 
 to_key(N) ->
-    list_to_binary(io_lib:format("K~4..0B", [N])).
+    list_to_binary(io_lib:format("K~6..0B", [N])).
 
 test_data(Start, End, V) ->
     Keys = [to_key(N) || N <- lists:seq(Start, End)],

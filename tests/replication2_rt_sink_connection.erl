@@ -18,18 +18,20 @@
 %%
 %% -------------------------------------------------------------------
 %%
-
 -module(replication2_rt_sink_connection).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(HB_TIMEOUT,  2000).
 
 confirm() ->
     NumNodes = rt_config:get(num_nodes, 6),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Conf = [
             {riak_repl,
              [
@@ -47,47 +49,47 @@ confirm() ->
     {ANodes, Rest} = lists:split(2, Nodes),
     {BNodes, CNodes} = lists:split(2, Rest),
 
-    lager:info("Loading intercepts."),
+    ?LOG_INFO("Loading intercepts."),
     CNode = hd(CNodes),
     rt_intercept:load_code(CNode),
     rt_intercept:add(CNode, {riak_repl_ring_handler,
                             [{{handle_event, 2}, slow_handle_event}]}),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
-    lager:info("CNodes: ~p", [CNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
+    ?LOG_INFO("CNodes: ~0p", [CNodes]),
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
-    % lager:info("Waiting for cluster A to converge"),
+    % ?LOG_INFO("Waiting for cluster A to converge"),
     % rt:wait_until_ring_converged(ANodes),
 
-    % lager:info("Waiting for cluster B to converge"),
+    % ?LOG_INFO("Waiting for cluster B to converge"),
     % rt:wait_until_ring_converged(BNodes),
 
-    lager:info("waiting for leader to converge on cluster A"),
+    ?LOG_INFO("waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
     AFirst = hd(ANodes),
 
-    lager:info("waiting for leader to converge on cluster B"),
+    ?LOG_INFO("waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
     BFirst = hd(BNodes),
 
-    lager:info("Naming A"),
+    ?LOG_INFO("Naming A"),
     repl_util:name_cluster(AFirst, "A"),
 
-    lager:info("Naming B"),
+    ?LOG_INFO("Naming B"),
     repl_util:name_cluster(BFirst, "B"),
 
     connect_clusters(AFirst, BFirst),
 
     enable_rt(AFirst, ANodes),
 
-    lager:info("Adding 4th node to the A cluster"),
+    ?LOG_INFO("Adding 4th node to the A cluster"),
     rt:join(CNode, AFirst),
 
     [verify_connectivity(Node) || Node <- ANodes],
@@ -103,7 +105,7 @@ verify_connectivity(Node) ->
                                              riak_core_cluster_mgr,
                                              get_connections,
                                              []),
-                lager:info("Waiting for sink connections on ~p: ~p.",
+                ?LOG_INFO("Waiting for sink connections on ~0p: ~0p.",
                            [Node, Connections]),
                 Connections =/= []
         end).
@@ -112,12 +114,12 @@ verify_connectivity(Node) ->
 connect_clusters(LeaderA, LeaderB) ->
     {ok, {_IP, Port}} = rpc:call(LeaderB, application, get_env,
                                  [riak_core, cluster_mgr]),
-    lager:info("Connect cluster A:~p to B on port ~p", [LeaderA, Port]),
+    ?LOG_INFO("Connect cluster A:~0p to B on port ~0p", [LeaderA, Port]),
     repl_util:connect_cluster(LeaderA, "127.0.0.1", Port).
 
 %% @doc Turn on Realtime replication on the cluster lead by LeaderA.
 %%      The clusters must already have been named and connected.
 enable_rt(LeaderA, ANodes) ->
-    lager:info("Enabling RT replication: ~p ~p.", [LeaderA, ANodes]),
+    ?LOG_INFO("Enabling RT replication: ~0p ~0p.", [LeaderA, ANodes]),
     repl_util:enable_realtime(LeaderA, "B"),
     repl_util:start_realtime(LeaderA, "B").

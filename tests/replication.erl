@@ -1,20 +1,49 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(replication).
 -behavior(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% export functions shared with other replication tests...
--export([make_bucket/3]).
+-export([
+    add_listeners/1,
+    add_site/2,
+    do_write/5,
+    make_bucket/3,
+    replication/3,
+    verify_listeners/1,
+    wait_for_site_ips/3,
+    wait_until_connection/1
+]).
 
 confirm() ->
     Conf = [
-            {riak_repl,
-             [
-                {fullsync_on_connect, false},
-                {fullsync_interval, disabled},
-                {diff_batch_size, 10}
-             ]}
+        {riak_repl, [
+            {fullsync_on_connect, false},
+            {fullsync_interval, disabled},
+            {diff_batch_size, 10}
+        ]}
     ],
     rt:set_advanced_conf(all, Conf),
     [ANodes, BNodes] = rt:build_clusters([3, 3]),
@@ -40,7 +69,7 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
             %% clusters are not connected, connect them
 
             %% write some initial data to A
-            lager:info("Writing 100 keys to ~p", [AFirst]),
+            ?LOG_INFO("Writing 100 keys to ~0p", [AFirst]),
             ?assertEqual([], do_write(AFirst, 1, 100, TestBucket, 2)),
 
             rt:log_to_nodes(AllNodes, "Adding listeners"),
@@ -51,9 +80,9 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
             %% verify servers are visible on all nodes
             verify_listeners(Listeners),
 
-            lager:info("waiting for leader to converge on cluster A"),
+            ?LOG_INFO("waiting for leader to converge on cluster A"),
             ?assertEqual(ok, wait_until_leader_converge(ANodes)),
-            lager:info("waiting for leader to converge on cluster B"),
+            ?LOG_INFO("waiting for leader to converge on cluster B"),
             ?assertEqual(ok, wait_until_leader_converge(BNodes)),
 
             %% get the leader for the first cluster
@@ -81,39 +110,39 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
             %% check the listener IPs were all imported into the site
             wait_for_site_ips(BFirst, "site1", Listeners);
         _ ->
-            lager:info("waiting for leader to converge on cluster A"),
+            ?LOG_INFO("waiting for leader to converge on cluster A"),
             ?assertEqual(ok, wait_until_leader_converge(ANodes)),
-            lager:info("waiting for leader to converge on cluster B"),
+            ?LOG_INFO("waiting for leader to converge on cluster B"),
             ?assertEqual(ok, wait_until_leader_converge(BNodes)),
             %% get the leader for the first cluster
             LeaderA = rpc:call(AFirst, riak_repl_leader, leader_node, []),
-            lager:info("Leader on cluster A is ~p", [LeaderA]),
+            ?LOG_INFO("Leader on cluster A is ~0p", [LeaderA]),
             [{Ip, Port, _}|_] = get_listeners(LeaderA)
     end,
 
     rt:log_to_nodes(AllNodes, "Write data to A"),
     %% write some data on A
     ?assertEqual(ok, wait_until_connection(LeaderA)),
-    %io:format("~p~n", [rpc:call(LeaderA, riak_repl_console, status, [quiet])]),
-    lager:info("Writing 100 more keys to ~p", [LeaderA]),
+    ?LOG_DEBUG("~0p", [rpc:call(LeaderA, riak_repl_console, status, [quiet])]),
+    ?LOG_INFO("Writing 100 more keys to ~0p", [LeaderA]),
     ?assertEqual([], do_write(LeaderA, 101, 200, TestBucket, 2)),
 
     rt:log_to_nodes(AllNodes, "Verify data received on B"),
     %% verify data is replicated to B
-    lager:info("Reading 100 keys written to ~p from ~p", [LeaderA, BFirst]),
+    ?LOG_INFO("Reading 100 keys written to ~0p from ~0p", [LeaderA, BFirst]),
     ?assertEqual(0, wait_for_reads(BFirst, 101, 200, TestBucket, 2)),
 
     case Connected of
         false ->
             %% check that the keys we wrote initially aren't replicated yet, because
             %% we've disabled fullsync_on_connect
-            lager:info("Check keys written before repl was connected are not present"),
+            ?LOG_INFO("Check keys written before repl was connected are not present"),
             Res2 = rt:systest_read(BFirst, 1, 100, TestBucket, 2),
             ?assertEqual(100, length(Res2)),
 
             start_and_wait_until_fullsync_complete(LeaderA),
 
-            lager:info("Check keys written before repl was connected are present"),
+            ?LOG_INFO("Check keys written before repl was connected are present"),
             ?assertEqual(0, wait_for_reads(BFirst, 1, 200, TestBucket, 2));
         _ ->
             ok
@@ -122,52 +151,52 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
     ASecond = hd(ANodes -- [LeaderA]),
 
     %% disconnect the other cluster, so realtime doesn't happen
-    lager:info("disconnect the 2 clusters"),
+    ?LOG_INFO("disconnect the 2 clusters"),
     del_site(BNodes, "site1"),
     ?assertEqual(ok, wait_until_no_connection(LeaderA)),
 
-    lager:info("write 2000 keys"),
+    ?LOG_INFO("write 2000 keys"),
     ?assertEqual([], do_write(ASecond, 50000, 52000,
             TestBucket, 2)),
 
-    lager:info("reconnect the 2 clusters"),
+    ?LOG_INFO("reconnect the 2 clusters"),
     add_site(hd(BNodes), {Ip, Port, "site1"}),
     ?assertEqual(ok, wait_until_connection(LeaderA)),
 
     start_and_wait_until_fullsync_complete(LeaderA),
 
-    lager:info("read 2000 keys"),
+    ?LOG_INFO("read 2000 keys"),
     ?assertEqual(0, wait_for_reads(BFirst, 50000, 52000, TestBucket, 2)),
 
     %%
     %% Failover tests
     %%
 
-    rt:log_to_nodes(AllNodes, "Testing master failover: stopping ~p", [LeaderA]),
-    lager:info("Testing master failover: stopping ~p", [LeaderA]),
+    rt:log_to_nodes(AllNodes, "Testing master failover: stopping ~0p", [LeaderA]),
+    ?LOG_INFO("Testing master failover: stopping ~0p", [LeaderA]),
     rt:stop(LeaderA),
     rt:wait_until_unpingable(LeaderA),
     wait_until_leader(ASecond),
 
     LeaderA2 = rpc:call(ASecond, riak_repl_leader, leader_node, []),
 
-    lager:info("New leader is ~p", [LeaderA2]),
+    ?LOG_INFO("New leader is ~0p", [LeaderA2]),
 
     ?assertEqual(ok, wait_until_connection(LeaderA2)),
 
-    lager:info("Writing 100 more keys to ~p now that the old leader is down",
+    ?LOG_INFO("Writing 100 more keys to ~0p now that the old leader is down",
         [ASecond]),
 
     ?assertEqual([], do_write(ASecond, 201, 300, TestBucket, 2)),
 
     %% verify data is replicated to B
-    lager:info("Reading 100 keys written to ~p from ~p", [ASecond, BFirst]),
+    ?LOG_INFO("Reading 100 keys written to ~0p from ~0p", [ASecond, BFirst]),
     ?assertEqual(0, wait_for_reads(BFirst, 201, 300, TestBucket, 2)),
 
     %% get the leader for the first cluster
     LeaderB = rpc:call(BFirst, riak_repl_leader, leader_node, []),
 
-    lager:info("Testing client failover: stopping ~p", [LeaderB]),
+    ?LOG_INFO("Testing client failover: stopping ~0p", [LeaderB]),
     rt:stop(LeaderB),
     rt:wait_until_unpingable(LeaderB),
     BSecond = hd(BNodes -- [LeaderB]),
@@ -175,22 +204,22 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
 
     LeaderB2 = rpc:call(BSecond, riak_repl_leader, leader_node, []),
 
-    lager:info("New leader is ~p", [LeaderB2]),
+    ?LOG_INFO("New leader is ~0p", [LeaderB2]),
 
     ?assertEqual(ok, wait_until_connection(LeaderA2)),
 
-    lager:info("Writing 100 more keys to ~p now that the old leader is down",
+    ?LOG_INFO("Writing 100 more keys to ~0p now that the old leader is down",
         [ASecond]),
 
     ?assertEqual([], do_write(ASecond, 301, 400, TestBucket, 2)),
 
     %% verify data is replicated to B
     rt:wait_until_pingable(BSecond),
-    lager:info("Reading 101 keys written to ~p from ~p", [ASecond, BSecond]),
+    ?LOG_INFO("Reading 101 keys written to ~0p from ~0p", [ASecond, BSecond]),
     ?assertEqual(0, wait_for_reads(BSecond, 301, 400, TestBucket, 2)),
 
     %% Testing fullsync with downed nodes
-    lager:info("Re-running fullsync with ~p and ~p down", [LeaderA, LeaderB]),
+    ?LOG_INFO("Re-running fullsync with ~0p and ~0p down", [LeaderA, LeaderB]),
 
     start_and_wait_until_fullsync_complete(LeaderA2),
 
@@ -198,7 +227,7 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
     %% Per-bucket repl settings tests
     %%
 
-    lager:info("Restarting down node ~p", [LeaderA]),
+    ?LOG_INFO("Restarting down node ~0p", [LeaderA]),
     rt:start(LeaderA),
     rt:wait_until_pingable(LeaderA),
     rt:wait_until_no_pending_changes(ANodes),
@@ -208,33 +237,33 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
     case nodes_all_have_version(ANodes, "1.2.2") of
         true ->
 
-            lager:info("Starting Joe's Repl Test"),
+            ?LOG_INFO("Starting Joe's Repl Test"),
 
             %% At this point, realtime sync should still work, but, it doesn't
             %% because of a bug in 1.2.1.
             %% Check that repl leader is LeaderA
             %% Check that LeaderA2 has ceeded socket back to LeaderA
 
-            lager:info("Leader: ~p", [rpc:call(ASecond, riak_repl_leader, leader_node, [])]),
-            lager:info("LeaderA: ~p", [LeaderA]),
-            lager:info("LeaderA2: ~p", [LeaderA2]),
+            ?LOG_INFO("Leader: ~0p", [rpc:call(ASecond, riak_repl_leader, leader_node, [])]),
+            ?LOG_INFO("LeaderA: ~0p", [LeaderA]),
+            ?LOG_INFO("LeaderA2: ~0p", [LeaderA2]),
 
             ?assertEqual(ok, wait_until_connection(LeaderA)),
 
-            lager:info("Simulation partition to force leader re-election"),
+            ?LOG_INFO("Simulation partition to force leader re-election"),
 
             PInfo = rt:partition([LeaderA2], ANodes -- [LeaderA2]),
 
-            lager:info("Waiting for new leader"),
+            ?LOG_INFO("Waiting for new leader"),
             wait_until_new_leader(hd(ANodes -- [LeaderA2]), LeaderA2),
             InterimLeader = rpc:call(LeaderA, riak_repl_leader, leader_node, []),
-            lager:info("Interim leader: ~p", [InterimLeader]),
+            ?LOG_INFO("Interim leader: ~0p", [InterimLeader]),
 
-            lager:info("Heal partition"),
+            ?LOG_INFO("Heal partition"),
 
             rt:heal(PInfo),
 
-            lager:info("Wait for leader convergence"),
+            ?LOG_INFO("Wait for leader convergence"),
             %% there's no point in writing anything until the leaders
             %% converge, as we can drop writes in the middle of an election
             wait_until_leader_converge(ANodes),
@@ -243,22 +272,22 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
 
             wait_until_connection(LeaderA3),
 
-            lager:info("Leader: ~p", [LeaderA3]),
-            lager:info("Writing 2 more keys to ~p", [LeaderA3]),
+            ?LOG_INFO("Leader: ~0p", [LeaderA3]),
+            ?LOG_INFO("Writing 2 more keys to ~0p", [LeaderA3]),
             ?assertEqual([], do_write(LeaderA3, 1301, 1302, TestBucket, 2)),
 
             %% verify data is replicated to B
-            lager:info("Reading 2 keys written to ~p from ~p", [LeaderA3, BSecond]),
+            ?LOG_INFO("Reading 2 keys written to ~0p from ~0p", [LeaderA3, BSecond]),
             ?assertEqual(0, wait_for_reads(BSecond, 1301, 1302, TestBucket, 2)),
 
-            lager:info("Finished Joe's Section"),
+            ?LOG_INFO("Finished Joe's Section"),
 
-            lager:info("Nodes restarted");
+            ?LOG_INFO("Nodes restarted");
         _ ->
-            lager:info("Skipping Joe's Repl Test")
+            ?LOG_INFO("Skipping Joe's Repl Test")
     end,
 
-    lager:info("Restarting down node ~p", [LeaderB]),
+    ?LOG_INFO("Restarting down node ~0p", [LeaderB]),
     rt:start(LeaderB),
     rt:wait_until_pingable(LeaderB),
 
@@ -273,15 +302,15 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
                     make_bucket(ANodes, FullsyncOnly, [{repl, fullsync}]),
 
                     %% disconnect the other cluster, so realtime doesn't happen
-                    lager:info("disconnect the 2 clusters"),
+                    ?LOG_INFO("disconnect the 2 clusters"),
                     del_site(BNodes, "site1"),
                     ?assertEqual(ok, wait_until_no_connection(LeaderA)),
 
-                    lager:info("write 100 keys to a realtime only bucket"),
+                    ?LOG_INFO("write 100 keys to a realtime only bucket"),
                     ?assertEqual([], do_write(ASecond, 1, 100,
                             RealtimeOnly, 2)),
 
-                    lager:info("reconnect the 2 clusters"),
+                    ?LOG_INFO("reconnect the 2 clusters"),
                     add_site(LeaderB, {Ip, Port, "site1"}),
                     ?assertEqual(ok, wait_until_connection(LeaderA));
                 _ ->
@@ -290,20 +319,20 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
 
             LeaderA4 = rpc:call(ASecond, riak_repl_leader, leader_node, []),
 
-            lager:info("write 100 keys to a {repl, false} bucket"),
+            ?LOG_INFO("write 100 keys to a {repl, false} bucket"),
             ?assertEqual([], do_write(ASecond, 1, 100, NoRepl, 2)),
 
             case nodes_all_have_version(ANodes, "1.2.0") of
                 true ->
-                    lager:info("write 100 keys to a fullsync only bucket"),
+                    ?LOG_INFO("write 100 keys to a fullsync only bucket"),
                     ?assertEqual([], do_write(ASecond, 1, 100,
                             FullsyncOnly, 2)),
 
-                    lager:info("Check the fullsync only bucket didn't replicate the writes"),
+                    ?LOG_INFO("Check the fullsync only bucket didn't replicate the writes"),
                     Res6 = rt:systest_read(BSecond, 1, 100, FullsyncOnly, 2),
                     ?assertEqual(100, length(Res6)),
 
-                    lager:info("Check the realtime only bucket that was written to offline "
+                    ?LOG_INFO("Check the realtime only bucket that was written to offline "
                         "isn't replicated"),
                     Res7 = rt:systest_read(BSecond, 1, 100, RealtimeOnly, 2),
                     ?assertEqual(100, length(Res7));
@@ -311,7 +340,7 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
                     timer:sleep(1000)
             end,
 
-            lager:info("Check the {repl, false} bucket didn't replicate"),
+            ?LOG_INFO("Check the {repl, false} bucket didn't replicate"),
             Res8 = rt:systest_read(BSecond, 1, 100, NoRepl, 2),
             ?assertEqual(100, length(Res8)),
 
@@ -321,40 +350,40 @@ replication([AFirst|_] = ANodes, [BFirst|_] = BNodes, Connected) ->
 
             case nodes_all_have_version(ANodes, "1.2.0") of
                 true ->
-                    lager:info("Check fullsync only bucket is now replicated"),
+                    ?LOG_INFO("Check fullsync only bucket is now replicated"),
                     ?assertEqual(0, wait_for_reads(BSecond, 1, 100,
                             FullsyncOnly, 2)),
 
-                    lager:info("Check realtime only bucket didn't replicate"),
+                    ?LOG_INFO("Check realtime only bucket didn't replicate"),
                     Res10 = rt:systest_read(BSecond, 1, 100, RealtimeOnly, 2),
                     ?assertEqual(100, length(Res10)),
 
 
-                    lager:info("Write 100 more keys into realtime only bucket"),
+                    ?LOG_INFO("Write 100 more keys into realtime only bucket"),
                     ?assertEqual([], do_write(ASecond, 101, 200,
                             RealtimeOnly, 2)),
 
                     timer:sleep(5000),
 
-                    lager:info("Check the realtime keys replicated"),
+                    ?LOG_INFO("Check the realtime keys replicated"),
                     ?assertEqual(0, wait_for_reads(BSecond, 101, 200,
                                 RealtimeOnly, 2)),
 
-                    lager:info("Check the older keys in the realtime bucket did not replicate"),
+                    ?LOG_INFO("Check the older keys in the realtime bucket did not replicate"),
                     Res12 = rt:systest_read(BSecond, 1, 100, RealtimeOnly, 2),
                     ?assertEqual(100, length(Res12));
                 _ ->
                     ok
             end,
 
-            lager:info("Check {repl, false} bucket didn't replicate"),
+            ?LOG_INFO("Check {repl, false} bucket didn't replicate"),
             Res13 = rt:systest_read(BSecond, 1, 100, NoRepl, 2),
             ?assertEqual(100, length(Res13));
         _ ->
             ok
     end,
 
-    lager:info("Test passed"),
+    ?LOG_INFO("Test passed"),
     fin.
 
 verify_sites_balanced(NumSites, BNodes0) ->
@@ -369,8 +398,8 @@ verify_sites_balanced(NumSites, BNodes0) ->
                     ?assertEqual(NumSites, client_count(Leader));
                 _ ->
                     NodeCounts = [{Node, client_count(Node)} || Node <- BNodes],
-                    lager:notice("nodecounts ~p", [NodeCounts]),
-                    lager:notice("leader ~p", [Leader]),
+                    ?LOG_NOTICE("nodecounts ~0p", [NodeCounts]),
+                    ?LOG_NOTICE("leader ~0p", [Leader]),
                     Min = NumSites div NumNodes,
                     [?assert(Count >= Min) || {_Node, Count} <- NodeCounts]
             end;
@@ -406,35 +435,35 @@ gen_fake_listeners(Num) ->
     lists:zip3(IPs, Ports, Nodes).
 
 fake_node(Num) ->
-    lists:flatten(io_lib:format("fake~p@127.0.0.1", [Num])).
+    lists:flatten(io_lib:format("fake~b@127.0.0.1", [Num])).
 
 add_fake_sites([Node|_], Listeners) ->
     [add_site(Node, {IP, Port, fake_site(Port)})
      || {IP, Port, _} <- Listeners].
 
 add_site(Node, {IP, Port, Name}) ->
-    lager:info("Add site ~p ~p:~p at node ~p", [Name, IP, Port, Node]),
+    ?LOG_INFO("Add site ~0p ~0p:~b at node ~0p", [Name, IP, Port, Node]),
     Args = [IP, integer_to_list(Port), Name],
     Res = rpc:call(Node, riak_repl_console, add_site, [Args]),
     ?assertEqual(ok, Res),
     timer:sleep(timer:seconds(5)).
 
 del_site([Node|_]=Nodes, Name) ->
-    lager:info("Del site ~p at ~p", [Name, Node]),
+    ?LOG_INFO("Del site ~0p at ~0p", [Name, Node]),
     Res = rpc:call(Node, riak_repl_console, del_site, [[Name]]),
     ?assertEqual(ok, Res),
     rt:wait_until_ring_converged(Nodes),
     timer:sleep(timer:seconds(5)).
 
 fake_site(Port) ->
-    lists:flatten(io_lib:format("fake_site_~p", [Port])).
+    lists:flatten(io_lib:format("fake_site_~b", [Port])).
 
 verify_listeners(Listeners) ->
     Strs = [IP ++ ":" ++ integer_to_list(Port) || {IP, Port, _} <- Listeners],
     [?assertEqual(ok, verify_listener(Node, Strs)) || {_, _, Node} <- Listeners].
 
 verify_listener(Node, Strs) ->
-    lager:info("Verify listeners ~p ~p", [Node, Strs]),
+    ?LOG_INFO("Verify listeners ~0p ~0p", [Node, Strs]),
     rt:wait_until(Node,
         fun(_) ->
                 Status = rpc:call(Node, riak_repl_console, status, [quiet]),
@@ -452,19 +481,10 @@ add_listeners(Nodes=[FirstNode|_]) ->
     PN.
 
 add_listener(N, Node, IP, Port) ->
-    lager:info("Adding repl listener to ~p ~s:~p", [Node, IP, Port]),
+    ?LOG_INFO("Adding repl listener to ~0p ~s:~b", [Node, IP, Port]),
     Args = [[atom_to_list(Node), IP, integer_to_list(Port)]],
     Res = rpc:call(N, riak_repl_console, add_listener, Args),
     ?assertEqual(ok, Res).
-
-del_listeners(Node) ->
-    Listeners = get_listeners(Node),
-    lists:foreach(fun(Listener={IP, Port, N}) ->
-                lager:info("deleting listener ~p on ~p", [Listener, Node]),
-                Res = rpc:call(Node, riak_repl_console, del_listener,
-                    [[atom_to_list(N), IP, integer_to_list(Port)]]),
-                ?assertEqual(ok, Res)
-        end, Listeners).
 
 get_listeners(Node) ->
     Status = rpc:call(Node, riak_repl_console, status, [quiet]),
@@ -488,12 +508,12 @@ verify_site_ips_fun(Leader, Site, Listeners) ->
             Status = rpc:call(Leader, riak_repl_console, status, [quiet]),
             Key = lists:flatten([Site, "_ips"]),
             IPStr = proplists:get_value(Key, Status),
-            lager:info("IPSTR: ~p", [IPStr]),
+            ?LOG_INFO("IPSTR: ~0p", [IPStr]),
             IPs = lists:sort(re:split(IPStr, ", ")),
             ExpectedIPs = lists:sort(
                             [list_to_binary([IP, ":", integer_to_list(Port)]) || {IP, Port, _Node} <-
                                                                                      Listeners]),
-            lager:info("ExpectedIPs: ~p IPs: ~p", [ExpectedIPs, IPs]),
+            ?LOG_INFO("ExpectedIPs: ~0p IPs: ~0p", [ExpectedIPs, IPs]),
             ExpectedIPs =:= IPs
     end.
 
@@ -508,10 +528,10 @@ start_and_wait_until_fullsync_complete(Node) ->
 start_and_wait_until_fullsync_complete(Node, Retries) ->
     Status0 = rpc:call(Node, riak_repl_console, status, [quiet]),
     Count = proplists:get_value(server_fullsyncs, Status0) + 1,
-    lager:info("waiting for fullsync count to be ~p", [Count]),
+    ?LOG_INFO("waiting for fullsync count to be ~0p", [Count]),
 
-    lager:info("Starting fullsync on ~p (~p)", [Node,
-            rtdev:node_version(rtdev:node_id(Node))]),
+    ?LOG_INFO("Starting fullsync on ~0p (~0p)",
+        [Node, rt:get_node_version(Node)]),
     rpc:call(Node, riak_repl_console, start_fullsync, [[]]),
 
     %% sleep because of the old bug where stats will crash if you call it too
@@ -523,10 +543,10 @@ start_and_wait_until_fullsync_complete(Node, Retries) ->
             ok;
         _  when Retries > 0 ->
             ?assertEqual(ok, wait_until_connection(Node)),
-            lager:warning("Node failed to fullsync, retrying"),
+            ?LOG_WARNING("Node failed to fullsync, retrying"),
             start_and_wait_until_fullsync_complete(Node, Retries-1)
     end,
-    lager:info("Fullsync on ~p complete", [Node]).
+    ?LOG_INFO("Fullsync on ~0p complete", [Node]).
 
 make_fullsync_wait_fun(Node, Count) ->
     fun() ->
@@ -542,35 +562,6 @@ make_fullsync_wait_fun(Node, Count) ->
                             false
                     end
             end
-    end.
-
-wait_until_is_leader(Node) ->
-    lager:info("wait_until_is_leader(~p)", [Node]),
-    rt:wait_until(Node, fun is_leader/1).
-
-is_leader(Node) ->
-    case rpc:call(Node, riak_repl_leader, leader_node, []) of
-        {badrpc, _} ->
-            lager:info("Badrpc"),
-            false;
-        Leader ->
-            lager:info("Checking: ~p =:= ~p", [Leader, Node]),
-            Leader =:= Node
-    end.
-
-
-wait_until_is_not_leader(Node) ->
-    lager:info("wait_until_is_not_leader(~p)", [Node]),
-    rt:wait_until(Node, fun is_not_leader/1).
-
-is_not_leader(Node) ->
-    case rpc:call(Node, riak_repl_leader, leader_node, []) of
-        {badrpc, _} ->
-            lager:info("Badrpc"),
-            false;
-        Leader ->
-            lager:info("Checking: ~p =/= ~p", [Leader, Node]),
-            Leader =/= Node
     end.
 
 wait_until_leader(Node) ->
@@ -614,8 +605,7 @@ get_leader(Status) ->
         undefined ->
             false;
         L ->
-            %%lager:info("Leader for ~p is ~p",
-            %%[N,L]),
+            ?LOG_DEBUG("Leader is ~0p", [L]),
             L
     end.
 
@@ -646,7 +636,7 @@ wait_until_connection(Node) ->
                             [_C] ->
                                 true;
                             Conns ->
-                                lager:warning("multiple connections detected: ~p",
+                                ?LOG_WARNING("multiple connections detected: ~0p",
                                     [Conns]),
                                 true
                         end
@@ -668,7 +658,7 @@ wait_until_no_connection(Node) ->
                             [_C] ->
                                 false;
                             Conns ->
-                                lager:warning("multiple connections detected: ~p",
+                                ?LOG_WARNING("multiple connections detected: ~0p",
                                     [Conns]),
                                 false
                         end
@@ -682,7 +672,7 @@ wait_for_reads(Node, Start, End, Bucket, R) ->
                 rt:systest_read(Node, Start, End, Bucket, R) == []
         end),
     Reads = rt:systest_read(Node, Start, End, Bucket, R),
-    lager:info("Reads: ~p", [Reads]),
+    ?LOG_INFO("Reads: ~0p", [Reads]),
     length(Reads).
 
 do_write(Node, Start, End, Bucket, W) ->
@@ -690,7 +680,7 @@ do_write(Node, Start, End, Bucket, W) ->
         [] ->
             [];
         Errors ->
-            lager:warning("~p errors while writing: ~p",
+            ?LOG_WARNING("~b errors while writing: ~0p",
                 [length(Errors), Errors]),
             timer:sleep(1000),
             lists:flatten([rt:systest_write(Node, S, S, Bucket, W) ||

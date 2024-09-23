@@ -1,7 +1,28 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%% -------------------------------------------------------------------
 -module(sibling_explosion).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(B, <<"b">>).
 -define(K, <<"k">>).
@@ -24,11 +45,11 @@ confirm() ->
     [Node1] = rt:deploy_nodes(1, Conf),
     N = 100,
 
-    lager:info("Put new object in ~p via PBC.", [Node1]),
+    ?LOG_INFO("Put new object in ~0p via PBC.", [Node1]),
     PB = rt:pbc(Node1),
 
-    A0 = riakc_obj:new(<<"b">>, <<"k">>, sets:from_list([0])),
-    B0 = riakc_obj:new(<<"b">>, <<"k">>, sets:from_list([1])),
+    A0 = riakc_obj:new(<<"b">>, <<"k">>, term_to_binary(sets:from_list([0]))),
+    B0 = riakc_obj:new(<<"b">>, <<"k">>, term_to_binary(sets:from_list([1]))),
 
     _ = explode(PB, {A0, B0}, N),
 
@@ -78,8 +99,11 @@ resolve_update(Obj, N) ->
         Values ->
             Value0 = resolve(Values, sets:new()),
             Value = sets:add_element(N, Value0),
-            lager:info("Storing ~p", [N]),
-            riakc_obj:update_metadata(riakc_obj:update_value(Obj, Value), dict:new())
+            ?LOG_INFO("Storing ~0p", [N]),
+            riakc_obj:update_metadata(
+                riakc_obj:update_value(Obj, term_to_binary(Value)),
+                dict:new()
+            )
     end.
 
 %% Set union on each value

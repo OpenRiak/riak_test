@@ -21,13 +21,16 @@
 %% object correctly.
 -module(post_generate_key).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     Nodes = rt:build_cluster(1),
     ?assertEqual(ok, rt:wait_until_nodes_ready(Nodes)),
-    
+
     [Base|_] = rt:http_url(Nodes),
 
     Bucket = "post_generate_key",
@@ -68,7 +71,7 @@ get_url(Url) ->
 
 post_was_successful({ok, "201", _, _}) -> true;
 post_was_successful(Other) ->
-    lager:warning("That's not a 201: ~p", [Other]),
+    ?LOG_WARNING("That's not a 201: ~0p", [Other]),
     false.
 
 location_header({ok, _, Headers, _}) ->
@@ -79,7 +82,7 @@ is_old_url(Url) ->
         {match, _} ->
             true;
         nomatch ->
-            lager:warning("That's not an old url: ~s", [Url]),
+            ?LOG_WARNING("That's not an old url: ~s", [Url]),
             false
     end.
 
@@ -88,12 +91,12 @@ is_new_url(Url) ->
         {match, _} ->
             true;
         nomatch ->
-            lager:warning("That's not a new url: ~s", [Url]),
+            ?LOG_WARNING("That's not a new url: ~s", [Url]),
             false
     end.
 
 
 get_was_successful({ok, "200", _, _}) -> true;
 get_was_successful(Other) ->
-    lager:warning("That's not a 200: ~p", [Other]),
+    ?LOG_WARNING("That's not a 200: ~0p", [Other]),
     false.

@@ -30,15 +30,13 @@
 %% the worker's restart
 %%
 %% These tests used to be a component of riak_pipe:exception_test_/0.
-
 -module(pipe_verify_restart_input_forwarding).
+-behavior(riak_test).
 
--export([
-         %% riak_test's entry
-         confirm/0
-        ]).
+-export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% local copy of riak_pipe.hrl
 -include("rt_pipe.hrl").
@@ -51,7 +49,7 @@
 
 %% @doc riak_test callback
 confirm() ->
-    lager:info("Build ~b node cluster", [?NODE_COUNT]),
+    ?LOG_INFO("Build ~b node cluster", [?NODE_COUNT]),
     Nodes = rt:build_cluster(?NODE_COUNT),
 
     [rt:wait_for_service(Node, riak_pipe) || Node <- Nodes],
@@ -62,11 +60,11 @@ confirm() ->
 
     rt_pipe:assert_no_zombies(Nodes),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 verify_worker_restart_failure_input_forwarding([RN]) ->
-    lager:info("Verify input forwarding after worker restart failure"),
+    ?LOG_INFO("Verify input forwarding after worker restart failure"),
 
     %% make a worker fail, and then also fail to restart, and check
     %% that the input that killed it generates a processing error,

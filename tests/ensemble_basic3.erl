@@ -17,26 +17,28 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_basic3).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 confirm() ->
     NumNodes = 6,
     NVal = 5,
     Quorum = NVal div 2 + 1,
     Config = ensemble_util:fast_config(NVal, 32),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     Nodes = ensemble_util:build_cluster(NumNodes, Config, NVal),
     vnode_util:load(Nodes),
     Node = hd(Nodes),
     Ensembles = ensemble_util:ensembles(Node),
-    lager:info("Killing all ensemble leaders"),
+    ?LOG_INFO("Killing all ensemble leaders"),
     ok = ensemble_util:kill_leaders(Node, Ensembles),
     ensemble_util:wait_until_stable(Node, NVal),
 
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -57,41 +59,41 @@ confirm() ->
 
     PBC = rt:pbc(Node),
 
-    lager:info("Partitioning quorum minority: ~p", [Partitioned]),
+    ?LOG_INFO("Partitioning quorum minority: ~0p", [Partitioned]),
     Part = rt:partition(Nodes -- Partitioned, Partitioned),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Writing ~p consistent keys", [1000]),
+    ?LOG_INFO("Writing ~b consistent keys", [1000]),
     [ok = rt:pbc_write(PBC, Bucket, Key, Key) || Key <- Keys],
 
-    lager:info("Read keys to verify they exist"),
+    ?LOG_INFO("Read keys to verify they exist"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
 
-    lager:info("Healing partition"),
+    ?LOG_INFO("Healing partition"),
     rt:heal(Part),
 
-    lager:info("Suspending majority vnodes"),
+    ?LOG_INFO("Suspending majority vnodes"),
     L = [begin
-             lager:info("Suspending vnode: ~p", [VIdx]),
+             ?LOG_INFO("Suspending vnode: ~0p", [VIdx]),
              Pid = vnode_util:suspend_vnode(VNode, VIdx),
              {VN, Pid}
          end || VN={VIdx, VNode} <- MajorityVN],
     L2 = orddict:from_list(L),
 
     L3 = lists:foldl(fun({VN={VIdx, VNode}, Pid}, Suspended) ->
-                        lager:info("Resuming vnode: ~p", [VIdx]),
+                        ?LOG_INFO("Resuming vnode: ~0p", [VIdx]),
                         vnode_util:resume_vnode(Pid),
                         ensemble_util:wait_until_stable(Node, Quorum),
-                        lager:info("Re-reading keys"),
+                        ?LOG_INFO("Re-reading keys"),
                         [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
-                        lager:info("Suspending vnode: ~p", [VIdx]),
+                        ?LOG_INFO("Suspending vnode: ~0p", [VIdx]),
                         Pid2 = vnode_util:suspend_vnode(VNode, VIdx),
                         orddict:store(VN, Pid2, Suspended)
                 end, orddict:new(), L2),
 
-    lager:info("Resuming all vnodes"),
+    ?LOG_INFO("Resuming all vnodes"),
     [vnode_util:resume_vnode(Pid) || {_, Pid} <- L3],
     ensemble_util:wait_until_stable(Node, NVal),
-    lager:info("Re-reading keys"),
+    ?LOG_INFO("Re-reading keys"),
     [rt:pbc_read(PBC, Bucket, Key) || Key <- Keys],
     pass.

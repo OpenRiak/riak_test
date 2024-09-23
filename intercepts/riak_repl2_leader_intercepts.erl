@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Basho Technologies, Inc.
+%% Copyright (c) 2013-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,6 +20,8 @@
 
 -module(riak_repl2_leader_intercepts).
 -compile([export_all, nowarn_export_all]).
+
+-include_lib("kernel/include/logger.hrl").
 -include("intercept.hrl").
 
 -define(M, riak_repl2_leader_orig).
@@ -29,7 +31,7 @@ leader_server(Node) ->
     receive
         {From, _} ->
             io:format("Letting ~p know that ~p is the leader~n", [From, Node]),
-            lager:debug("Letting ~p know that ~p is the leader", [From, Node]),
+            ?LOG_DEBUG("Letting ~p know that ~p is the leader", [From, Node]),
             From ! {self(), Node},
             leader_server(Node)
     end.

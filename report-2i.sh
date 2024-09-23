@@ -1,1 +1,0 @@
-priv/reporting/report-2i.sh

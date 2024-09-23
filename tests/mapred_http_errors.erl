@@ -20,15 +20,21 @@
 %% @doc Verify MapReduce returns the right kind of errors.
 -module(mapred_http_errors).
 -behavior(riak_test).
--export([
-         %% riak_test api
-         confirm/0,
 
-         %% used on riak node
-         map_never_notfound/3
-        ]).
--compile([export_all, nowarn_export_all]). %% because we call ?MODULE:TestName
--include_lib("eunit/include/eunit.hrl").
+-export([
+    %% riak_test api
+    confirm/0,
+
+    %% run on Riak node
+    map_never_notfound/3,
+
+    %% called via ?MODULE:TestName
+    proc_fun_clause/1,
+    proc_fun_clause_chunked/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% @doc this map function always bails with a function clause error on
 %% notfound
@@ -41,7 +47,7 @@ confirm() ->
     rt:load_modules_on_nodes([?MODULE], Nodes),
 
     [ begin
-          lager:info("Running test ~p", [T]),
+          ?LOG_INFO("Running test ~0p", [T]),
           ?MODULE:T(Nodes)
       end
       || T <- [proc_fun_clause,

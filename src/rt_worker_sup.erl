@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,6 +21,8 @@
 -module(rt_worker_sup).
 
 -behavior(supervisor).
+
+-include_lib("kernel/include/logger.hrl").
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(Id, Mod, Node, Backend, Vsn, ReportPid), {
@@ -47,6 +49,6 @@ init(Props) ->
         ?CHILD(Num, loaded_upgrade_worker_sup, Node, Backend, Vsn, ReportPid)
     || Num <- lists:seq(1, WorkersPerNode)],
 
-    lager:info("Starting ~p workers to ~p", [WorkersPerNode, Node]),
+    ?LOG_INFO("Starting ~b workers to ~0p", [WorkersPerNode, Node]),
 
     {ok, {{one_for_one, 1000, 60}, ChildSpecs}}.

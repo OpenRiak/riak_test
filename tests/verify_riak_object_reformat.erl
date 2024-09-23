@@ -25,8 +25,11 @@
 %% -------------------------------------------------------------------
 -module(verify_riak_object_reformat).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(N, 3).
 
@@ -43,19 +46,19 @@ confirm() ->
 
     [rt:wait_until_capability(N, {riak_kv, object_format}, v1, v0) || N <- Nodes],
 
-    lager:info("Writing 100 keys in format v1 to ~p", [Node1]),
+    ?LOG_INFO("Writing 100 keys in format v1 to ~0p", [Node1]),
     rt:systest_write(Node1, 100, ?N),
     ?assertEqual([], rt:systest_read(Node1, 100, ?N)),
-    lager:info("100 keys successfully written to ~p", [Node1]),
+    ?LOG_INFO("100 keys successfully written to ~0p", [Node1]),
 
     %% TODO: introduce some handoff
     [begin
-         lager:info("Reformatting objects and downgrading ~p", [Node]),
+         ?LOG_INFO("Reformatting objects and downgrading ~0p", [Node]),
          run_reformat(Node, Node =:= Node1), %% wait for handoffs on one node, kill on rest
          [rt:wait_until_capability(N, {riak_kv, object_format}, v0, v0) || N <- Nodes],
          rt:upgrade(Node, DowngradeVsn), %% use upgrade to downgrade
          rt:wait_for_service(Node, riak_kv),
-         lager:info("Ensuring keys still readable on ~p", [Node]),
+         ?LOG_INFO("Ensuring keys still readable on ~0p", [Node]),
          ?assertEqual([], rt:systest_read(Node, 100, ?N))
      end || Node <- Nodes],
     pass.

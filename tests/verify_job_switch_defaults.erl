@@ -17,13 +17,13 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(verify_job_switch_defaults).
-
 -behavior(riak_test).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("job_enable_common.hrl").
 
 %% ===================================================================
@@ -32,7 +32,7 @@
 
 confirm() ->
     Configs = [{current, {cuttlefish, ?COMMON_CONFIG}}],
-    lager:info("Deploying ~b nodes ...", [erlang:length(Configs)]),
+    ?LOG_INFO("Deploying ~b nodes ...", [erlang:length(Configs)]),
     [Node | _] = Nodes = rt:deploy_nodes(Configs),
 
     job_enable_common:setup_cluster(Nodes),
@@ -48,7 +48,7 @@ confirm() ->
 %% ===================================================================
 
 test_job_switch(Node, Class, Enabled) ->
-    lager:info("verifying ~p default ~s",
+    ?LOG_INFO("verifying ~0p default ~s",
         [Class, job_enable_common:enabled_string(Enabled)]),
     ?assertEqual(Enabled, job_enable_common:get_enabled(Node, Class)),
     ?assertEqual(ok, job_enable_common:set_enabled(Node, Class, not Enabled)),

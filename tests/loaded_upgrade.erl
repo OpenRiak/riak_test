@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,10 +18,12 @@
 %%
 %% -------------------------------------------------------------------
 -module(loaded_upgrade).
-
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
 
 -export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -export([kv_valgen/1, bucket/1, erlang_mr/0, int_to_key/1]).
 
@@ -61,7 +63,7 @@ confirm() ->
 
     [begin
          exit(Sup, normal),
-         lager:info("Upgrading ~p", [Node]),
+         ?LOG_INFO("Upgrading ~0p", [Node]),
          rt:upgrade(Node, current),
          rt:wait_for_service(Node, [riak_kv, riak_pipe]),
          {ok, NewSup} = rt_worker_sup:start_link([{concurrent, Concurrent},
@@ -90,7 +92,7 @@ upgrade_recv_loop(EndTime) ->
     Now = os:timestamp(),
     case Now > EndTime of
         true ->
-            lager:info("Done waiting 'cause ~p > ~p", [Now, EndTime]);
+            ?LOG_INFO("Done waiting 'cause ~0p > ~0p", [Now, EndTime]);
         _ ->
             receive
                 {mapred, Node, bad_result} ->
@@ -102,23 +104,23 @@ upgrade_recv_loop(EndTime) ->
                 {listkeys, Node, not_equal} ->
                     {listkeys_not_equal, Node};
                 Msg ->
-                    lager:debug("Received Mesg ~p", [Msg]),
+                    ?LOG_DEBUG("Received Mesg ~0p", [Msg]),
                     upgrade_recv_loop(EndTime)
             after timer:now_diff(EndTime, Now) div 1000 ->
-                    lager:info("Done waiting 'cause ~p is up", [?TIME_BETWEEN_UPGRADES])
+                    ?LOG_INFO("Done waiting 'cause ~0p is up", [?TIME_BETWEEN_UPGRADES])
             end
     end.
 
 seed_cluster(_Nodes=[Node1|_]) ->
-    lager:info("Seeding Cluster"),
+    ?LOG_INFO("Seeding Cluster"),
 
     %% For List Keys
-    lager:info("Writing 100 keys to ~p", [Node1]),
+    ?LOG_INFO("Writing 100 keys to ~0p", [Node1]),
     rt:systest_write(Node1, 100, 3),
     ?assertEqual([], rt:systest_read(Node1, 100, 1)),
 
     seed(Node1, 0, 100, fun(Key) ->
-                                Bin = iolist_to_binary(io_lib:format("~p", [Key])),
+                                Bin = iolist_to_binary(io_lib:format("~0p", [Key])),
                                 riakc_obj:new(<<"objects">>, Bin, Bin)
                         end),
 
@@ -138,7 +140,7 @@ bucket(mapred) -> <<"bryanitbs">>.
 
 kv_seed(Node) ->
     ValFun = fun(Key) ->
-                     riakc_obj:new(bucket(kv), iolist_to_binary(io_lib:format("~p", [Key])), kv_valgen(Key))
+                     riakc_obj:new(bucket(kv), iolist_to_binary(io_lib:format("~0p", [Key])), kv_valgen(Key))
              end,
     seed(Node, 0, 7999, ValFun).
 
@@ -153,7 +155,7 @@ int_to_key(KInt) ->
 %% bin_plustwo -> [<<"Key + 2">>]
 twoi_seed(Node) ->
     ValFun = fun(Key) ->
-                     Obj = riakc_obj:new(bucket(twoi), iolist_to_binary(io_lib:format("~p", [Key])), kv_valgen(Key)),
+                     Obj = riakc_obj:new(bucket(twoi), iolist_to_binary(io_lib:format("~0p", [Key])), kv_valgen(Key)),
                      MD1 = riakc_obj:get_update_metadata(Obj),
                      MD2 = riakc_obj:set_secondary_index(MD1, [
                                                                {{integer_index, "plusone"}, [Key + 1, Key + 10000]},
@@ -171,7 +173,7 @@ mr_seed(Node) ->
     %% to be used along with sequential_int keygen to populate known
     %% mapreduce set
     ValFun = fun(Key) ->
-                     Value = iolist_to_binary(io_lib:format("~p", [Key])),
+                     Value = iolist_to_binary(io_lib:format("~0p", [Key])),
                      riakc_obj:new(bucket(mapred), Value, Value)
              end,
     seed(Node, 0, 9999, ValFun).
@@ -193,7 +195,7 @@ init_node_monitor(Node, Sup, TestProc) ->
     spawn_link(fun() -> node_monitor(Node, Sup, TestProc) end).
 
 node_monitor(Node, Sup, TestProc) ->
-    lager:info("Monitoring node ~p to make sure it stays up.", [Node]),
+    ?LOG_INFO("Monitoring node ~0p to make sure it stays up.", [Node]),
     erlang:process_flag(trap_exit, true),
     erlang:monitor_node(Node, true),
     node_monitor_loop(Node, Sup, TestProc).
@@ -201,13 +203,14 @@ node_monitor(Node, Sup, TestProc) ->
 node_monitor_loop(Node, Sup, TestProc) ->
     receive
         {nodedown, Node} ->
-            lager:error("Node ~p exited after upgrade!", [Node]),
-            exit(Sup, normal),
-            ?assertEqual(nodeup, {nodedown, Node});
+            ?LOG_ERROR("Node ~0p exited after upgrade!", [Node]),
+            erlang:exit(Sup, normal),
+            erlang:error(nodedown, [Node]);
         {'EXIT', TestProc, _} ->
             erlang:monitor_node(Node, false),
             ok;
         Other ->
-            lager:warn("Node monitor for ~p got unknown message ~p", [Node, Other]),
+            ?LOG_WARNING(
+                "Node monitor for ~0p got unknown message ~0p", [Node, Other]),
             node_monitor_loop(Node, Sup, TestProc)
     end.

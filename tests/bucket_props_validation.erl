@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,18 +17,15 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-%%% @copyright (C) 2013, Basho Technologies
 %%% @doc
 %%% riak_test for bucket validation
 %%% @end
-
 -module(bucket_props_validation).
-
 -behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     [Node] = rt:build_cluster(1),
@@ -52,7 +49,7 @@ confirm() ->
     verify_props(Connections, Buckets, DefaultProps),
 
     %% Set valid properties and verify they are present when
-    %% retreiving the bucket properties
+    %% retrieving the bucket properties
     ?assertEqual({ok, ok}, set_props(Connections, Buckets, ValidProps)),
     verify_props(Connections, Buckets, ValidProps),
 
@@ -60,9 +57,9 @@ confirm() ->
     pass.
 
 sortof_uuid() ->
-    sortof_uuid(rand:uniform(1 bsl 48) - 1, 
-            rand:uniform(1 bsl 12) - 1, 
-            rand:uniform(1 bsl 32) - 1, 
+    sortof_uuid(rand:uniform(1 bsl 48) - 1,
+            rand:uniform(1 bsl 12) - 1,
+            rand:uniform(1 bsl 32) - 1,
             rand:uniform(1 bsl 30) - 1).
 sortof_uuid(R1, R2, R3, R4) ->
     base64:encode(<<R1:48, 4:4, R2:12, 2:2, R3:32, R4:30>>).

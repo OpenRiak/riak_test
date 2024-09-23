@@ -19,6 +19,9 @@
 %% -------------------------------------------------------------------
 -module(rt_intercept).
 -compile([export_all, nowarn_export_all]).
+
+-include_lib("kernel/include/logger.hrl").
+
 -define(DEFAULT_INTERCEPT(Target),
         list_to_atom(atom_to_list(Target) ++ "_intercepts")).
 
@@ -31,8 +34,13 @@ default_intercept_path_glob() ->
 intercept_files() ->
     intercept_files([default_intercept_path_glob()]).
 
-intercept_files(Globs) ->
-    lists:concat([filelib:wildcard(Glob) || Glob <- Globs]).
+intercept_files(LocationPaths) ->
+    intercept_files(LocationPaths, []).
+
+intercept_files([], Acc) ->
+    Acc;
+intercept_files([Path|RestPaths], Acc) ->
+    intercept_files(RestPaths, filelib:wildcard(Path) ++ Acc).
 
 %% @doc Load the intercepts on the nodes under test.
 -spec load_intercepts([node()]) -> ok.
@@ -61,12 +69,12 @@ load_code(Node, Globs) ->
 
 add_and_save(Node, Intercepts) ->
     CodePaths = rpc:call(Node, code, get_path, []),
-    ok = 
+    ok =
         case [P || P <- CodePaths, lists:suffix("basho-patches", P)] of
             [PatchesDir] ->
                 add(Node, Intercepts, PatchesDir);
             [] ->
-                lager:error("No basho-patches! Manually adding path"),
+                ?LOG_ERROR("No basho-patches! Manually adding path"),
                 add(Node, Intercepts, "lib/basho-patches")
         end,
     ok.
@@ -108,7 +116,7 @@ transform_anon_fun(Mapping) ->
     Mapping.
 
 remote_compile_and_load(Node, F) ->
-    lager:debug("Compiling and loading file ~s on node ~s", [F, Node]),
+    ?LOG_DEBUG("Compiling and loading file ~s on node ~s", [F, Node]),
     {ok, _, Bin} = rpc:call(Node, compile, file, [F, [binary]]),
     ModName = list_to_atom(filename:basename(F, ".erl")),
     {module, _} = rpc:call(Node, code, load_binary, [ModName, F, Bin]),

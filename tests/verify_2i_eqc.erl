@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Basho Technologies, Inc.
+%% Copyright (c) 2015-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -62,16 +62,16 @@
 %%
 %% -------------------------------------------------------------------
 -module(verify_2i_eqc).
--compile([export_all, nowarn_export_all]).
 
 -ifdef(EQC).
--include_lib("riakc/include/riakc.hrl").
+-include_lib("kernel/include/logger.hrl").
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eqc/include/eqc_fsm.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("riakc/include/riakc.hrl").
 
 -behaviour(riak_test).
--export([confirm/0]).
+-compile([export_all, nowarn_export_all]).
 
 -define(NEG_LIMIT, -1000000). %% Due to sext encoding bug, do not permit negative numbers less than this to be generated.
 
@@ -113,7 +113,7 @@ confirm() ->
     Size = rand:uniform(?MAX_CLUSTER_SIZE),
     %% Run for 2 minutes by default.
     TestingTime = rt_config:get(eqc_testing_time, 120),
-    lager:info("Will run in cluster of size ~p for ~p seconds.",
+    ?LOG_INFO("Will run in cluster of size ~w for ~w seconds.",
                [Size, TestingTime]),
 
     Nodes = rt:build_cluster(Size),
@@ -129,16 +129,16 @@ prop_test(Nodes) ->
     ?FORALL(Cmds, commands(?MODULE, {initial_state(), InitState}),
             ?WHENFAIL(
                begin
-                   _ = lager:error("*********************** FAILED!!!!"
+                   _ = ?LOG_ERROR("*********************** FAILED!!!!"
                                    "*******************")
                end,
                ?TRAPEXIT(
                   begin
-                      lager:info("========================"
-                                 " Will run commands with Nodes:~p:", [Nodes]),
-                      [lager:info(" Command : ~p~n", [Cmd]) || Cmd <- Cmds],
+                      ?LOG_INFO("========================"
+                                 " Will run commands with Nodes:~0p:", [Nodes]),
+                      [?LOG_INFO(" Command : ~0p", [Cmd]) || Cmd <- Cmds],
                       {H, {_SName, S}, Res} = run_commands(?MODULE, Cmds),
-                      lager:info("======================== Ran commands"),
+                      ?LOG_INFO("======================== Ran commands"),
                       %% Each run creates a new pool of clients. Clean up.
                       close_clients(S#state.clients),
                       %% Record stats on what commands were generated on
@@ -409,7 +409,7 @@ tx_next_bucket() ->
 %% Index a bunch of keys under the same field/term.
 tx_index_single_term(Clients, ClientId, Bucket, Keys, Field, Term) ->
     Client = get_client(ClientId, Clients),
-    lager:info("Indexing in ~p under (~p, ~p) using client ~p: ~w",
+    ?LOG_INFO("Indexing in ~0p under (~0p, ~0p) using client ~0p: ~w",
                [Bucket, Field, Term, ClientId, Keys]),
     [index_object(Client, Bucket, Key, Field, Term) || Key <- Keys],
     ok.
@@ -417,7 +417,7 @@ tx_index_single_term(Clients, ClientId, Bucket, Keys, Field, Term) ->
 %% Index a number of keys each under a different term.
 tx_index_multi_term(Clients, ClientId, Bucket, KeyFieldTerms) ->
     Client = get_client(ClientId, Clients),
-    lager:info("Indexing in ~p with client ~p: ~p",
+    ?LOG_INFO("Indexing in ~0p with client ~0p: ~0p",
                [Bucket, ClientId, KeyFieldTerms]),
     [index_object(Client, Bucket, Key, Field, Term)
      || {Key, Field, Term} <- KeyFieldTerms],
@@ -426,7 +426,7 @@ tx_index_multi_term(Clients, ClientId, Bucket, KeyFieldTerms) ->
 %% Delete a single object and all its associated index entries.
 tx_delete_one(Clients, ClientId, Bucket, IntKey) ->
     Client = get_client(ClientId, Clients),
-    lager:info("Deleting key ~p from bucket ~p using ~p",
+    ?LOG_INFO("Deleting key ~0p from bucket ~0p using ~0p",
                [IntKey, Bucket, ClientId]),
     delete_key(Client, Bucket, IntKey),
     ok.
@@ -434,8 +434,8 @@ tx_delete_one(Clients, ClientId, Bucket, IntKey) ->
 tx_query_range(Clients, ClientId, Query) ->
     Client = get_client(ClientId, Clients),
     Keys = lists:sort(query_range(Client, Query, [])),
-    lager:info("Query ~p, ~p  from ~p to  ~p, page = ~p, using ~p "
-               "returned ~p keys.",
+    ?LOG_INFO("Query ~0p, ~0p  from ~0p to  ~0p, page = ~0p, using ~0p "
+               "returned ~b keys.",
                [Query#query.bucket, Query#query.field, Query#query.start_term,
                 Query#query.end_term, Query#query.page_size, ClientId,
                 length(Keys)]),

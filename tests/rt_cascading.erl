@@ -16,6 +16,8 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
+%%
 %% uses the following configs with given defaults:
 %%
 %% ## default_timeout = 1000 :: timeout()
@@ -35,9 +37,8 @@
 %% With this set to default, the tests that depend on this option will
 %% emit a log message saying they are not configured to run.
 %%
-%% -------------------------------------------------------------------
-
 -module(rt_cascading).
+
 -export([
     conf/0,
     connect_rt/3,
@@ -59,7 +60,8 @@
     write_n_keys/5
 ]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% =====
 %% utility functions
@@ -90,7 +92,7 @@ make_clusters(UnNormalClusterConfs) ->
                                      ConfAcc ++ AddToAcc
                              end, [], ClusterConfs),
     Nodes = rt:deploy_nodes(DeployList),
-    lager:info("nodes deployed: ~p", [Nodes]),
+    ?LOG_INFO("nodes deployed: ~0p", [Nodes]),
     {NamesAndNodes, []} = lists:foldl(fun
                                           ({Name, Size, _ConnectTo}, {Clusters, NodesLeft}) ->
                                               {ForCluster, NewNodesLeft} = lists:split(Size, NodesLeft),
@@ -151,7 +153,7 @@ get_cluster_mgr_port(Node) ->
 
 maybe_reconnect_rt(SourceNode, SinkPort, SinkName) ->
     case repl_util:wait_for_connection(SourceNode, SinkName) of
-        fail ->
+        {fail, _} ->
             connect_rt(SourceNode, SinkPort, SinkName);
         Oot ->
             Oot
@@ -222,13 +224,13 @@ write_n_keys(Source, Destination, TestBucket, M, N) ->
     Last = N,
 
     %% Write some objects to the source cluster (A),
-    lager:info("Writing ~p keys to ~p, which should RT repl to ~p",
+    ?LOG_INFO("Writing ~b keys to ~0p, which should RT repl to ~0p",
         [Last-First+1, Source, Destination]),
-    lager:debug("Writing to bucket ~p", [TestBucket]),
+    ?LOG_DEBUG("Writing to bucket ~0p", [TestBucket]),
     ?assertEqual([], repl_util:do_write(Source, First, Last, TestBucket, 2)),
 
     %% verify data is replicated to B
-    lager:info("Reading ~p keys written from ~p", [Last-First+1, Destination]),
+    ?LOG_INFO("Reading ~b keys written from ~0p", [Last-First+1, Destination]),
     ?assertEqual(0, repl_util:wait_for_reads(Destination, First, Last, TestBucket, 2)).
 
 generate_test_bucket() ->
@@ -255,13 +257,11 @@ wait_until_pending_count_zero(Nodes) ->
 
 check_status(Status) ->
     case proplists:get_all_values(consumers, Status) of
-        undefined ->
-            true;
         [] ->
             true;
         Cs ->
             PendingList = [proplists:lookup_all(pending, C) || {_, C} <- lists:flatten(Cs)],
             PendingCount = lists:sum(proplists:get_all_values(pending, lists:flatten(PendingList))),
-            ?debugFmt("RTQ status pending on test node:~p", [PendingCount]),
+            ?LOG_DEBUG("RTQ status pending on test node:~0p", [PendingCount]),
             PendingCount == 0
     end.

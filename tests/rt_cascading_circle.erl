@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%      +-----+
 %%      | one |
@@ -32,7 +33,8 @@
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% test requires allow_mult=false b/c of rt:systest_read
@@ -102,6 +104,6 @@ circle_tests(Nodes) ->
                            end}
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== circle: ~s =====", [Name]),
+        ?LOG_INFO("===== circle: ~s =====", [Name]),
         Eval()
                   end, Tests).

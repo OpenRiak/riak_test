@@ -1,42 +1,53 @@
-HEAD_REVISION   ?= $(shell git describe --tags --exact-match HEAD 2>/dev/null)
+# -------------------------------------------------------------------
+#
+# Copyright (c) 2012-2016 Basho Technologies, Inc.
+# Copyright (c) 2017-2023 Workday, Inc.
+#
+# This file is provided to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file
+# except in compliance with the License.  You may obtain
+# a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# -------------------------------------------------------------------
+#
+# Mostly just a façade over rebar3 from the command line.
+#
 
-.PHONY: deps
+REBAR ?= ./rebar3
 
-APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto inets \
-	xmerl webtool eunit syntax_tools compiler hipe mnesia public_key \
-	observer wx gs
-PLT = $(HOME)/.riak-test_dialyzer_plt
+all: escript
 
-REBAR=./rebar3
-
-all: deps compile
-	$(REBAR) as test compile
-	$(REBAR) escriptize
-	mkdir -p ./ebin
-	cp ./_build/test/lib/riak_test/tests/*.beam ./ebin
-
-deps:
-	$(if $(HEAD_REVISION),$(warning "Warning: you have checked out a tag ($(HEAD_REVISION)) and should use the locked-deps target"))
-	$(REBAR) get-deps
+docs:
+	$(REBAR) edoc
 
 docsclean:
-	@rm -rf doc/*.png doc/*.html doc/*.css edoc-info
+	@$(RM) -rf doc/*.png doc/*.html doc/*.css edoc-info
 
-compile: deps
+escript:
+	$(REBAR) as prod compile
+
+compile:
 	$(REBAR) compile
 
 clean:
-	@$(REBAR) clean
+	$(REBAR) clean
 
 distclean: clean
-	@rm -rf riak_test deps
+	$(RM) -rf riak_test _build
 
-quickbuild:
-	$(REBAR) compile
-	$(REBAR) escriptize
+quickbuild: compile
 
-##################
-# Dialyzer targets
-##################
+xref:
+	$(REBAR) as check xref
 
-# include tools.mk
+dialyzer:
+	$(REBAR) as check dialyzer

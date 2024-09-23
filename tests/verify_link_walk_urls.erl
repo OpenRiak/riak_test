@@ -17,15 +17,14 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
-
 %% @doc Exercise link walking queries through the special URLs
-
 -module(verify_link_walk_urls).
-
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
 
 -export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(NUM_NODES, 4).
 
@@ -48,7 +47,7 @@ confirm() ->
 
 
 test_with_links(Protocol, Client, Node0) ->    
-    lager:info("Inserting linked graph"),
+    ?LOG_INFO("Inserting linked graph"),
     %%               (deleted)        (b/4,v4b) <-> (b/5,v5b)
     %%                  |            /
     %% (a/1,v1) <-> (a/2,v2) <-> (a/3,v3) <-> (a/4,v4) <-> (a/5,v5)  >
@@ -64,7 +63,7 @@ test_with_links(Protocol, Client, Node0) ->
 
     Config = get_config(Node0),
 
-    lager:info("Verifying link walk queries"),
+    ?LOG_INFO("Verifying link walk queries"),
 
     verify_query(Config, "a", "1", "_,next,1",
                  ["v2"]),
@@ -105,10 +104,10 @@ test_with_links(Protocol, Client, Node0) ->
     verify_query(Config, "a", "5", "_,_,1",
                  ["v1", "v4"]),
 
-    lager:info("Au revoir mes amies").
+    ?LOG_INFO("Au revoir mes amies").
 
 verify_query(Cfg, Bucket, Key, Query, Expected) ->
-    lager:info("Verifying (~p,~p) '~s' -> ~p", [Bucket, Key, Query, Expected]),
+    ?LOG_INFO("Verifying (~0p,~0p) '~s' -> ~0p", [Bucket, Key, Query, Expected]),
     ?assertEqual(Expected, link_query(Cfg, Bucket, Key, Query)).
 
 
@@ -120,7 +119,7 @@ get_config(Node0) ->
 
 
 link_query(#config{ip=IP, port=Port, prefix=Prefix}, B, K, LinkStr) ->
-    Url = lists:flatten(io_lib:format("http://~s:~p/~s/~s/~s/~s",
+    Url = lists:flatten(io_lib:format("http://~s:~0p/~s/~s/~s/~s",
                                       [IP, Port, Prefix, B, K, LinkStr])),
     {ok, "200", _Headers, Body} = ibrowse:send_req(Url, [], get),
     get_return_values(Body).

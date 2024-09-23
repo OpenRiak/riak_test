@@ -20,7 +20,6 @@
 -module(verify_handoff_raw).
 -behavior(riak_test).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
 %% We've got a separate test for capability negotiation and other mechanisms, so the test here is fairly
 %% straightforward: get a list of different versions of nodes and join them into a cluster, making sure that
@@ -30,7 +29,4 @@ confirm() ->
     NTestNodes    = 3,                                      %% How many nodes to spin up for tests?
     TestMode      = false,                                  %% Set to false for "production tests", true if too slow.
 
-    verify_handoff:run_test(TestMode, NTestItems, NTestNodes, encode_raw),
-
-    lager:info("Test verify_handoff passed."),
-    pass.
+    verify_handoff:run_test(TestMode, NTestItems, NTestNodes, encode_raw).

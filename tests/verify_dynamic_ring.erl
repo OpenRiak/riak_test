@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_dynamic_ring).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"dynring">>).
 -define(W, 2).
@@ -51,28 +54,28 @@ confirm() ->
     wait_until_extra_vnodes_shutdown(Nodes),
     wait_until_extra_proxies_shutdown(Nodes),
 
-    lager:info("writing 500 keys"),
+    ?LOG_INFO("writing 500 keys"),
     ?assertEqual([], rt:systest_write(ANode, 1, 500, ?BUCKET, ?W)),
     test_resize(?SHRUNK_SIZE, ?START_SIZE, ANode, Nodes, {501, 750}),
-    lager:info("verifying previously written data"),
+    ?LOG_INFO("verifying previously written data"),
     ?assertEqual([], rt:systest_read(ANode, 1, 500, ?BUCKET, ?R)),
 
     test_resize(?START_SIZE, ?EXPANDED_SIZE, ANode, Nodes),
-    lager:info("verifying previously written data"),
+    ?LOG_INFO("verifying previously written data"),
     ?assertEqual([], rt:systest_read(ANode, 1, 750, ?BUCKET, ?R)),
 
     %% This following test code for force-replace is commented until
     %% riak_core issue #570 is resolved. At that time the preceding 3
     %% lines should also be removed
 
-    %% lager:info("testing force-replace during resize"),
+    %% ?LOG_INFO("testing force-replace during resize"),
     %% submit_resize(?EXPANDED_SIZE, ANode),
     %% %% sleep for a second, yes i know this is nasty but we just care that the resize has
     %% %% been submitted and started, we aren't really waiting on a condition
     %% timer:sleep(3000),
     %% rpc:multicall(Nodes, riak_core_handoff_manager, kill_handoffs, []),
     %% Statuses = rpc:multicall(Nodes, riak_core_handoff_manager, status, []),
-    %% lager:info("Handoff statuses: ~p", [Statuses]),
+    %% ?LOG_INFO("Handoff statuses: ~0p", [Statuses]),
     %% ok = rpc:call(ReplacingNode, riak_core, staged_join, [ANode]),
     %% rt:wait_until_ring_converged(AllNodes),
     %% ok = rpc:call(ANode, riak_core_claimant, force_replace, [AnotherNode, ReplacingNode]),
@@ -81,35 +84,35 @@ confirm() ->
     %% rpc:multicall(AllNodes, riak_core_handoff_manager, set_concurrency, [4]),
     %% rt:wait_until_no_pending_changes(NewNodes),
     %% assert_ring_size(?EXPANDED_SIZE, NewNodes),
-    %% lager:info("verifying written data"),
+    %% ?LOG_INFO("verifying written data"),
     %% ?assertEqual([], rt:systest_read(ANode, 1, 750, ?BUCKET, ?R)),
 
     test_resize(?EXPANDED_SIZE, ?SHRUNK_SIZE, ANode, NewNodes),
-    lager:info("verifying written data"),
+    ?LOG_INFO("verifying written data"),
     ?assertEqual([], rt:systest_read(ANode, 1, 750, ?BUCKET, ?R)),
     wait_until_extra_vnodes_shutdown(NewNodes),
     wait_until_extra_proxies_shutdown(NewNodes),
 
-    lager:info("submitting resize to subsequently abort. ~p -> ~p", [?SHRUNK_SIZE, ?START_SIZE]),
+    ?LOG_INFO("submitting resize to subsequently abort. ~0p -> ~0p", [?SHRUNK_SIZE, ?START_SIZE]),
     submit_resize(?START_SIZE, ANode),
     %% sleep for a second, yes i know this is nasty but we just care that the resize has
     %% made some progress. not really waiting on a condition
     timer:sleep(1000),
-    lager:info("aborting resize operation, verifying cluster still has ~p partitions",
+    ?LOG_INFO("aborting resize operation, verifying cluster still has ~0p partitions",
                [?SHRUNK_SIZE]),
     rpc:multicall(NewNodes, riak_core_handoff_manager, kill_handoffs, []),
     rt:wait_until_ring_converged(NewNodes),
     abort_resize(ANode),
     rt:wait_until_no_pending_changes(NewNodes),
-    lager:info("verifying running vnodes abandoned during aborted resize are shutdown"),
+    ?LOG_INFO("verifying running vnodes abandoned during aborted resize are shutdown"),
     %% force handoffs so we don't wait on vnode manager tick
     rpc:multicall(Nodes, riak_core_vnode_manager, force_handoffs, []),
     wait_until_extra_vnodes_shutdown(NewNodes),
-    lager:info("verifying vnodes abandoned during aborted resize have proxies shutdown"),
+    ?LOG_INFO("verifying vnodes abandoned during aborted resize have proxies shutdown"),
     wait_until_extra_proxies_shutdown(NewNodes),
     rt:wait_until_ring_converged(NewNodes),
     assert_ring_size(?SHRUNK_SIZE, NewNodes),
-    lager:info("verifying written data"),
+    ?LOG_INFO("verifying written data"),
     ?assertEqual([], rt:systest_read(ANode, 1, 750, ?BUCKET, ?R)),
 
     pass.
@@ -123,7 +126,7 @@ test_resize(CurrentSize, NewSize, ANode, Nodes, {WriteStart,WriteEnd}) ->
               true -> "shrinking";
               false -> "expansion"
           end,
-    lager:info("testing ring ~s. ~p -> ~p", [Str, CurrentSize, NewSize]),
+    ?LOG_INFO("testing ring ~s. ~0p -> ~0p", [Str, CurrentSize, NewSize]),
     rt:wait_until_ring_converged(Nodes),
     submit_resize(NewSize, ANode),
     write_during_resize(ANode, WriteStart, WriteEnd),
@@ -150,15 +153,15 @@ verify_write_during_resize(_, Start, End) when Start =:= undefined orelse End =:
 verify_write_during_resize(Node, Start, End) ->
     receive
         done_writing ->
-            lager:info("verifying data written during operation"),
+            ?LOG_INFO("verifying data written during operation"),
             ?assertEqual([], rt:systest_read(Node, Start, End, ?BUCKET, ?R)),
             ok;
         {errors_writing, Ers} ->
-            lager:error("errors were encountered while writing during operation: ~p", [Ers]),
+            ?LOG_ERROR("errors were encountered while writing during operation: ~0p", [Ers]),
             throw(writes_failed)
     after
         10000 ->
-            lager:error("failed to complete writes during operation before timeout"),
+            ?LOG_ERROR("failed to complete writes during operation before timeout"),
             throw(writes_timedout)
     end.
 

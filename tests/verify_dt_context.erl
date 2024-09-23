@@ -21,13 +21,19 @@
 %%% @doc
 %%% riak_test for riak_dt CRDT context operations
 %%% @end
-
 -module(verify_dt_context).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+%% shared
+-export([
+    make_map/1,
+    make_set/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(STYPE, <<"sets">>).
 -define(MTYPE, <<"maps">>).
@@ -70,11 +76,11 @@ confirm() ->
                                    [{{<<"set1">>, set}, [<<"a">>, <<"b">>]},
                                     {{<<"set2">>, set}, [ <<"x">>, <<"y">>, <<"z">>]}]),
 
-    lager:info("Partition cluster in two."),
+    ?LOG_INFO("Partition cluster in two."),
 
     PartInfo = rt:partition([N1], [N2]),
 
-    lager:info("Modify data on side 1"),
+    ?LOG_INFO("Modify data on side 1"),
     %% Modify one side
     S1_1 = make_set([c, d, e]),
     ok= store_set(P1, S1_1),
@@ -134,7 +140,7 @@ confirm() ->
 
     %% Check both sides
     %% heal
-    lager:info("Heal and check merged values"),
+    ?LOG_INFO("Heal and check merged values"),
     ok = rt:heal(PartInfo),
     ok = rt:wait_for_cluster_service(Nodes, riak_kv),
 
@@ -198,25 +204,25 @@ create_pb_clients(Nodes) ->
      end || N <- Nodes].
 
 create_bucket_types([N1|_], Types) ->
-    lager:info("Creating bucket types with datatypes: ~p", [Types]),
+    ?LOG_INFO("Creating bucket types with datatypes: ~0p", [Types]),
     [rt:create_and_activate_bucket_type(N1, Name, [{datatype, Type}, {allow_mult, true}])
      || {Name, Type} <- Types ].
 
-bucket_type_ready_fun(Name) ->
-    fun(Node) ->
-            Res = rpc:call(Node, riak_core_bucket_type, activate, [Name]),
-            lager:info("is ~p ready ~p?", [Name, Res]),
-            Res == ok
-    end.
+%%bucket_type_ready_fun(Name) ->
+%%    fun(Node) ->
+%%            Res = rpc:call(Node, riak_core_bucket_type, activate, [Name]),
+%%            ?LOG_INFO("is ~0p ready ~0p?", [Name, Res]),
+%%            Res == ok
+%%    end.
 
-bucket_type_matches_fun(Types) ->
-    fun(Node) ->
-            lists:all(fun({Name, Type}) ->
-                              Props = rpc:call(Node, riak_core_bucket_type, get,
-                                               [Name]),
-                              Props /= undefined andalso
-                                  proplists:get_value(allow_mult, Props, false)
-                                  andalso
-                                  proplists:get_value(datatype, Props) == Type
-                      end, Types)
-    end.
+%%bucket_type_matches_fun(Types) ->
+%%    fun(Node) ->
+%%            lists:all(fun({Name, Type}) ->
+%%                              Props = rpc:call(Node, riak_core_bucket_type, get,
+%%                                               [Name]),
+%%                              Props /= undefined andalso
+%%                                  proplists:get_value(allow_mult, Props, false)
+%%                                  andalso
+%%                                  proplists:get_value(datatype, Props) == Type
+%%                      end, Types)
+%%    end.

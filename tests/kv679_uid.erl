@@ -22,13 +22,13 @@
 %%% riak_test for kv679-ish bug were vnodes on same node get same ID
 %%%
 %%% @end
-
 -module(kv679_uid).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"kv679">>).
 -define(KEY, <<"test">>).
@@ -40,7 +40,7 @@ confirm() ->
     %% Get vnodeids for each primary
     PartitionIdMap = get_vnodeids(PL, Node),
 
-    lager:info("ids = ~p", [PartitionIdMap]),
+    ?LOG_INFO("ids = ~0p", [PartitionIdMap]),
     %% assert each is unique
     {_Idxes, VnodeIds} = lists:unzip(PartitionIdMap),
     ?assertEqual(3,length(PartitionIdMap)),

@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%                        +------------+
 %%                        | north_spur |
@@ -36,7 +37,8 @@
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% test requires allow_mult=false b/c of rt:systest_read
@@ -70,7 +72,7 @@ circle_and_spurs_tests(Nodes) ->
             Obj = riakc_obj:new(Bucket, Bin, Bin),
             riakc_pb_socket:put(Client, Obj, [{w,1}]),
             [begin
-                 ?debugFmt("Checking ~p", [N]),
+                 ?LOG_DEBUG("Checking ~0p", [N]),
                  ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(N, Bucket, Bin))
              end || N <- Nodes, N =/= North]
                            end},
@@ -83,7 +85,7 @@ circle_and_spurs_tests(Nodes) ->
             Obj = riakc_obj:new(Bucket, Bin, Bin),
             riakc_pb_socket:put(Client, Obj, [{w,1}]),
             [begin
-                 ?debugFmt("Checking ~p", [N]),
+                 ?LOG_DEBUG("Checking ~0p", [N]),
                  ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(N, Bucket, Bin))
              end || N <- Nodes, N =/= West]
                           end},
@@ -96,7 +98,7 @@ circle_and_spurs_tests(Nodes) ->
             Obj = riakc_obj:new(Bucket, Bin, Bin),
             riakc_pb_socket:put(Client, Obj, [{w,1}]),
             [begin
-                 ?debugFmt("Checking ~p", [N]),
+                 ?LOG_DEBUG("Checking ~0p", [N]),
                  ?assertEqual({error, notfound}, rt_cascading:maybe_eventually_exists(N, Bucket, Bin))
              end || N <- Nodes, N =/= NorthSpur]
                                        end},
@@ -107,7 +109,7 @@ circle_and_spurs_tests(Nodes) ->
 
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== circle_and_spurs: ~s =====", [Name]),
+        ?LOG_INFO("===== circle_and_spurs: ~s =====", [Name]),
         Eval()
                   end, Tests).
 

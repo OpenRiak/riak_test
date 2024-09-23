@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_2i_mixed_cluster).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
 -import(secondary_index_tests, [put_an_object/2, int_to_key/1]).
@@ -35,15 +38,15 @@ confirm() ->
                                [{riak_kv, [{anti_entropy, {off, []}}]}]},
                               OldVsn, OldVsn]),
     ?assertEqual(ok, rt:wait_until_nodes_ready(Nodes)),
-    
+
     PBC1 = rt:pbc(CurrentNode),
     PBC2 = rt:pbc(OldNode1),
     HTTPC1 = rt:httpc(CurrentNode),
 
     Clients = [{pb, PBC1}, {pb, PBC2}, {http, HTTPC1}],
-    
+
     [put_an_object(PBC1, N) || N <- lists:seq(0, 20)],
-    
+
     K = fun secondary_index_tests:int_to_key/1,
 
     assertExactQuery(Clients, [K(5)], <<"field1_bin">>, <<"val5">>),
@@ -53,12 +56,12 @@ confirm() ->
     assertRangeQuery(Clients, [K(N) || N <- lists:seq(10, 19)], <<"field2_int">>, 10, 19),
     assertRangeQuery(Clients, [K(N) || N <- lists:seq(10, 17)], <<"$key">>, int_to_key(10), int_to_key(17)),
 
-    lager:info("Delete an object, verify deletion..."),
+    ?LOG_INFO("Delete an object, verify deletion..."),
     ToDel = [int_to_key(5), int_to_key(11)],
     [?assertMatch(ok, riakc_pb_socket:delete(PBC1, ?BUCKET, KD)) || KD <- ToDel],
-    lager:info("Make sure the tombstone is reaped..."),
+    ?LOG_INFO("Make sure the tombstone is reaped..."),
     ?assertMatch(ok, rt:wait_until(fun() -> rt:pbc_really_deleted(PBC1, ?BUCKET, ToDel) end)),
-    
+
     assertExactQuery(Clients, [], <<"field1_bin">>, <<"val5">>),
     assertExactQuery(Clients, [], <<"field2_int">>, 5),
     assertExactQuery(Clients, [K(N) || N <- lists:seq(6, 9)], <<"field3_int">>, 5),

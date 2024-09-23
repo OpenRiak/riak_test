@@ -1,6 +1,7 @@
 %% -------------------------------------------------------------------
 %%
 %% Copyright (c) 2016 Basho Technologies, Inc.
+%% Copyright (c) 2022 Workday, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +20,8 @@
 %% -------------------------------------------------------------------
 -module(verify_removed_capability).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
 %% Start 3 nodes, create a capability and join them into a cluster
 %%
@@ -34,16 +35,25 @@ confirm() ->
     Cap_name = {rt, cap_1},
     V1 = 1,
     V2 = 2,
-    ok = rpc:call(Node_A, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]),
-    ok = rpc:call(Node_B, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]),
-    ok = rpc:call(Node_C, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]),
+    ok = 
+        rpc:call(
+            Node_A, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]
+        ),
+    ok = 
+        rpc:call(
+            Node_B, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]
+        ),
+    ok =
+        rpc:call(
+            Node_C, riak_core_capability, register, [Cap_name, [V2,V1], V1, V1]
+        ),
     ok = rt:join_cluster([Node_A,Node_B,Node_C]),
     ok = rt:wait_until_ring_converged([Node_A,Node_B,Node_C]),
     ok = rt:wait_until_capability(Node_A, Cap_name, V2),
     ok = rt:wait_until_capability(Node_B, Cap_name, V2),
     ok = rt:wait_until_capability(Node_C, Cap_name, V2),
-    rt:stop(Node_B),
-    rt:start(Node_B),
+    ok = rt:stop(Node_B),
+    ok = rt:start(Node_B),
     ok = rt:wait_until_capability(Node_A, Cap_name, V1),
     ok = rt:wait_until_capability(Node_C, Cap_name, V1),
     pass.

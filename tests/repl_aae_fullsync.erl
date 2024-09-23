@@ -1,13 +1,34 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(repl_aae_fullsync).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(NUM_KEYS,    1000).
@@ -45,13 +66,13 @@
         ]).
 
 confirm() ->
-    lager:notice("~nTEST: difference test~n"),
+    ?LOG_NOTICE("~nTEST: difference test~n"),
     difference_test(),
-    lager:notice("~nTEST: deadlock test~n"),
+    ?LOG_NOTICE("~nTEST: deadlock test~n"),
     deadlock_test(),
-    lager:notice("~nTEST: bidirectional test~n"),
+    ?LOG_NOTICE("~nTEST: bidirectional test~n"),
     bidirectional_test(),
-    lager:notice("~nTEST: dual test~n"),
+    ?LOG_NOTICE("~nTEST: dual test~n"),
     dual_test(),
     pass.
 
@@ -64,43 +85,43 @@ dual_test() ->
     {ANodes, Rest} = lists:split(2, Nodes),
     {BNodes, CNodes} = lists:split(2, Rest),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
-    lager:info("CNodes: ~p", [CNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
+    ?LOG_INFO("CNodes: ~0p", [CNodes]),
 
-    lager:info("Building three clusters."),
+    ?LOG_INFO("Building three clusters."),
     [repl_util:make_cluster(N) || N <- [ANodes, BNodes, CNodes]],
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
     CFirst = hd(CNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
     repl_util:name_cluster(CFirst, "C"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
     rt:wait_until_ring_converged(CNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
     rt:wait_until_transfers_complete(CNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = get_leader(AFirst),
     LeaderB = get_leader(BFirst),
     LeaderC = get_leader(CFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     APort = get_port(LeaderA),
     BPort = get_port(LeaderB),
     CPort = get_port(LeaderC),
 
-    lager:info("Connecting all clusters into fully connected topology."),
+    ?LOG_INFO("Connecting all clusters into fully connected topology."),
     connect_cluster(LeaderA, BPort, "B"),
     connect_cluster(LeaderA, CPort, "C"),
     connect_cluster(LeaderB, APort, "A"),
@@ -114,12 +135,12 @@ dual_test() ->
     read_from_cluster(CFirst, 1, ?NUM_KEYS, ?NUM_KEYS),
 
     %% Enable fullsync from A to B.
-    lager:info("Enabling fullsync from A to B"),
+    ?LOG_INFO("Enabling fullsync from A to B"),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
 
     %% Enable fullsync from A to C.
-    lager:info("Enabling fullsync from A to C"),
+    ?LOG_INFO("Enabling fullsync from A to C"),
     repl_util:enable_fullsync(LeaderA, "C"),
     rt:wait_until_ring_converged(ANodes),
 
@@ -151,7 +172,7 @@ dual_test() ->
 
     read_from_cluster(BFirst, ?NUM_KEYS + 1, ?NUM_KEYS + ?NUM_KEYS, 0),
     read_from_cluster(CFirst, ?NUM_KEYS + 1, ?NUM_KEYS + ?NUM_KEYS, 0),
-    lager:info("Fullsync A->B and A->C completed in ~p seconds",
+    ?LOG_INFO("Fullsync A->B and A->C completed in ~w seconds",
                [Time/1000/1000]),
 
     pass.
@@ -163,39 +184,39 @@ bidirectional_test() ->
     %% Break up the 6 nodes into three clustes.
     {ANodes, BNodes} = lists:split(3, Nodes),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Building two clusters."),
+    ?LOG_INFO("Building two clusters."),
     [repl_util:make_cluster(N) || N <- [ANodes, BNodes]],
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = get_leader(AFirst),
     LeaderB = get_leader(BFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     APort = get_port(LeaderA),
     BPort = get_port(LeaderB),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     connect_cluster(LeaderA, BPort, "B"),
 
-    lager:info("Connecting cluster B to A"),
+    ?LOG_INFO("Connecting cluster B to A"),
     connect_cluster(LeaderB, APort, "A"),
 
     %% Write keys to cluster A, verify B does not have them.
@@ -203,12 +224,12 @@ bidirectional_test() ->
     read_from_cluster(BFirst, 1, ?NUM_KEYS, ?NUM_KEYS),
 
     %% Enable fullsync from A to B.
-    lager:info("Enabling fullsync from A to B"),
+    ?LOG_INFO("Enabling fullsync from A to B"),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
 
     %% Enable fullsync from B to A.
-    lager:info("Enabling fullsync from B to A"),
+    ?LOG_INFO("Enabling fullsync from B to A"),
     repl_util:enable_fullsync(LeaderB, "A"),
     rt:wait_until_ring_converged(BNodes),
 
@@ -246,35 +267,35 @@ difference_test() ->
     %% Break up the 6 nodes into three clustes.
     {ANodes, BNodes} = lists:split(3, Nodes),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Building two clusters."),
+    ?LOG_INFO("Building two clusters."),
     [repl_util:make_cluster(N) || N <- [ANodes, BNodes]],
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = get_leader(AFirst),
     LeaderB = get_leader(BFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     BPort = get_port(LeaderB),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     connect_cluster(LeaderA, BPort, "B"),
 
     %% Get PBC connections.
@@ -291,7 +312,7 @@ difference_test() ->
     rt:wait_until_aae_trees_built(ANodes),
     rt:wait_until_aae_trees_built(BNodes),
 
-    lager:info("Test fullsync from cluster A leader ~p to cluster B",
+    ?LOG_INFO("Test fullsync from cluster A leader ~0p to cluster B",
                [LeaderA]),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
@@ -303,9 +324,9 @@ difference_test() ->
     {Time1, _} = timer:tc(repl_util,
                          start_and_wait_until_fullsync_complete,
                          [LeaderA, "B"]),
-    lager:info("Fullsync completed in ~p seconds", [Time1/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time1/1000/1000]),
 
-    lager:info("Checking that object was replicated to cluster B"),
+    ?LOG_INFO("Checking that object was replicated to cluster B"),
     %% Read key from after fullsync.
     {ok, O1} = riakc_pb_socket:get(BPBC, <<"foo">>, <<"bar">>,
                                   [{timeout, 4000}]),
@@ -321,9 +342,9 @@ difference_test() ->
     {Time2, _} = timer:tc(repl_util,
                          start_and_wait_until_fullsync_complete,
                          [LeaderA, "B"]),
-    lager:info("Fullsync completed in ~p seconds", [Time2/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time2/1000/1000]),
 
-    lager:info("Checking that sibling data was replicated to cluster B"),
+    ?LOG_INFO("Checking that sibling data was replicated to cluster B"),
     %% Read key from after fullsync.
     {ok, O2} = riakc_pb_socket:get(BPBC, <<"foo">>, <<"bar">>,
                                   [{timeout, 4000}]),
@@ -335,9 +356,9 @@ difference_test() ->
     {Time3, _} = timer:tc(repl_util,
                          start_and_wait_until_fullsync_complete,
                          [LeaderA, "B"]),
-    lager:info("Fullsync completed in ~p seconds", [Time3/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time3/1000/1000]),
 
-    lager:info("Checking that deletion was replicated to cluster B"),
+    ?LOG_INFO("Checking that deletion was replicated to cluster B"),
     {error, notfound} = riakc_pb_socket:get(BPBC, <<"foo">>, <<"bar">>, [{timeout, 4000}]),
 
     rt:clean_cluster(Nodes),
@@ -351,35 +372,35 @@ deadlock_test() ->
     %% Break up the 6 nodes into three clustes.
     {ANodes, BNodes} = lists:split(3, Nodes),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Building two clusters."),
+    ?LOG_INFO("Building two clusters."),
     [repl_util:make_cluster(N) || N <- [ANodes, BNodes]],
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = get_leader(AFirst),
     LeaderB = get_leader(BFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     BPort = get_port(LeaderB),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     connect_cluster(LeaderA, BPort, "B"),
 
     %% Add intercept for delayed comparison of hashtrees.
@@ -390,13 +411,13 @@ deadlock_test() ->
     rt:wait_until_aae_trees_built(ANodes),
     rt:wait_until_aae_trees_built(BNodes),
 
-    lager:info("Test fullsync from cluster A leader ~p to cluster B",
+    ?LOG_INFO("Test fullsync from cluster A leader ~0p to cluster B",
                [LeaderA]),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
 
     %% Start fullsync.
-    lager:info("Starting fullsync to cluster B."),
+    ?LOG_INFO("Starting fullsync to cluster B."),
     rpc:call(LeaderA, riak_repl_console, fullsync, [["start", "B"]]),
 
     %% Wait for fullsync to initialize and the AAE repl processes to
@@ -406,7 +427,7 @@ deadlock_test() ->
 
     %% Attempt to get status from fscoordintor.
     Result = rpc:call(LeaderA, riak_repl2_fscoordinator, status, [], 500),
-    lager:info("Status result: ~p", [Result]),
+    ?LOG_INFO("Status result: ~0p", [Result]),
     ?assertNotEqual({badrpc, timeout}, Result),
 
     rt:clean_cluster(Nodes),
@@ -426,7 +447,7 @@ validate_completed_fullsync(ReplicationLeader,
                             Start,
                             End) ->
     ok = check_fullsync(ReplicationLeader, DestinationCluster, 0),
-    lager:info("Verify: Reading ~p keys repl'd from A(~p) to ~p(~p)",
+    ?LOG_INFO("Verify: Reading ~b keys repl'd from A(~0p) to ~0p(~0p)",
                [?NUM_KEYS, ReplicationLeader,
                 DestinationCluster, DestinationNode]),
     ?assertEqual(0,
@@ -442,7 +463,7 @@ check_fullsync(Node, Cluster, ExpectedFailures) ->
     {Time, _} = timer:tc(repl_util,
                          start_and_wait_until_fullsync_complete,
                          [Node, Cluster]),
-    lager:info("Fullsync completed in ~p seconds", [Time/1000/1000]),
+    ?LOG_INFO("Fullsync completed in ~w seconds", [Time/1000/1000]),
 
     Status = rpc:call(Node, riak_repl_console, status, [quiet]),
 
@@ -477,20 +498,20 @@ get_leader(Node) ->
 
 %% @doc Connect two clusters using a given name.
 connect_cluster(Source, Port, Name) ->
-    lager:info("Connecting ~p to ~p for cluster ~p.",
+    ?LOG_INFO("Connecting ~0p to ~0p for cluster ~0p.",
                [Source, Port, Name]),
     repl_util:connect_cluster(Source, "127.0.0.1", Port),
     ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start, Node]),
     ?assertEqual([],
                  repl_util:do_write(Node, Start, End, ?TEST_BUCKET, 1)).
 
 %% @doc Read from cluster a series of keys, asserting a certain number
 %%      of errors.
 read_from_cluster(Node, Start, End, Errors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start, Node]),
     Res2 = rt:systest_read(Node, Start, End, ?TEST_BUCKET, 1),
     ?assertEqual(Errors, length(Res2)).

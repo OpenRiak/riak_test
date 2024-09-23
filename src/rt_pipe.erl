@@ -1,15 +1,36 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
+
 %% @doc Utilities for riak_pipe tests.
 -module(rt_pipe).
 
--compile({nowarn_deprecated_function, 
+-compile({nowarn_deprecated_function,
             [{gen_fsm, sync_send_all_state_event, 2}]}).
 
 -compile([export_all, nowarn_export_all]).
 
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 %% local copy of riak_pipe.hrl
 -include("rt_pipe.hrl").
-
--include_lib("eunit/include/eunit.hrl").
 
 %% macro-ize repeated, ignored trace structure
 -define(TM(Detail), {_, {trace, _, Detail}}).
@@ -87,7 +108,7 @@ self_sink() ->
              chashfun=sink}.
 
 assert_no_zombies(Nodes) ->
-    lager:info("Verify no zombie pipe processes"),
+    ?LOG_INFO("Verify no zombie pipe processes"),
     ?assertEqual([], zombies(Nodes)).
 
 %% @doc Find transient pipe processes sticking around. Should be run

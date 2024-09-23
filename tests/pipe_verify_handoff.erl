@@ -37,19 +37,20 @@
 %%   6. add more inputs, to start some workers on second node
 %%   7. give the signal to the workers to process things
 %%   8. count archive commands/etc.
-
 -module(pipe_verify_handoff).
+-behavior(riak_test).
 
 -export([
-         %% riak_test's entry
-         confirm/0,
-         
-         %% test machinery
-         runner_wait/1,
-         collector/0
-        ]).
+    %% riak_test's entry
+    confirm/0,
 
--include_lib("eunit/include/eunit.hrl").
+    %% test machinery
+    runner_wait/1,
+    collector/0
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% local copy of riak_pipe.hrl
 -include("rt_pipe.hrl").
@@ -59,17 +60,17 @@
 
 %% @doc riak_test callback
 confirm() ->
-    lager:info("Start ~b nodes", [?NODE_COUNT]),
+    ?LOG_INFO("Start ~b nodes", [?NODE_COUNT]),
     NodeDefs = lists:duplicate(?NODE_COUNT, {current, default}),
     Services = [riak_pipe],
     [Primary,Secondary] = Nodes = rt:deploy_nodes(NodeDefs, Services),
     %% Ensure each node owns 100% of it's own ring
     [?assertEqual([Node], rt:owners_according_to(Node)) || Node <- Nodes],
 
-    lager:info("Load useful modules"),
+    ?LOG_INFO("Load useful modules"),
     rt:load_modules_on_nodes([?MODULE, rt_pipe], Nodes),
 
-    lager:info("Start run coordinator"),
+    ?LOG_INFO("Start run coordinator"),
     Runner = spawn_link(?MODULE, runner_wait, [[]]),
 
     P1Spec = [#fitting_spec{name="p1handoff",
@@ -79,7 +80,7 @@ confirm() ->
                             module=riak_pipe_w_xform,
                             arg=pause_until_signal(Runner)}],
 
-    lager:info("Start two pipes on Primary"),
+    ?LOG_INFO("Start two pipes on Primary"),
     {ok, Pipe1} =
         rpc:call(Primary, riak_pipe, exec,
                  [P1Spec, [{sink, rt_pipe:self_sink()}|?ALL_LOG]]),
@@ -87,7 +88,7 @@ confirm() ->
         rpc:call(Primary, riak_pipe, exec,
                  [P2Spec, [{sink, rt_pipe:self_sink()}|?ALL_LOG]]),
 
-    lager:info("Send some inputs to both pipes"),
+    ?LOG_INFO("Send some inputs to both pipes"),
     [ok = rpc:call(Primary, riak_pipe, queue_work, [Pipe1, X]) ||
         X <- lists:seq(1, 20)],
     [ok = rpc:call(Primary, riak_pipe, queue_work, [Pipe2, X]) ||
@@ -96,26 +97,26 @@ confirm() ->
     P1Status1 = pipe_status(Primary, Pipe1),
     P2Status1 = pipe_status(Primary, Pipe2),
 
-    lager:info("Start and register intercept log collector"),
+    ?LOG_INFO("Start and register intercept log collector"),
     Collector = spawn_link(Primary, ?MODULE, collector, []),
     rpc:call(Primary, erlang, register, [riak_test_collector, Collector]),
 
-    lager:info("Install pipe vnode intercept"),
+    ?LOG_INFO("Install pipe vnode intercept"),
     Intercept = {riak_pipe_vnode,
                  [{{handle_handoff_command,3}, log_handoff_command}]},
     ok = rt_intercept:add(Primary, Intercept),
 
-    lager:info("Join Secondary to Primary"),
+    ?LOG_INFO("Join Secondary to Primary"),
     %% Give slave a chance to start and master to notice it.
     rt:join(Secondary, Primary),
     rt:wait_until_nodes_agree_about_ownership(Nodes),
 
-    lager:info("Unpause workers"),
+    ?LOG_INFO("Unpause workers"),
     Runner ! go,
 
     ok = rt:wait_until_transfers_complete(Nodes),
 
-    lager:info("Add more inputs to Pipe2"),
+    ?LOG_INFO("Add more inputs to Pipe2"),
     [ok = rpc:call(Primary, riak_pipe, queue_work, [Pipe2, X]) ||
         X <- lists:seq(121, 140)],
 
@@ -125,7 +126,7 @@ confirm() ->
     P1Status2 = pipe_status(Primary, Pipe1),
     P2Status2 = pipe_status(Primary, Pipe2),
 
-    lager:info("Send eoi and collect results"),
+    ?LOG_INFO("Send eoi and collect results"),
     riak_pipe:eoi(Pipe1),
     riak_pipe:eoi(Pipe2),
     {eoi, Out1, Trace1} = riak_pipe:collect_results(Pipe1, 1000),
@@ -140,7 +141,7 @@ confirm() ->
 
     %% VM trace verification
     timer:sleep(1000),
-    lager:info("Collect intercept log"),
+    ?LOG_INFO("Collect intercept log"),
     PTraces = get_collection(Collector),
 
     %% time to compare things
@@ -185,14 +186,14 @@ confirm() ->
     case ordsets:intersection(ordsets:from_list(P1PrimaryWorkers1),
                               ordsets:from_list(P2PrimaryWorkers1)) of
         [] ->
-            lager:warning("Multiple archives in a single fold was not tested");
+            ?LOG_WARNING("Multiple archives in a single fold was not tested");
         _ ->
             ok
     end,
 
     rt_pipe:assert_no_zombies(Nodes),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 %%% Run pausing bits

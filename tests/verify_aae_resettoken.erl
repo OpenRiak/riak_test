@@ -18,11 +18,13 @@
 %%
 %% -------------------------------------------------------------------
 %% @doc Verification of Active Anti Entropy token resets.
-
-
 -module(verify_aae_resettoken).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(DEFAULT_RING_SIZE, 16).
 -define(AAE_THROTTLE_LIMITS, [{-1, 0}, {100, 10}]).
@@ -54,17 +56,17 @@ confirm() ->
     pass.
 
 verify_token_reset(Cluster) ->
-    {infinity, undefined} = 
+    {infinity, undefined} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    {infinity, undefined} = 
+    {infinity, undefined} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    
+
     KVL0 = test_data(1, ?NUM_KEYS),
     verify_aae:test_less_than_n_writes(hd(Cluster), KVL0),
 
     {Min0, Max0} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    lager:info("Initial Min and Max ~w ~w", [Min0, Max0]),
+    ?LOG_INFO("Initial Min and Max ~w ~w", [Min0, Max0]),
     ?assertMatch(true, Max0 >= Min0),
     ?assertMatch(true, Max0 =< ?NUM_KEYS),
     ?assertMatch(true, Min0 >= 0),
@@ -73,7 +75,7 @@ verify_token_reset(Cluster) ->
 
     {Min1, Max1} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    lager:info("Reset Min and Max ~w ~w", [Min1, Max1]),
+    ?LOG_INFO("Reset Min and Max ~w ~w", [Min1, Max1]),
     ?assertMatch(true, Max1 >= Min1),
     ?assertMatch(true, Max1 =< 2000),
     ?assertMatch(true, Min1 >= 1000),
@@ -83,7 +85,7 @@ verify_token_reset(Cluster) ->
 
     {Min2, Max2} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    lager:info("Reset Min and Max ~w ~w after further writes", [Min1, Max1]),
+    ?LOG_INFO("Reset Min and Max ~w ~w after further writes", [Min1, Max1]),
     ?assertMatch(true, Max2 >= Min2),
     ?assertMatch(true, Max2 < Max1),
     ?assertMatch(true, Min2 < Min1),
@@ -91,7 +93,7 @@ verify_token_reset(Cluster) ->
     ok = rpc:call(hd(Cluster), riak_kv_util, reset_hashtree_tokens, [Min0, Max0]),
     {Min3, Max3} =
         rpc:call(hd(Cluster), riak_kv_util, report_hashtree_tokens, []),
-    lager:info("Re-reset Min and Max ~w ~w", [Min3, Max3]),
+    ?LOG_INFO("Re-reset Min and Max ~w ~w", [Min3, Max3]),
     ?assertMatch(true, Max3 >= Min3),
     ?assertMatch(true, Max3 =< Max0),
     ?assertMatch(true, Min3 >= Min0),

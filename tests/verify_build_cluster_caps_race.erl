@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_build_cluster_caps_race).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 staged_join(InitiatingNode, DestinationNode) ->
     rpc:call(InitiatingNode, riak_core, staged_join,
@@ -28,18 +31,18 @@ staged_join(InitiatingNode, DestinationNode) ->
 
 confirm() ->
     %% Deploy a set of new nodes
-    lager:info("Deploying nodes"),
+    ?LOG_INFO("Deploying nodes"),
 
     [Node1, Node2] = rt:deploy_nodes(2),
 
     configure_intercept(Node2),
 
-    lager:info("joining Node 2 to the cluster..."),
+    ?LOG_INFO("joining Node 2 to the cluster..."),
     ?assertMatch({error, _}, staged_join(Node2, Node1)),
     pass.
 
 %% init must return `starting' status for join to fail
 configure_intercept(Node) ->
-    lager:info("Doing unspeakably evil things to the VM"),
+    ?LOG_INFO("Doing unspeakably evil things to the VM"),
     rt_intercept:add(Node, {init,
                             [{{get_status,0}, get_status}]}).

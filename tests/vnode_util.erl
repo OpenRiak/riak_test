@@ -21,12 +21,14 @@
 -module(vnode_util).
 -compile([export_all, nowarn_export_all]).
 
+-include_lib("kernel/include/logger.hrl").
+
 load(Nodes) ->
     rt:load_modules_on_nodes([?MODULE], Nodes),
     ok.
 
 suspend_vnode(Node, Idx) ->
-    lager:info("Suspending vnode ~p/~p", [Node, Idx]),
+    ?LOG_INFO("Suspending vnode ~0p/~0p", [Node, Idx]),
     Pid = rpc:call(Node, ?MODULE, remote_suspend_vnode, [Idx], infinity),
     Pid.
 
@@ -37,7 +39,7 @@ remote_suspend_vnode(Idx) ->
                         erlang:suspend_process(Pid, []),
                         Parent ! suspended,
                         receive resume ->
-                                io:format("Resuming vnode :: ~p/~p~n", [node(), Idx]),
+                                io:format("Resuming vnode :: ~0p/~0p~n", [node(), Idx]),
                                 erlang:resume_process(Pid)
                         end
                 end),
@@ -48,7 +50,7 @@ resume_vnode(Pid) ->
     Pid ! resume.
 
 kill_vnode({VIdx, VNode}) ->
-    lager:info("Killing vnode: ~p", [VIdx]),
+    ?LOG_INFO("Killing vnode: ~0p", [VIdx]),
     Pid = vnode_pid(VNode, VIdx),
     rpc:call(VNode, erlang, exit, [Pid, kill]),
     ok = rt:wait_until(fun() ->
@@ -61,20 +63,20 @@ vnode_pid(Node, Partition) ->
     Pid.
 
 rebuild_vnode({VIdx, VNode}) ->
-    lager:info("Rebuild AAE tree: ~p", [VIdx]),
+    ?LOG_INFO("Rebuild AAE tree: ~0p", [VIdx]),
     rebuild_aae_tree(VNode, VIdx).
 
 rebuild_aae_tree(Node, Partition) ->
     {ok, Pid} = rpc:call(Node, riak_kv_vnode, hashtree_pid, [Partition]),
     Info = rpc:call(Node, riak_kv_entropy_info, compute_tree_info, []),
     {_, Built} = lists:keyfind(Partition, 1, Info),
-    lager:info("Forcing rebuild of AAE tree for: ~b", [Partition]),
-    lager:info("Tree originally built at: ~p", [Built]),
+    ?LOG_INFO("Forcing rebuild of AAE tree for: ~b", [Partition]),
+    ?LOG_INFO("Tree originally built at: ~0p", [Built]),
     rpc:call(Node, riak_kv_index_hashtree, clear, [Pid]),
     ok = rt:wait_until(fun() ->
                                NewInfo = rpc:call(Node, riak_kv_entropy_info, compute_tree_info, []),
                                {_, NewBuilt} = lists:keyfind(Partition, 1, NewInfo),
                                NewBuilt > Built
                        end),
-    lager:info("Tree successfully rebuilt"),
+    ?LOG_INFO("Tree successfully rebuilt"),
     ok.

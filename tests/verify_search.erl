@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,16 +17,20 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %% @doc Wrapper for the tests in riak_search/tests/riak_search
-
+%% @deprecated search is no longer present in Riak 3+
 -module(verify_search).
--include_lib("eunit/include/eunit.hrl").
--include("tests/job_enable_common.hrl").
+-deprecated(module).
+-behavior(riak_test).
 
 -export([confirm/0]).
+
 %% To run in the possibly remote node
 -export([test_dirs/1]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-include("job_enable_common.hrl").
 
 -define(SEARCH_REPO, "git://github.com/basho/riak_search").
 
@@ -38,14 +42,14 @@ confirm() ->
     job_enable_common:set_enabled(Nodes, ?TOKEN_OLD_SEARCH, true),
 
     Path = rt_config:get(rt_scratch_dir),
-    lager:info("Creating scratch dir if necessary at ~s", [Path]),
-    ?assertMatch({0, _}, rt:cmd("mkdir -p " ++ Path)),
+    ?LOG_INFO("Creating scratch dir if necessary at ~s", [Path]),
+    ?assertMatch({0, _}, rt:cmd("mkdir", ["-p", Path])),
     SearchRepoDir = filename:join(Path, "riak_search"),
-    lager:info("Deleting any previous riak_search repo ~s", [SearchRepoDir]),
-    ?assertMatch({0, _}, rt:cmd("rm -rf " ++ SearchRepoDir)),
-    lager:info("Cloning riak_search repo within scratch dir"),
-    ?assertMatch({0, _}, rt:cmd("git clone --depth 1 "++?SEARCH_REPO,
-                                 [{cd, Path}])),
+    ?LOG_INFO("Deleting any previous riak_search repo ~s", [SearchRepoDir]),
+    ?assertMatch({0, _}, rt:cmd("rm", ["-rf", SearchRepoDir])),
+    ?LOG_INFO("Cloning riak_search repo within scratch dir"),
+    ?assertMatch({0, _, _}, rt_exec:cmd(
+        "git", Path, ["clone", "--depth", "1", ?SEARCH_REPO], [], string)),
     BaseDir = filename:join([Path, "riak_search", "tests", "riak_search"]),
 
     rt:load_modules_on_nodes([?MODULE], [Node0]),
@@ -53,7 +57,7 @@ confirm() ->
     ?assert(is_list(TestDirs)),
     Run =
         fun(Dir) ->
-            lager:info("Running test in directory ~s", [Dir]),
+            ?LOG_INFO("Running test in directory ~s", [Dir]),
             ?assertMatch(ok,
                          rpc:call(Node0, riak_search_test, test, [Dir]))
         end,

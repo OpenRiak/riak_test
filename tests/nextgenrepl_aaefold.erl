@@ -1,14 +1,33 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(nextgenrepl_aaefold).
 -behavior(riak_test).
+
 -export([confirm/0]).
 -export([fullsync_check/3]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(CONFIRMS_BUCKET, <<"repl-aae-fullsync-systest_node_confirms">>).
@@ -62,15 +81,15 @@ confirm() ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
     rt:join_cluster(ClusterC),
-    
-    lager:info("Waiting for convergence."),
+
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB ++ ClusterC),
-    
-    lager:info("Ready for test."),
+
+    ?LOG_INFO("Ready for test."),
     setup_replqueues(ClusterA, [cluster_b, cluster_c]),
     setup_replqueues(ClusterB, [cluster_a, cluster_c]),
     setup_replqueues(ClusterC, [cluster_b, cluster_a]),
@@ -79,11 +98,11 @@ confirm() ->
     NodeB = hd(ClusterB),
     NodeC = hd(ClusterC),
 
-    lager:info("Test empty clusters don't show any differences"),
+    ?LOG_INFO("Test empty clusters don't show any differences"),
     [{http, {IPA, PortAH}}, {pb, {IPA, PortAP}}] = rt:connection_info(NodeA),
     [{http, {IPB, PortBH}}, {pb, {IPB, PortBP}}] = rt:connection_info(NodeB),
     [{http, {IPC, PortCH}}, {pb, {IPC, PortCP}}] = rt:connection_info(NodeC),
-    
+
     RefA = {NodeA, IPA, PortAH, ?A_NVAL},
     RefB = {NodeB, IPB, PortBH, ?B_NVAL},
     RefC = {NodeC, IPC, PortCH, ?C_NVAL},
@@ -94,7 +113,7 @@ confirm() ->
 
     ok = setup_snkreplworkers(ClusterA, ClusterB, cluster_b),
 
-    lager:info("Test 5000 key difference and resolve"),
+    ?LOG_INFO("Test 5000 key difference and resolve"),
     % Write keys to cluster A, verify B and C do not have them.
     FunMod:write_to_cluster(NodeA, 1, 5000, ?TEST_BUCKET, true, ?VAL_INIT),
     FunMod:read_from_cluster(NodeB, 1, 5000, 5000, ?TEST_BUCKET, ?VAL_INIT),
@@ -117,7 +136,7 @@ confirm() ->
     FunMod:read_from_cluster(NodeB, 1, 5000, 0, ?TEST_BUCKET, ?VAL_INIT),
     FunMod:read_from_cluster(NodeC, 1, 5000, 5000, ?TEST_BUCKET, ?VAL_INIT),
 
-    lager:info("Replicate a range of 900 keys within the bucket"),
+    ?LOG_INFO("Replicate a range of 900 keys within the bucket"),
     ok = setup_snkreplworkers(ClusterB, ClusterC, cluster_c),
     StrK = FunMod:key(3001),
     EndK = FunMod:key(3900),
@@ -125,7 +144,7 @@ confirm() ->
         range_repl_compare(SrcHTTPCB, SrcPBCB,
                             ?TEST_BUCKET, {StrK, EndK}, all, cluster_c),
     ?assertEqual(900, KC2),
-    0 = 
+    0 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 3001, 3900, undefined,
@@ -134,8 +153,8 @@ confirm() ->
                             5),
     FunMod:read_from_cluster(NodeC, 1, 3000, 3000, ?TEST_BUCKET, ?VAL_INIT),
     FunMod:read_from_cluster(NodeC, 3901, 5000, 1100, ?TEST_BUCKET, ?VAL_INIT),
-    
-    lager:info("Replicate puts based on modified date range"),
+
+    ?LOG_INFO("Replicate puts based on modified date range"),
     {MegaB4, SecsB4, _} = os:timestamp(),
     SWbefore = MegaB4 * 1000000 + SecsB4,
     timer:sleep(1000),
@@ -153,7 +172,7 @@ confirm() ->
                             {SWbefore, SWafter},
                             cluster_c),
     ?assertEqual(600, KC3),
-    500 = 
+    500 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 3901, 5000, undefined,
@@ -169,48 +188,48 @@ confirm() ->
                             {SWafter, SWnow},
                             cluster_c),
     ?assertEqual(500, KC4),
-    0 = 
+    0 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 3901, 5000, undefined,
                                 ?TEST_BUCKET, ?VAL_MOD],
                             0,
                             5),
-    
-    lager:info("Complete all necessary replications using all"),
-    
+
+    ?LOG_INFO("Complete all necessary replications using all"),
+
     {ok, KC5} =
         range_repl_compare(SrcHTTPCB, SrcPBCB,
                             ?TEST_BUCKET, all, all, cluster_c),
     ?assertEqual(5000, KC5),
-    1100 = 
+    1100 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 1, 5000, undefined,
                                 ?TEST_BUCKET, ?VAL_INIT],
                             1100,
                             5),
-    3900 = 
+    3900 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 1, 5000, undefined,
                                 ?TEST_BUCKET, ?VAL_MOD],
                             3900,
                             5),
-    lager:info("Replicate back to cluster A changes from B"),
+    ?LOG_INFO("Replicate back to cluster A changes from B"),
     ok = setup_snkreplworkers(ClusterB, ClusterA, cluster_a),
     {ok, KC6} =
         range_repl_compare(SrcHTTPCB, SrcPBCB,
                             ?TEST_BUCKET, all, all, cluster_a),
     ?assertEqual(5000, KC6),
-    1100 = 
+    1100 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeA, 1, 5000, undefined,
                                 ?TEST_BUCKET, ?VAL_INIT],
                             1100,
                             5),
-    3900 = 
+    3900 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeA, 1, 5000, undefined,
@@ -218,42 +237,36 @@ confirm() ->
                             3900,
                             5),
 
-    lager:info("Final validation everything is sync'd"),
+    ?LOG_INFO("Final validation everything is sync'd"),
     {root_compare, 0} = fullsync_check(RefA, RefB, no_repair),
     {root_compare, 0} = fullsync_check(RefB, RefC, no_repair),
     {root_compare, 0} = fullsync_check(RefC, RefA, no_repair),
 
-    lager:info("Test with node_confirms of 2"),
+    ?LOG_INFO("Test with node_confirms of 2"),
     set_node_confirms(NodeB, ClusterB, ?CONFIRMS_BUCKET, 2),
     FunMod:write_to_cluster(NodeB, 1, 1000, ?CONFIRMS_BUCKET, true, ?VAL_INIT),
-    0 = 
+    0 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeB, 1, 1000, undefined,
                                 ?CONFIRMS_BUCKET, ?VAL_INIT],
                             0,
                             5),
-    1000 = 
+    1000 =
         wait_for_outcome(FunMod,
                             read_from_cluster,
                             [NodeC, 1, 1000, undefined,
                                 ?CONFIRMS_BUCKET, ?VAL_INIT],
                             1000,
                             5),
-    
-    lager:info("Complete all necessary replications using all"),
-    
-    {ok, KC_NC0} =
-        range_repl_compare(
-            SrcHTTPCB, SrcPBCB, ?CONFIRMS_BUCKET, all, all, cluster_c),
-    ?assertEqual(1000, KC_NC0),
-    0 = 
-        wait_for_outcome(FunMod,
-                            read_from_cluster,
-                            [NodeC, 1, 1000, undefined,
-                                ?CONFIRMS_BUCKET, ?VAL_INIT],
-                            0,
-                            5),
+
+    ?LOG_INFO("Complete all necessary replications using all"),
+
+    ?assertMatch({ok, 1000}, range_repl_compare(
+            SrcHTTPCB, SrcPBCB, ?CONFIRMS_BUCKET, all, all, cluster_c)),
+
+    ?assertMatch(0, wait_for_outcome(FunMod, read_from_cluster,
+        [NodeC, 1, 1000, undefined, ?CONFIRMS_BUCKET, ?VAL_INIT], 0, 5)),
 
     ok = riakc_pb_socket:stop(SrcPBCA),
     ok = riakc_pb_socket:stop(SrcPBCB),
@@ -267,8 +280,8 @@ set_node_confirms(Node, Nodes, Bucket, NC) ->
         riak_core_bucket,
         set_bucket, [Bucket, [{node_confirms, NC}]]),
     timer:sleep(1000),
-    lager:info(
-        "Bucket properties for ~s ~p",
+    ?LOG_INFO(
+        "Bucket properties for ~s ~0p",
         [Bucket,
             rpc:call(Node, riak_core_bucket, get_bucket, [Bucket])]
     ),
@@ -277,7 +290,7 @@ set_node_confirms(Node, Nodes, Bucket, NC) ->
 setup_replqueues([], _ClusterList) ->
     ok;
 setup_replqueues([HeadNode|Others], ClusterList) ->
-    SetupQFun = 
+    SetupQFun =
         fun(ClusterName) ->
             true = rpc:call(HeadNode,
                             riak_kv_replrtq_src,
@@ -295,7 +308,7 @@ setup_snkreplworkers(SrcCluster, SnkNodes, SnkName) ->
             {{Acc, 0, IP, Port, http}, Acc + 1}
         end,
     {PeerList, _} = lists:mapfoldl(PeerMap, 1, SrcCluster),
-    SetupSnkFun = 
+    SetupSnkFun =
         fun(Node) ->
             ok = rpc:call(Node,
                             riak_kv_replrtq_snk,
@@ -311,7 +324,7 @@ wait_for_outcome(Module, Func, Args, ExpOutcome, Loops) ->
         ExpOutcome ->
             ExpOutcome;
         NotRightYet ->
-            lager:info("~w not yet ~w ~w", [Func, ExpOutcome, NotRightYet]),
+            ?LOG_INFO("~0p not yet ~0p ~0p", [Func, ExpOutcome, NotRightYet]),
             timer:sleep(1000),
             wait_for_outcome(Module, Func, Args, ExpOutcome, Loops - 1)
     end.
@@ -330,5 +343,5 @@ range_repl_compare(RHC, PBC, B, KR, MR, QN) ->
     RH = rhc:aae_range_replkeys(RHC, B, KR, MR, QN),
     RP = riakc_pb_socket:aae_range_replkeys(PBC, B, KR, MR, QN),
     ?assertEqual(RH, RP),
-    lager:info("Range repl answers - HTTP ~p PB ~p", [RH, RP]),
+    ?LOG_INFO("Range repl answers - HTTP ~0p PB ~0p", [RH, RP]),
     RH.

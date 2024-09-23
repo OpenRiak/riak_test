@@ -22,7 +22,9 @@
 -behavior(riak_test).
 -export([confirm/0]).
 -export([read_from_cluster/6]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
@@ -106,12 +108,12 @@ confirm() ->
                     {3, ?CONFIG(?A_RING, ?A_NVAL, keep, true)},
                     {3, ?CONFIG(?B_RING, ?B_NVAL, keep, false)}]),
 
-            lager:info("***************************************************"),
-            lager:info("Test $key index with deletes and reaps"),
-            lager:info("***************************************************"),
+            ?LOG_INFO("***************************************************"),
+            ?LOG_INFO("Test $key index with deletes and reaps"),
+            ?LOG_INFO("***************************************************"),
             test_dollarkey(ClusterA, ClusterB, pb);
         KVBackend ->
-            lager:info(
+            ?LOG_INFO(
                 "Test ignored as not relevant to backend ~w",
                 [KVBackend]),
             pass
@@ -145,7 +147,7 @@ test_dollarkey(ClusterA, ClusterB, Protocol) ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
     
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     lists:foreach(
@@ -178,7 +180,7 @@ test_dollarkey(ClusterA, ClusterB, Protocol) ->
         riakc_pb_socket:get_index_range(
             PBCb, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(?KEY_COUNT)),
     SW = os:timestamp(),
-    lager:info(
+    ?LOG_INFO(
         "Results on A ~w in ~w ms and B ~w in ~w ms",
         [length(RA0), timer:now_diff(SWb, SWa) div 1000,
             length(RB0), timer:now_diff(SW, SWb) div 1000]),
@@ -193,37 +195,37 @@ test_dollarkey(ClusterA, ClusterB, Protocol) ->
             {ok, {index_results_v1, RB1, undefined, undefined}} =
                 riakc_pb_socket:get_index_range(
                     PBCb, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100)),
-            lager:info(
+            ?LOG_INFO(
                 "$key query on ClusterB returns ~w expected 50",
                 [length(RB1)]),
             50 == length(RB1)
         end
     ),
-    lager:info("Confirm term regex still behaves as expected"),
+    ?LOG_INFO("Confirm term regex still behaves as expected"),
     {ok, {index_results_v1, RA2, undefined, undefined}} =
         riakc_pb_socket:get_index_range(
             PBCa, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100),
-            [{term_regex, ".*4$"}]),
+            [{term_regex, <<".*4$">>}]),
     ?assertEqual(10, length(RA2)),
     {ok, {index_results_v1, RB2, undefined, undefined}} =
         riakc_pb_socket:get_index_range(
             PBCb, ?TEST_BUCKET, <<"$key">>, to_key(1), to_key(100),
-            [{term_regex, ".*4$"}]),
+            [{term_regex, <<".*4$">>}]),
     ?assertEqual(5, length(RB2)),
 
-    lager:info("Find keys will return tombstones"),
+    ?LOG_INFO("Find keys will return tombstones"),
     ?assertEqual(20000, find_keys(NodeA1, ?TEST_BUCKET, all, all)),
 
     delete_from_cluster(NodeA1, ?TEST_BUCKET, 51, ?KEY_COUNT),
     reap_from_cluster(NodeA1, local, ?TEST_BUCKET),
 
-    lager:info("Confirm all keys reaped from both clusters"),
+    ?LOG_INFO("Confirm all keys reaped from both clusters"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeA1, ?TEST_BUCKET, all, all, return_count)
         end),
-    lager:info("All reaped from Cluster A"),
-    lager:info("Now would expect ClusterB to be eventually in sync"),
+    ?LOG_INFO("All reaped from Cluster A"),
+    ?LOG_INFO("Now would expect ClusterB to be eventually in sync"),
     rt:wait_until(
         fun() ->
             {ok, 0} == find_tombs(NodeB1, ?TEST_BUCKET, all, all, return_count)
@@ -246,8 +248,7 @@ to_key(N) ->
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Bucket, Start, End, CommonValBin) -> 
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -256,11 +257,7 @@ write_to_cluster(Node, Bucket, Start, End, CommonValBin) ->
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
                         riak_object:new(
-                            Bucket, to_key(N), <<N:32/integer, CVB/binary>>);
-                    UpdateBin ->
-                        UPDV = <<N:32/integer, UpdateBin/binary>>,
-                        {ok, PrevObj} = riak_client:get(Bucket, to_key(N), C),
-                        riak_object:update_value(PrevObj, UPDV)
+                            Bucket, to_key(N), <<N:32/integer, CVB/binary>>)
                 end,
             try riak_client:put(Obj, C) of
                 ok ->
@@ -273,12 +270,11 @@ write_to_cluster(Node, Bucket, Start, End, CommonValBin) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~p errors while writing: ~p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 delete_from_cluster(Node, Bucket, Start, End) ->
-    lager:info("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -294,12 +290,12 @@ delete_from_cluster(Node, Bucket, Start, End) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while deleting: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~p errors while deleting: ~p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 
 reap_from_cluster(Node, local, Bucket) ->
-    lager:info("Auto-reaping found tombs from node ~p", [Node]),
+    ?LOG_INFO("Auto-reaping found tombs from node ~p", [Node]),
     {ok, C} = riak:client_connect(Node),
     Query = {reap_tombs, Bucket, all, all, all, local},
     {ok, Count} = riak_client:aae_fold(Query, C),
@@ -307,7 +303,7 @@ reap_from_cluster(Node, local, Bucket) ->
     
 
 read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
+    ?LOG_INFO("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -319,7 +315,7 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
                         [ExpectedVal] ->
                             Acc;
                         Siblings when length(Siblings) > 1 ->
-                            lager:info(
+                            ?LOG_INFO(
                                 "Siblings for Key ~s:~n ~w", [Key, Obj]),
                             [{wrong_value, Key, siblings}|Acc];
                         [UnexpectedVal] ->
@@ -332,7 +328,7 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
     ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
     case Errors of
         undefined ->
-            lager:info("Errors Found in read_from_cluster ~w",
+            ?LOG_INFO("Errors Found in read_from_cluster ~w",
                         [length(ErrorsFound)]),
             length(ErrorsFound);
         _ ->
@@ -340,20 +336,19 @@ read_from_cluster(Node, Bucket, Start, End, CommonValBin, Errors) ->
     end.
 
 find_tombs(Node, Bucket, KR, MR, ResultType) ->
-    lager:info("Finding tombstones from node ~p.", [Node]),
+    ?LOG_INFO("Finding tombstones from node ~p.", [Node]),
     {ok, C} = riak:client_connect(Node),
     case ResultType of
-        return_keys ->
-            riak_client:aae_fold({find_tombs, Bucket, KR, all, MR}, C);
         return_count ->
             riak_client:aae_fold({reap_tombs, Bucket, KR, all, MR, count}, C)
     end.
 
 find_keys(Node, Bucket, KR, MR) ->
-    lager:info("Finding keys from node ~p.", [Node]),
+    ?LOG_INFO("Finding keys from node ~p.", [Node]),
     {ok, C} = riak:client_connect(Node),
-    {ok, KL} =
+    {ok, OS} =
         riak_client:aae_fold(
-            {find_keys, Bucket, KR, MR, {sibling_count, 0}},
+            {object_stats, Bucket, KR, MR},
             C),
-    length(KL).
+    {total_count, TC} = lists:keyfind(total_count, 1, OS),
+    TC.

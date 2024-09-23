@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,11 +18,12 @@
 %%
 %% -------------------------------------------------------------------
 -module(partition_repair).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
-
 -behavior(riak_test).
+
 -export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(FMT(S, L), lists:flatten(io_lib:format(S, L))).
 
@@ -40,32 +41,32 @@ confirm() ->
     {_KVBackendMod, KVDataDir} = backend_mod_dir(KVBackend),
     Bucket = <<"scotts_spam">>,
 
-    lager:info("Build a cluster"),
-    lager:info("ring_creation_size: ~p", [RingSize]),
-    lager:info("n_val: ~p", [NVal]),
-    lager:info("num nodes: ~p", [NumNodes]),
-    lager:info("riak_core handoff_concurrency: ~p", [HOConcurrency]),
-    lager:info("riak_core vnode_management_timer 1000"),
+    ?LOG_INFO("Build a cluster"),
+    ?LOG_INFO("ring_creation_size: ~b", [RingSize]),
+    ?LOG_INFO("n_val: ~b", [NVal]),
+    ?LOG_INFO("num nodes: ~b", [NumNodes]),
+    ?LOG_INFO("riak_core handoff_concurrency: ~b", [HOConcurrency]),
+    ?LOG_INFO("riak_core vnode_management_timer 1000"),
     Conf = [
-            {riak_core,
-             [
-              {ring_creation_size, RingSize},
-              {handoff_manager_timeout, 1000},
-              {vnode_management_timer, 1000},
-              {handoff_concurrency, HOConcurrency}
-             ]},
-            %% @TODO This is only to test whether the test failure happens
-            %% without AAE. The AAE errors found in the logs could be unrelated
-            {riak_kv,
-             [
-              {anti_entropy, {off, []}}
-             ]
-            }
-            %% {lager,
-            %%  [{handlers,
-            %%    [{lager_file_backend,
-            %%      [{"./log/console.log",debug,10485760,"$D0",5}]}]}]}
-           ],
+        {riak_core, [
+            {ring_creation_size, RingSize},
+            {handoff_manager_timeout, 1000},
+            {vnode_management_timer, 1000},
+            {handoff_concurrency, HOConcurrency}
+        ]},
+        %% @TODO This is only to test whether the test failure happens
+        %% without AAE. The AAE errors found in the logs could be unrelated
+        {riak_kv, [
+            {anti_entropy, {off, []}}
+        ]}
+        %% {lager, [
+        %%     {handlers, [
+        %%         {lager_file_backend, [
+        %%             {"./log/console.log", debug, 10485760, "$D0", 5}
+        %%         ]}
+        %%     ]}
+        %% ]}
+    ],
 
     Nodes = rt:build_cluster(NumNodes, Conf),
 
@@ -73,30 +74,30 @@ confirm() ->
         undefined ->
             ok;
         _ ->
-            lager:info("Set n_val to ~p", [NVal])
+            ?LOG_INFO("Set n_val to ~b", [NVal])
     end,
 
-    lager:info("Insert Scott's spam emails"),
+    ?LOG_INFO("Insert Scott's spam emails"),
     Pbc = rt:pbc(hd(Nodes)),
     rt:pbc_put_dir(Pbc, Bucket, SpamDir),
 
-    lager:info("Stash ITFs for each partition"),
+    ?LOG_INFO("Stash ITFs for each partition"),
     %% @todo Should riak_test guarantee that the scratch pad is clean instead?
-    ?assertCmd("rm -rf " ++ base_stash_path()),
+    ?assertMatch({0, _}, rt:cmd("/bin/rm", ["-rf", base_stash_path()])),
     %% need to load the module so riak can see the fold fun
     rt:load_modules_on_nodes([?MODULE], Nodes),
     Ring = rt:get_ring(hd(Nodes)),
     Owners = riak_core_ring:all_owners(Ring),
     [stash_data(riak_search, Owner) || Owner <- Owners],
 
-    lager:info("Stash KV data for each partition"),
+    ?LOG_INFO("Stash KV data for each partition"),
     [stash_data(riak_kv, Owner) || Owner <- Owners],
 
     %% TODO: parameterize backend
-    lager:info("Emulate data loss for riak_kv, repair, verify correct data"),
+    ?LOG_INFO("Emulate data loss for riak_kv, repair, verify correct data"),
     [kill_repair_verify(Owner, KVDataDir, riak_kv) || Owner <- Owners],
 
-    lager:info("TEST PASSED"),
+    ?LOG_INFO("TEST PASSED"),
     pass.
 
 kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
@@ -107,11 +108,11 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
 
     %% kill the partition data
     Path = DataSuffix ++ "/" ++ integer_to_list(Partition),
-    lager:info("Killing data for ~p on ~p at ~s", [Partition, Node, Path]),
+    ?LOG_INFO("Killing data for ~0p on ~0p at ~s", [Partition, Node, Path]),
     rt:clean_data_dir([Node], Path),
 
     %% force restart of vnode since some data is kept in memory
-    lager:info("Restarting ~p vnode for ~p on ~p", [Service, Partition, Node]),
+    ?LOG_INFO("Restarting ~0p vnode for ~0p on ~0p", [Service, Partition, Node]),
     {ok, Pid} = rpc:call(Node, riak_core_vnode_manager, get_vnode_pid,
                          [Partition, VNodeName]),
     ?assert(rpc:call(Node, erlang, exit, [Pid, kill_for_test])),
@@ -125,11 +126,11 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
                                     [Partition, VNodeName])
                   end),
 
-    lager:info("Verify data is missing"),
+    ?LOG_INFO("Verify data is missing"),
     ?assertEqual(0, count_data({Partition, Node})),
 
     %% repair the partition, ignore return for now
-    lager:info("Invoking repair for ~p on ~p", [Partition, Node]),
+    ?LOG_INFO("Invoking repair for ~0p on ~0p", [Partition, Node]),
     %% TODO: Don't ignore return, check version of Riak and if greater
     %% or equal to 1.x then expect OK.
     Return = rpc:call(Node, riak_kv_vnode, repair, [Partition]),
@@ -138,18 +139,18 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
     %% {ok, [{KPart, KNode}|_]} = Return,
     %% {ok, NewPid} = rpc:call(KNode, riak_core_vnode_manager, get_vnode_pid,
     %%                         [KPart, VNodeName]),
-    %% lager:info("killing src pid: ~p/~p ~p", [KNode, KPart, NewPid]),
+    %% ?LOG_INFO("killing src pid: ~0p/~0p ~0p", [KNode, KPart, NewPid]),
     %% KR = rpc:call(KNode, erlang, exit, [NewPid, kill]),
-    %% lager:info("result of kill: ~p", [KR]),
+    %% ?LOG_INFO("result of kill: ~0p", [KR]),
     %% timer:sleep(1000),
     %% ?assertNot(rpc:call(KNode, erlang, is_process_alive, [NewPid])),
 
 
-    lager:info("return value of repair_index ~p", [Return]),
-    lager:info("Wait for repair to finish"),
+    ?LOG_INFO("return value of repair_index ~0p", [Return]),
+    ?LOG_INFO("Wait for repair to finish"),
     wait_for_repair({Partition, Node}, 30),
 
-    lager:info("Verify ~p on ~p is fully repaired", [Partition, Node]),
+    ?LOG_INFO("Verify ~0p on ~0p is fully repaired", [Partition, Node]),
     Data2 = get_data({Partition, Node}),
     {Verified, NotFound} = dict:fold(verify(Node, Service, Data2), {0, []}, Stash),
 
@@ -157,7 +158,7 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
         [] -> ok;
         _ ->
             NF = StashPath ++ ".nofound",
-            lager:info("Some data not found, writing that to ~s", [NF]),
+            ?LOG_INFO("Some data not found, writing that to ~s", [NF]),
             ?assertEqual(ok, file:write_file(NF, io_lib:format("~p.", [NotFound])))
     end,
     %% NOTE: If the following assert fails then check the .notfound
@@ -166,7 +167,7 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
     ?assertEqual({Service, ExpectToVerify}, {Service, Verified}),
 
     {ok, [{BeforeP, _BeforeOwner}=B, _, {AfterP, _AfterOwner}=A]} = Return,
-    lager:info("Verify before src partition ~p still has data", [B]),
+    ?LOG_INFO("Verify before src partition ~0p still has data", [B]),
     StashPathB = stash_path(Service, BeforeP),
     {ok, [StashB]} = file:consult(StashPathB),
     ExpectToVerifyB = dict:size(StashB),
@@ -182,7 +183,7 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
     end,
     ?assertEqual(ExpectToVerifyB, VerifiedB),
 
-    lager:info("Verify after src partition ~p still has data", [A]),
+    ?LOG_INFO("Verify after src partition ~0p still has data", [A]),
     StashPathA = stash_path(Service, AfterP),
     {ok, [StashA]} = file:consult(StashPathA),
     ExpectToVerifyA = dict:size(StashA),
@@ -232,9 +233,6 @@ gte(Node, Value, StashedData, {B, K}) ->
     Merged = rpc:call(Node, riak_object, syntactic_merge, [VnodeObject, StashedObject]),
     riak_object:equal(VnodeObject, Merged).
 
-is_true(X) ->
-    X == true.
-
 count_data({Partition, Node}) ->
     dict:size(get_data({Partition, Node})).
 
@@ -253,7 +251,7 @@ get_data({Partition, Node}) ->
 stash_data(Service, {Partition, Node}) ->
     File = stash_path(Service, Partition),
     ?assertEqual(ok, filelib:ensure_dir(File)),
-    lager:info("Stashing ~p/~p at ~p to ~p", [Service, Partition, Node, File]),
+    ?LOG_INFO("Stashing ~0p/~0p at ~0p to ~0p", [Service, Partition, Node, File]),
     Postings = get_data({Partition, Node}),
     ?assertEqual(ok, file:write_file(File, io_lib:format("~p.", [Postings]))).
 
@@ -266,9 +264,6 @@ base_stash_path() ->
 stash_path(Service, Partition) ->
     base_stash_path() ++ atom_to_list(Service) ++ "/" ++ integer_to_list(Partition) ++ ".stash".
 
-file_list(Dir) ->
-    filelib:wildcard(Dir ++ "/*").
-
 wait_for_repair(_, 0) ->
     throw(wait_for_repair_max_tries);
 wait_for_repair({Partition, Node}, Tries) ->
@@ -279,11 +274,6 @@ wait_for_repair({Partition, Node}, Tries) ->
             timer:sleep(timer:seconds(1)),
             wait_for_repair({Partition, Node}, Tries - 1)
     end.
-
-data_path(Node, Suffix, Partition) ->
-    [Name, _] = string:tokens(atom_to_list(Node), "@"),
-    Base = rt_config:get('rtdev_path.current') ++ "/dev/" ++ Name ++ "/data",
-    Base ++ "/" ++ Suffix ++ "/" ++ integer_to_list(Partition).
 
 backend_mod_dir(undefined) ->
     %% riak_test defaults to bitcask when undefined

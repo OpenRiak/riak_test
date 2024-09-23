@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,11 +18,11 @@
 %%
 %% -------------------------------------------------------------------
 -module(loaded_upgrade_worker_sup).
-
--include_lib("eunit/include/eunit.hrl").
--include_lib("riakc/include/riakc.hrl").
-
 -behavior(supervisor).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-include_lib("riakc/include/riakc.hrl").
 
 %% API
 -export([assert_equal/2]).
@@ -109,7 +109,7 @@ mapred_tester(Node, Count, Pid, Vsn, ReportPid) ->
         {ok, [{1, [10000]}]} ->
             ok;
         {ok, R} ->
-            lager:warning("Bad MR result: ~p", [R]),
+            ?LOG_WARNING("Bad MR result: ~0p", [R]),
             ReportPid ! {mapred, Node, bad_result};
         {error, disconnected} ->
             ok;
@@ -144,7 +144,7 @@ mapred_tester(Node, Count, Pid, Vsn, ReportPid) ->
     mapred_tester(Node, Count + 1, PBC, Vsn, ReportPid).
 
 twoi_tester(Node, 0, undefined, legacy, ReportPid) ->
-    lager:warning("Legacy nodes do not have 2i load applied"),
+    ?LOG_WARNING("Legacy nodes do not have 2i load applied"),
     twoi_tester(Node, 1, undefined, legacy, ReportPid);
 twoi_tester(Node, Count, Pid, legacy, ReportPid) ->
     twoi_tester(Node, Count + 1, Pid, legacy, ReportPid);
@@ -153,17 +153,15 @@ twoi_tester(Node, Count, Pid, Vsn, ReportPid) ->
     Key = Count rem 8000,
     ExpectedKeys = [loaded_upgrade:int_to_key(Key)],
     case {
-      riakc_pb_socket:get_index(
-                              PBC,
-                              loaded_upgrade:bucket(twoi),
-                              {binary_index, "plustwo"},
-                              loaded_upgrade:int_to_key(Key + 2)),
-      riakc_pb_socket:get_index(
-                              PBC,
-                              loaded_upgrade:bucket(twoi),
-                              {integer_index, "plusone"},
-                              Key + 1)
-     } of
+        riakc_pb_socket:get_index_eq(PBC,
+            loaded_upgrade:bucket(twoi),
+            {binary_index, "plustwo"},
+            loaded_upgrade:int_to_key(Key + 2)),
+        riakc_pb_socket:get_index_eq(PBC,
+            loaded_upgrade:bucket(twoi),
+            {integer_index, "plusone"},
+            Key + 1)
+    } of
         {{ok, ?INDEX_RESULTS{keys=BinKeys}}, {ok, ?INDEX_RESULTS{keys=IntKeys}}} ->
             case {assert_equal(ExpectedKeys, BinKeys), assert_equal(ExpectedKeys, IntKeys)} of
                 {true, true} -> cool;
@@ -187,7 +185,7 @@ twoi_tester(Node, Count, Pid, Vsn, ReportPid) ->
 assert_equal(Expected, Actual) ->
     case Expected -- Actual of
         [] -> ok;
-        Diff -> lager:info("Expected -- Actual: ~p", [Diff])
+        Diff -> ?LOG_INFO("Expected -- Actual: ~0p", [Diff])
     end,
     Actual == Expected.
 

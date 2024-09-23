@@ -17,10 +17,13 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_sync).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(INTERCEPT_TAB, intercept_leader_tick_counts).
 
@@ -32,7 +35,7 @@ confirm() ->
     Node = hd(Nodes),
     vnode_util:load(Nodes),
 
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -81,7 +84,7 @@ minority_vnodes(Vnodes, PartitionedNodes) ->
     [VN || {_, Node}=VN <- Vnodes, lists:member(Node, PartitionedNodes)].
 
 run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
-    lager:info("Scenario: ~p ~p ~p ~p ~p",
+    ?LOG_INFO("Scenario: ~0p ~0p ~0p ~0p ~0p",
                 [NumKill, NumSuspend, NumValid, Name, Expect]),
     Node = hd(Nodes),
     Quorum = NVal div 2 + 1,
@@ -97,10 +100,10 @@ run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
     {KillVN,    Valid2} = lists:split(NumKill,    Valid),
     {SuspendVN, Valid3} = lists:split(NumSuspend, Valid2),
     {AfterVN,   Valid4}      = lists:split(NumValid,   Valid3),
-    
-    lager:info(
-        "PL: ~p " ++
-        "Post-Partition: ~p Post-Kill: ~p Post-Suspend: ~p Post-Suspend2: ~p",
+
+    ?LOG_INFO(
+        "PL: ~0p " ++
+        "Post-Partition: ~0p Post-Kill: ~0p Post-Suspend: ~0p Post-Suspend2: ~0p",
             [PL, Valid, Valid2, Valid3, Valid4]),
 
     PBC = rt:pbc(Node),
@@ -111,7 +114,7 @@ run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
     wait_for_leader_tick_changes(Nodes),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Writing ~p consistent keys whilst partitioned", [1000]),
+    ?LOG_INFO("Writing ~0p consistent keys whilst partitioned", [1000]),
     WriteFun =
         fun(Key) ->
             ok =
@@ -119,37 +122,37 @@ run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
                     ok ->
                         ok;
                     E ->
-                        lager:info("Error ~w with Key ~p", [E, Key]),
+                        ?LOG_INFO("Error ~0p with Key ~0p", [E, Key]),
                         E
                 end
         end,
     lists:foreach(WriteFun, Keys),
 
-    lager:info("Read keys to verify they exist"),
+    ?LOG_INFO("Read keys to verify they exist"),
     [rt:pbc_read(PBC, Bucket, Key, Options) || Key <- Keys],
 
-    lager:info("Heal partition"),
+    ?LOG_INFO("Heal partition"),
     rt:heal(Part),
-    lager:info("Read keys to confirm they exist after heal"),
+    ?LOG_INFO("Read keys to confirm they exist after heal"),
     [rt:pbc_read(PBC, Bucket, Key, Options) || Key <- Keys],
 
     %% Suspend desired number of valid vnodes
-    lager:info("Suspend vnodes ~p", [SuspendVN]),
+    ?LOG_INFO("Suspend vnodes ~0p", [SuspendVN]),
     S1 = [vnode_util:suspend_vnode(VNode, VIdx) || {VIdx, VNode} <- SuspendVN],
 
     %% Kill/corrupt desired number of valid vnodes
-    lager:info("Kill vnodes ~p", [KillVN]),
+    ?LOG_INFO("Kill vnodes ~0p", [KillVN]),
     [vnode_util:kill_vnode(VN) || VN <- KillVN],
-    lager:info("Rebuild AAE trees on vnodes ~p", [KillVN]),
+    ?LOG_INFO("Rebuild AAE trees on vnodes ~0p", [KillVN]),
     [vnode_util:rebuild_vnode(VN) || VN <- KillVN],
     rpc:multicall(Nodes, riak_kv_entropy_manager, set_mode, [automatic]),
     wait_for_leader_tick_changes(Nodes),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Sleep a minute to allow time for AAE"),
+    ?LOG_INFO("Sleep a minute to allow time for AAE"),
     timer:sleep(60000),
-    
-    lager:info("Disabling AAE"),
+
+    ?LOG_INFO("Disabling AAE"),
     rpc:multicall(Nodes, riak_kv_entropy_manager, disable, []),
     ensemble_util:wait_until_stable(Node, Quorum),
 
@@ -158,13 +161,13 @@ run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
     wait_for_leader_tick_changes(Nodes),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Checking that key results match scenario - without AAE"),
+    ?LOG_INFO("Checking that key results match scenario - without AAE"),
     [rt:pbc_read_check(PBC, Bucket, Key, Expect, Options) || Key <- Keys],
 
-    lager:info("Re-enabling AAE"),
+    ?LOG_INFO("Re-enabling AAE"),
     rpc:multicall(Nodes, riak_kv_entropy_manager, enable, []),
 
-    lager:info("Resuming all vnodes"),
+    ?LOG_INFO("Resuming all vnodes"),
     [vnode_util:resume_vnode(Pid) || Pid <- S1 ++ S2],
     wait_for_leader_tick_changes(Nodes),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -175,12 +178,12 @@ run_scenario(Nodes, NVal, {NumKill, NumSuspend, NumValid, _, Name, Expect}) ->
         true ->
             ok;
         false ->
-            lager:info("Re-reading keys to verify they exist"),
+            ?LOG_INFO("Re-reading keys to verify they exist"),
             [rt:pbc_read(PBC, Bucket, Key, Options) || Key <- Keys]
     end,
 
-    lager:info("Scenario passed"),
-    lager:info("-----------------------------------------------------"),
+    ?LOG_INFO("Scenario passed"),
+    ?LOG_INFO("-----------------------------------------------------"),
     ok.
 
 %% The following code is used so that we can wait for ensemble leader ticks to fire.

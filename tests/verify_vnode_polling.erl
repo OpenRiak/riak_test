@@ -1,6 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -20,33 +19,34 @@
 %%% riak_test for soft-limit vnode polling and put fsm routing
 %%% see riak/1661 for details.
 %%% @end
-
-
 -module(verify_vnode_polling).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"bucket">>).
 -define(KEY, <<"key">>).
 -define(VALUE, <<"value">>).
 
--define(RING_SIZE, 8).
+-define(RING_SIZE, 16).
 
--define(CONF(MBoxCheck),
-        [{riak_kv, 
-                [{anti_entropy, {off, []}},
-                    {mbox_check_enabled, MBoxCheck}]},
-            {riak_core,
-                [{default_bucket_props,
-                    [{allow_mult, true},
-                        {dvv_enabled, true},
-                        {ring_creation_size, ?RING_SIZE},
-                        {vnode_management_timer, 1000},
-                        {handoff_concurrency, 100},
-                        {vnode_inactivity_timeout, 1000}]}]}]).
+-define(CONF(MBoxCheck), [
+    {riak_kv, [
+        {anti_entropy, {off, []}},
+        {mbox_check_enabled, MBoxCheck}
+    ]},
+    {riak_core, [
+        {default_bucket_props,
+            [{allow_mult, true}, {dvv_enabled, true}]},
+            {ring_creation_size, ?RING_SIZE},
+            {vnode_inactivity_timeout, 12000},
+            {forced_ownership_handoff, 8},
+            {handoff_concurrency, 8}
+    ]}
+]).
 
 confirm() ->
     Nodes = rt:build_cluster(5, ?CONF(true)),
@@ -54,7 +54,7 @@ confirm() ->
 
     Preflist = rt:get_preflist(Node1, ?BUCKET, ?KEY),
 
-    lager:info("Preflist ~p~n", [Preflist]),
+    ?LOG_INFO("Preflist ~0p", [Preflist]),
 
     %% NOTE: The order of these tests IS IMPORTANT, as there is no
     %% facility currently to unload/disable intercepts once loaded.
@@ -65,7 +65,7 @@ confirm() ->
     test_local_coord_all_loaded(Preflist),
     test_forward_least_loaded(Nodes, Preflist),
     test_mbox_poll_timeout(Nodes, Preflist),
-    
+
     lists:foreach(fun(N) -> rt:set_advanced_conf(N, ?CONF(false)) end, Nodes),
     rt:wait_until_ring_converged(Nodes),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, Nodes),
@@ -74,7 +74,7 @@ confirm() ->
 
 %% @doc the case the client themselves disabled the mbox check
 test_disabled_mbox_check(Nodes, Preflist) ->
-    lager:info("test_disabled_mbox_check"),
+    ?LOG_INFO("test_disabled_mbox_check"),
     {FSMNode, Client} = non_pl_client(Nodes, Preflist),
 
     WriteRes = client_write(Client, ?BUCKET, ?KEY, ?VALUE, [{mbox_check, false}]),
@@ -90,7 +90,7 @@ test_disabled_mbox_check(Nodes, Preflist) ->
 %% chooses the first unloaded vnode to respond as the coordinator to
 %% forward to
 test_no_local_pl_forward(Nodes, Preflist, IsEnabled) ->
-    lager:info("test_no_local_pl_forward"),
+    ?LOG_INFO("test_no_local_pl_forward"),
     {FSMNode, Client} = non_pl_client(Nodes, Preflist),
 
     WriteRes = client_write(Client, ?BUCKET, ?KEY, ?VALUE),
@@ -110,7 +110,7 @@ test_no_local_pl_forward(Nodes, Preflist, IsEnabled) ->
 %% @doc check that when a node is on the preflist, and is unloaded, it
 %% coords
 test_local_coord(Preflist) ->
-    lager:info("test_local_coord"),
+    ?LOG_INFO("test_local_coord"),
     PLNodes = [PLNode || {{_Idx, PLNode}, _Type} <-  Preflist],
     {ok, Client} = riak:client_connect(hd(PLNodes)),
 
@@ -129,7 +129,7 @@ test_local_coord(Preflist) ->
 %% @doc use an intercept to simulate a soft-limited local vnode, check
 %% that the put is forwarded
 test_forward_on_local_softlimit(Preflist) ->
-    lager:info("test_forward_on_local_softlimit"),
+    ?LOG_INFO("test_forward_on_local_softlimit"),
     PLNodes = [PLNode || {{_Idx, PLNode}, _Type} <-  Preflist],
     HDNode = hd(PLNodes),
     {ok, Client} = riak:client_connect(HDNode),
@@ -140,7 +140,7 @@ test_forward_on_local_softlimit(Preflist) ->
                             {{soft_load_mailbox_check, 2}, soft_load_mbox}
                            ]}),
 
-    lager:info("interecept added"),
+    ?LOG_INFO("interecept added"),
     {{Idx, Node}, _} = hd(Preflist),
     kill_proxy(Idx, Node),
 
@@ -160,7 +160,7 @@ test_forward_on_local_softlimit(Preflist) ->
 %% coordinates (and increments the correct stat). Now all nodes in the
 %% PL have the intercept loaded.
 test_local_coord_all_loaded(Preflist) ->
-    lager:info("test_local_coord_all_loaded"),
+    ?LOG_INFO("test_local_coord_all_loaded"),
     PLNodes = [PLNode || {{_Idx, PLNode}, _Type} <-  Preflist],
     HDNode = hd(PLNodes),
     {ok, Client} = riak:client_connect(HDNode),
@@ -171,7 +171,7 @@ test_local_coord_all_loaded(Preflist) ->
                                        {{soft_load_mailbox_check, 2}, soft_load_mbox}
                                       ]}) || Node <- PLNodes],
 
-    lager:info("interecept added to whole preflist"),
+    ?LOG_INFO("interecept added to whole preflist"),
     [kill_proxy(Idx, Node) || {{Idx, Node}, _Type} <- Preflist],
 
     WriteRes = client_write(Client, ?BUCKET, ?KEY, ?VALUE),
@@ -191,7 +191,7 @@ test_local_coord_all_loaded(Preflist) ->
 %% @doc the same case as above (all loaded) except we land in a
 %% non-coordinating node (NOTE: all pl nodes have intercept added already!)
 test_forward_least_loaded(Nodes, Preflist) ->
-    lager:info("test_forward_least_loaded"),
+    ?LOG_INFO("test_forward_least_loaded"),
     {FSMNode, Client} = non_pl_client(Nodes, Preflist),
 
     WriteRes = client_write(Client, ?BUCKET, ?KEY, ?VALUE),
@@ -207,7 +207,7 @@ test_forward_least_loaded(Nodes, Preflist) ->
 %% @doc the case the that no vnode mbox replies within the timeout,
 %% and so a random node is forwarded to
 test_mbox_poll_timeout(Nodes, Preflist) ->
-    lager:info("test_mbox_poll_timeout"),
+    ?LOG_INFO("test_mbox_poll_timeout"),
     {FSMNode, Client} = non_pl_client(Nodes, Preflist),
     PLNodes = [PLNode || {{_Idx, PLNode}, _Type} <-  Preflist],
 
@@ -217,7 +217,7 @@ test_mbox_poll_timeout(Nodes, Preflist) ->
                                        {{soft_load_mailbox_check, 2}, timout_mbox_check}
                                       ]}) || Node <- PLNodes],
 
-    lager:info("interecept re-added to whole preflist"),
+    ?LOG_INFO("interecept re-added to whole preflist"),
     [kill_proxy(Idx, Node) || {{Idx, Node}, _Type} <- Preflist],
 
     WriteRes = client_write(Client, ?BUCKET, ?KEY, ?VALUE),
@@ -226,7 +226,7 @@ test_mbox_poll_timeout(Nodes, Preflist) ->
     Stats = get_all_nodes_stats(Nodes),
     FSMNodeStats = proplists:get_value(FSMNode, Stats),
 
-    lager:info("coord node stats ~p", [FSMNodeStats]),
+    ?LOG_INFO("coord node stats ~0p", [FSMNodeStats]),
 
     %% there was a timeout waiting for soft-load replies
     MboxTimeoutCnt = proplists:get_value(vnode_mbox_check_timeout_total, FSMNodeStats),
@@ -254,7 +254,7 @@ kill_proxy(Idx, Node) ->
         rpc:call(Node, riak_core_vnode_proxy, reg_name, [riak_kv_vnode, Idx, Node]),
     case rpc:call(Node, erlang, whereis, [ProxyName]) of
         undefined ->
-            lager:info("ProxyName ~w on node ~w already down", [ProxyName, Node]);
+            ?LOG_INFO("ProxyName ~0p on node ~0p already down", [ProxyName, Node]);
         ProxyPid ->
             true = rpc:call(Node, erlang, exit, [ProxyPid, kill])
     end.

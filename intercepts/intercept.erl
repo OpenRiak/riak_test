@@ -54,7 +54,7 @@
 %%             functions.
 %%
 %%             E.g. `[{{update_perform,2}, sleep_update_perform}]'
--spec add(module(), module(), mapping(), string()) -> ok.
+-spec add(module(), module(), mapping(), string()|undefined) -> ok.
 add(Target, Intercept, Mapping, OutDir) ->
     Original = ?ORIGINAL(Target),
     TargetAC = get_abstract_code(Target),

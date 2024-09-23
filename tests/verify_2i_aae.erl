@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 20132016- Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_2i_aae).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
 %% Make it multi-backend compatible.
@@ -42,7 +45,7 @@ confirm() ->
                      {riak_object,
                       [{{index_specs, 1}, skippable_index_specs},
                        {{diff_index_specs, 2}, skippable_diff_index_specs}]}),
-    lager:info("Installed intercepts to corrupt index specs on node ~p", [Node1]),
+    ?LOG_INFO("Installed intercepts to corrupt index specs on node ~0p", [Node1]),
     %%rpc:call(Node1, lager, set_loglevel, [lager_console_backend, debug]),
     PBC = rt:pbc(Node1),
     NumItems = ?NUM_ITEMS,
@@ -50,7 +53,7 @@ confirm() ->
     pass = check_lost_objects(Node1, PBC, NumItems, NumDel),
     pass = check_lost_indexes(Node1, PBC, NumItems),
     pass = check_kill_repair(Node1),
-    lager:info("Et voila"),
+    ?LOG_INFO("Et voila"),
     riakc_pb_socket:stop(PBC),
     pass.
 
@@ -59,50 +62,50 @@ confirm() ->
 check_lost_objects(Node1, PBC, NumItems, NumDel) ->
     Index = {integer_index, "i"},
     set_skip_index_specs(Node1, false),
-    lager:info("Putting ~p objects with indexes", [NumItems]),
+    ?LOG_INFO("Putting ~w objects with indexes", [NumItems]),
     HalfNumItems = NumItems div 2,
     [put_obj(PBC, Bucket, N, N+1, Index) || N <- lists:seq(1, HalfNumItems),
                                             Bucket <- ?BUCKETS],
-    lager:info("Put half the objects, now enable AAE and build tress"),
+    ?LOG_INFO("Put half the objects, now enable AAE and build tress"),
     %% Enable AAE and build trees.
     ok = rpc:call(Node1, application, set_env,
                   [riak_kv, anti_entropy, {on, [debug]}]),
     ok = rpc:call(Node1, riak_kv_entropy_manager, enable, []),
     rt:wait_until_aae_trees_built([Node1]),
 
-    lager:info("AAE trees built, now put the rest of the data"),
+    ?LOG_INFO("AAE trees built, now put the rest of the data"),
     [put_obj(PBC, Bucket, N, N+1, Index)
      || N <- lists:seq(HalfNumItems+1, NumItems), Bucket <- ?BUCKETS],
     %% Verify they are there.
     ExpectedInitial = [{to_key(N+1), to_key(N)} || N <- lists:seq(1, NumItems)],
-    lager:info("Check objects are there as expected"),
+    ?LOG_INFO("Check objects are there as expected"),
     [assert_range_query(PBC, Bucket, ExpectedInitial, Index, 1, NumItems+1)
      || Bucket <- ?BUCKETS],
 
-    lager:info("Now mess index spec code and change values"),
+    ?LOG_INFO("Now mess index spec code and change values"),
     set_skip_index_specs(Node1, true),
     [put_obj(PBC, Bucket, N, N, Index) || N <- lists:seq(1, NumItems-NumDel),
                                           Bucket <- ?BUCKETS],
     DelRange = lists:seq(NumItems-NumDel+1, NumItems),
-    lager:info("Deleting ~b objects without updating indexes", [NumDel]),
+    ?LOG_INFO("Deleting ~b objects without updating indexes", [NumDel]),
     [del_obj(PBC, Bucket, N) || N <- DelRange, Bucket <- ?BUCKETS],
-    DelKeys = [to_key(N) || N <- DelRange], 
+    DelKeys = [to_key(N) || N <- DelRange],
     [rt:wait_until(fun() -> rt:pbc_really_deleted(PBC, Bucket, DelKeys) end)
      || Bucket <- ?BUCKETS],
     %% Verify they are damaged
-    lager:info("Verify change did not take, needs repair"),
+    ?LOG_INFO("Verify change did not take, needs repair"),
     [assert_range_query(PBC, Bucket, ExpectedInitial, Index, 1, NumItems+1)
      || Bucket <- ?BUCKETS],
     set_skip_index_specs(Node1, false),
     normal = run_2i_repair(Node1),
-    lager:info("Now verify that previous changes are visible after repair"),
+    ?LOG_INFO("Now verify that previous changes are visible after repair"),
     ExpectedFinal = [{to_key(N), to_key(N)} || N <- lists:seq(1, NumItems-NumDel)],
     [assert_range_query(PBC, Bucket, ExpectedFinal, Index, 1, NumItems+1)
      || Bucket <- ?BUCKETS],
     pass.
 
 do_tree_rebuild(Node) ->
-    lager:info("Let's go through a tree rebuild right here"),
+    ?LOG_INFO("Let's go through a tree rebuild right here"),
     %% Cheat by clearing build times from ETS directly, as the code doesn't
     %% ever clear them currently.
     ?assertEqual(true, rpc:call(Node, ets, delete_all_objects, [ets_riak_kv_entropy])),
@@ -133,22 +136,22 @@ do_tree_rebuild(Node) ->
 check_lost_indexes(Node1, PBC, NumItems) ->
     set_skip_index_specs(Node1, true),
     Index = {integer_index, "ii"},
-    lager:info("Writing ~b objects without index", [NumItems]),
+    ?LOG_INFO("Writing ~b objects without index", [NumItems]),
     [put_obj(PBC, Bucket, N, N+1, Index) || Bucket <- ?BUCKETS,
                                             N <- lists:seq(1, NumItems)],
-    lager:info("Verify that objects cannot be found via index"),
+    ?LOG_INFO("Verify that objects cannot be found via index"),
     [assert_range_query(PBC, Bucket, [], Index, 1, NumItems+1)
      || Bucket <- ?BUCKETS],
     do_tree_rebuild(Node1),
     normal = run_2i_repair(Node1),
-    lager:info("Check that objects can now be found via index"),
+    ?LOG_INFO("Check that objects can now be found via index"),
     Expected = [{to_key(N+1), to_key(N)} || N <- lists:seq(1, NumItems)],
     [assert_range_query(PBC, Bucket, Expected, Index, 1, NumItems+1)
      || Bucket <- ?BUCKETS],
     pass.
 
 check_kill_repair(Node1) ->
-    lager:info("Test that killing 2i repair works as desired"),
+    ?LOG_INFO("Test that killing 2i repair works as desired"),
     spawn(fun() ->
                   timer:sleep(1500),
                   rt:admin(Node1, ["repair-2i", "kill"])
@@ -156,29 +159,29 @@ check_kill_repair(Node1) ->
     ExitStatus = run_2i_repair(Node1),
     case ExitStatus of
         normal ->
-            lager:info("Shucks. Repair finished before we could kill it");
+            ?LOG_INFO("Shucks. Repair finished before we could kill it");
         killed ->
-            lager:info("Repair was forcibly killed");
+            ?LOG_INFO("Repair was forcibly killed");
         user_request ->
-            lager:info("Repair exited gracefully, we should be able to "
+            ?LOG_INFO("Repair exited gracefully, we should be able to "
                        "trigger another repair immediately")
     end,
     pass.
 
 run_2i_repair(Node1) ->
-    lager:info("Run 2i AAE repair"),
-    ?assertMatch({ok, _}, rt:admin(Node1, ["repair-2i"])),
+    ?LOG_INFO("Run 2i AAE repair"),
+    {ok, _} = rt:admin(Node1, ["repair-2i"]),
     RepairPid = rpc:call(Node1, erlang, whereis, [riak_kv_2i_aae]),
-    lager:info("Wait for repair process to finish"),
+    ?LOG_INFO("Wait for repair process to finish"),
     Mon = monitor(process, RepairPid),
     MaxWaitTime = rt_config:get(rt_max_wait_time),
     receive
         {'DOWN', Mon, _, _, Status} ->
-            lager:info("Status: ~p", [Status]),
-            Status 
+            ?LOG_INFO("Status: ~0p", [Status]),
+            Status
     after
         MaxWaitTime ->
-            lager:error("Timed out (~pms) waiting for 2i AAE repair process", [MaxWaitTime]),
+            ?LOG_ERROR("Timed out (~wms) waiting for 2i AAE repair process", [MaxWaitTime]),
             aae_2i_repair_timeout
     end.
 
@@ -214,7 +217,7 @@ del_obj(PBC, Bucket, N) ->
 
 
 assert_range_query(Pid, Bucket, Expected0, Index, StartValue, EndValue) ->
-    lager:info("Searching Index ~p/~p for ~p-~p", [Bucket, Index, StartValue, EndValue]),
+    ?LOG_INFO("Searching Index ~0p/~0p for ~0p-~0p", [Bucket, Index, StartValue, EndValue]),
     {ok, ?INDEX_RESULTS{terms=Keys}} = riakc_pb_socket:get_index_range(Pid, Bucket, Index, StartValue, EndValue, [{return_terms, true}]),
     Actual = case Keys of
                  undefined ->
@@ -224,4 +227,4 @@ assert_range_query(Pid, Bucket, Expected0, Index, StartValue, EndValue) ->
              end,
     Expected = lists:sort(Expected0),
     ?assertEqual({Bucket, Expected}, {Bucket, Actual}),
-    lager:info("Yay! ~b (actual) == ~b (expected)", [length(Actual), length(Expected)]).
+    ?LOG_INFO("Yay! ~b (actual) == ~b (expected)", [length(Actual), length(Expected)]).

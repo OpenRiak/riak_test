@@ -22,7 +22,8 @@
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% Certificate Names
 -define(DEF_DOM,    ".basho.com").
@@ -105,7 +106,7 @@ confirm() ->
             filename:join([rt:priv_dir(), "certs", "cacert.org"]),
             "ny-cert-old.pem", "ny-key.pem", "ca")},
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
 
     ConfRepl = {riak_repl,
         [{fullsync_on_connect, false}, {fullsync_interval, disabled}]},
@@ -281,7 +282,7 @@ confirm() ->
             true}
     ],
 
-    lager:info("Deploying 2 nodes for connectivity tests"),
+    ?LOG_INFO("Deploying 2 nodes for connectivity tests"),
 
     [Node1, Node2] = rt:deploy_nodes(2, ConfTcpBasic, [riak_kv, riak_repl]),
 
@@ -295,15 +296,15 @@ confirm() ->
     rt:wait_for_service(Node1, [riak_kv, riak_repl]),
     rt:wait_for_service(Node2, [riak_kv, riak_repl]),
 
-    lager:info("=== Testing basic connectivity"),
+    ?LOG_INFO("=== Testing basic connectivity"),
     rt:log_to_nodes([Node1, Node2], "Testing basic connectivity"),
 
     {ok, {_IP, Port}} = rpc:call(Node2, application, get_env,
         [riak_core, cluster_mgr]),
-    lager:info("connect cluster A:~p to B on port ~p", [Node1, Port]),
+    ?LOG_INFO("connect cluster A:~0p to B on port ~0p", [Node1, Port]),
     rt:log_to_nodes([Node1, Node2], "connect A to B"),
     repl_util:connect_cluster(Node1, "127.0.0.1", Port),
-    lager:info("Waiting for connection to B"),
+    ?LOG_INFO("Waiting for connection to B"),
 
     ?assertEqual(ok, repl_util:wait_for_connection(Node1, "B")),
 
@@ -312,11 +313,11 @@ confirm() ->
             test_connection(Desc, {Node1, Conf1}, {Node2, Conf2}, ShouldPass)
         end, SslConnTests),
 
-    lager:info("Connectivity tests passed"),
+    ?LOG_INFO("Connectivity tests passed"),
 
     repl_util:disconnect_cluster(Node1, "B"),
 
-    lager:info("Re-deploying 6 nodes"),
+    ?LOG_INFO("Re-deploying 6 nodes"),
 
     Nodes = rt:deploy_nodes(6, ConfTcpBasic, [riak_kv, riak_repl]),
 
@@ -324,7 +325,7 @@ confirm() ->
 
     {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
 
-    lager:info("Reconfiguring nodes with SSL options"),
+    ?LOG_INFO("Reconfiguring nodes with SSL options"),
     ConfANodes = [ConfRepl, {riak_core, [{ssl_enabled, true}
         , {ssl_depth, CIdep1s2#ci.rd}
         , {peer_common_name_acl, [CIdep1s2#ci.cn]}
@@ -338,10 +339,10 @@ confirm() ->
 
     [rt:wait_until_pingable(N) || N <- Nodes],
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
     repl_util:disconnect_cluster(Node1, "B"),
@@ -351,20 +352,20 @@ confirm() ->
     pass.
 
 test_connection(Desc, {N1, C1}, {N2, C2}, ShouldPass) ->
-    lager:info("=== Testing " ++ Desc),
+    ?LOG_INFO("=== Testing " ++ Desc),
     rt:log_to_nodes([N1, N2], "Testing " ++ Desc),
     test_connection({N1, C1}, {N2, C2}, ShouldPass).
 
 test_connection(Left, Right, true) ->
     ?assertEqual(ok, test_connection(Left, Right)),
-    lager:info("Connection succeeded");
+    ?LOG_INFO("Connection succeeded");
 test_connection(Left, Right, false) ->
     DefaultTimeout = rt_config:get(rt_max_wait_time),
     ConnFailTimeout = rt_config:get(conn_fail_time, DefaultTimeout),
     rt_config:set(rt_max_wait_time, ConnFailTimeout),
     ?assertMatch({fail, _}, test_connection(Left, Right)),
     rt_config:set(rt_max_wait_time, DefaultTimeout),
-    lager:info("Connection rejected").
+    ?LOG_INFO("Connection rejected").
 
 test_connection({Node1, Config1}, {Node2, Config2}) ->
     repl_util:disconnect_cluster(Node1, "B"),
@@ -377,7 +378,7 @@ test_connection({Node1, Config1}, {Node2, Config2}) ->
     rt:wait_for_service(Node2, [riak_kv, riak_repl]),
     {ok, {_IP, Port}} = rpc:call(Node2, application, get_env,
         [riak_core, cluster_mgr]),
-    lager:info("connect cluster A:~p to B on port ~p", [Node1, Port]),
+    ?LOG_INFO("connect cluster A:~0p to B on port ~0p", [Node1, Port]),
     rt:log_to_nodes([Node1, Node2], "connect A to B"),
     repl_util:connect_cluster(Node1, "127.0.0.1", Port),
     repl_util:wait_for_connection(Node1, "B").

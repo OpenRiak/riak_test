@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -39,6 +39,8 @@
     stop_on_nodes/0,
     stop_on_node/1
     ]).
+
+-include_lib("kernel/include/logger.hrl").
 
 -define(COVER_SERVER, cover_server).
 
@@ -79,10 +81,10 @@ start(Test) ->
     start2(find_cover_modules(Test)).
 
 start2([]) ->
-    lager:info("Skipping cover, no modules included"),
+    ?LOG_INFO("Skipping cover, no modules included"),
     ok;
 start2(CoverMods) ->
-    lager:info("Starting cover"),
+    ?LOG_INFO("Starting cover"),
     stop_on_nodes(),
     ok = cover:stop(),
     Res = case cover:start() of
@@ -93,14 +95,14 @@ start2(CoverMods) ->
     end,
     case Res of
         ok ->
-            lager:info("Cover compiling ~p modules", [length(CoverMods)]),
+            ?LOG_INFO("Cover compiling ~b modules", [length(CoverMods)]),
             CMods = [begin
                         Src = mod_src(Mod),
                         case cover:compile_beam(Mod) of
                             {ok, _} ->
                                 {ok, {Mod, Src}};
                             {error, CErr} ->
-                                lager:warning("Error cover compiling ~p : ~p",
+                                ?LOG_WARNING("Error cover compiling ~0p : ~0p",
                                               [Mod, CErr]),
                                 {error, CErr}
                         end
@@ -109,7 +111,7 @@ start2(CoverMods) ->
             rt_config:set(cover_mod_src, SrcDict),
             ok;
         _ ->
-            lager:error("Could not start cover server: ~p", [Res]),
+            ?LOG_ERROR("Could not start cover server: ~0p", [Res]),
             rt_config:set(cover_enabled, false),
             Res
     end.
@@ -162,7 +164,7 @@ find_app_modules(CoverApps) ->
         [_|_] -> "{" ++ string:join(to_strs(CoverApps),",") ++ "}*"
     end,
     Pattern = filename:join([Deps, AppPattern, "ebin", "*.beam"]),
-    lager:debug("Looking for beams to cover in ~s", [Pattern]),
+    ?LOG_DEBUG("Looking for beams to cover in ~s", [Pattern]),
     File2Mod = fun(F) ->
             list_to_atom(filename:rootname(filename:basename(F)))
     end,
@@ -180,7 +182,7 @@ maybe_start_on_node(Node, Version) ->
         {current, _} -> true;
         _            -> false
     end,
-    CoverMods = cover:modules(), 
+    CoverMods = cover:modules(),
     ShouldStart = IsCurrent andalso
                   CoverMods /= [] andalso
                   erlang:whereis(?COVER_SERVER) /= undefined,
@@ -188,9 +190,9 @@ maybe_start_on_node(Node, Version) ->
         false ->
             ok;
         true ->
-            lager:info("Cover modules on start ~w~n", [CoverMods]),
-            lager:info("CoverServer is ~w~n", [erlang:whereis(?COVER_SERVER)]),
-            lager:info("Starting cover on node ~p", [Node]),
+            ?LOG_INFO("Cover modules on start ~0p", [CoverMods]),
+            ?LOG_INFO("CoverServer is ~0p", [erlang:whereis(?COVER_SERVER)]),
+            ?LOG_INFO("Starting cover on node ~0p", [Node]),
             rt:wait_until_pingable(Node),
             {ok, _Node} = cover:start(Node),
             ok
@@ -210,7 +212,7 @@ stop_on_nodes() ->
 
 stop_on_nodes(Nodes) ->
     [begin
-            lager:info("Stopping cover on node ~p", [Node]),
+            ?LOG_INFO("Stopping cover on node ~0p", [Node]),
             cover:stop(Node)
         end
      || Node <- Nodes].
@@ -246,11 +248,11 @@ prepare_output_dir(Dir) ->
             Pattern = filename:join([Dir, "*.html"]),
             Dels = [{file:delete(File),File}
                     || File <- filelib:wildcard(Pattern)],
-            [lager:warning("Could not delete file ~p : ~p", [File, DErr])
+            [?LOG_WARNING("Could not delete file ~0p : ~0p", [File, DErr])
              || {{error, DErr}, File} <- Dels],
             Dir;
         _ ->
-            lager:warning("Could not create directory ~p, " ++
+            ?LOG_WARNING("Could not create directory ~0p, " ++
                           "putting coverage output in current directory"),
             "."
     end.
@@ -317,7 +319,7 @@ process_module(Mod, OutDir) ->
         {ok, {Mod, Coverage0}} ->
             Coverage0;
         {error, Err} ->
-            lager:error("Could not cover analyze module ~p : ~p", [Mod, Err]),
+            ?LOG_ERROR("Could not cover analyze module ~0p : ~0p", [Mod, Err]),
             undefined
     end,
     #cover_info{module=Mod, output_file=OutFile, coverage=Coverage}.
@@ -325,7 +327,7 @@ process_module(Mod, OutDir) ->
 write_coverage(all, Dir) ->
     write_coverage(cover:imported_modules(), Dir);
 write_coverage(CoverModules, CoverDir) ->
-    lager:info("analyzing modules ~p", [CoverModules]),
+    ?LOG_INFO("analyzing modules ~0p", [CoverModules]),
     % temporarily reassign the group leader, to suppress annoying io:format output
     {group_leader, GL} = erlang:process_info(whereis(cover_server), group_leader),
     %% tiny recursive fun that pretends to be a group leader$
@@ -339,7 +341,7 @@ write_coverage(CoverModules, CoverDir) ->
                             From ! {io_reply, ReplyAs, ok},
                             Fun(Fun);
                         _Other ->
-                            io:format(user, "Other Msg ~p", [_Other]),
+                            io:format(user, "Other Msg ~0p", [_Other]),
                             Fun(Fun)
                     end
             end,
@@ -405,12 +407,12 @@ write_index_file({TotalPerc, AppCovList}, File) ->
 write_module_coverage(CoverMod, CoverDir) ->
     CoverFile = filename:join([CoverDir,
                                atom_to_list(CoverMod)++".COVER.html"]),
-    lager:debug("Writing cover information for module ~p in ~s",
+    ?LOG_DEBUG("Writing cover information for module ~0p in ~s",
                 [CoverMod, CoverFile]),
     ModSrc = rt_config:get(cover_mod_src, dict:new()),
     case dict:find(CoverMod, ModSrc) of
         error ->
-            lager:warning("Can't write line coverage for module ~p, no source",
+            ?LOG_WARNING("Can't write line coverage for module ~0p, no source",
                           [CoverMod]),
             {error, no_source};
         {ok, Src} ->
@@ -419,20 +421,20 @@ write_module_coverage(CoverMod, CoverDir) ->
                     case cover:analyse_to_file(CoverMod, CoverFile, [html]) of
                         {ok, _Mod} -> ok;
                         {error, Err} ->
-                            lager:warning("Failed to write coverage analysis" ++
-                                          " for module ~p (source ~s): ~p",
+                            ?LOG_WARNING("Failed to write coverage analysis" ++
+                                          " for module ~0p (source ~s): ~0p",
                                           [CoverMod, Src, Err])
                     end,
                     {ok, CoverFile};
                 false ->
-                    lager:warning("Source for module ~p is not an erl file : ~s",
+                    ?LOG_WARNING("Source for module ~0p is not an erl file : ~s",
                                  [CoverMod, Src]),
                     {error, no_source}
             end
     end.
 
 stop() ->
-    lager:info("Stopping cover"),
+    ?LOG_INFO("Stopping cover"),
     cover:stop().
 
 maybe_reset() ->

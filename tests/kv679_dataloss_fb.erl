@@ -33,15 +33,19 @@
 %% A coords a write, issues [{a, 2}] again
 %% Acked write is lost
 %%%
-%%%
 %%% @end
-
 -module(kv679_dataloss_fb).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+%% shared
+-export([
+    primary_and_fallback_counts/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"kv679">>).
 -define(KEY, <<"test">>).
@@ -71,7 +75,7 @@ confirm() ->
 
     ?assert(kv679_tombstone2:perfect_preflist(PL)),
 
-    lager:info("Got preflist"),
+    ?LOG_INFO("Got preflist"),
 
     {CoordNode, _}=CoordClient = kv679_tombstone:coordinating_client(Clients, PL),
 
@@ -81,7 +85,7 @@ confirm() ->
 
     [rt:stop_and_wait(N) || N <- OtherPrimaries],
 
-    lager:info("Killed 2 primaries"),
+    ?LOG_INFO("Killed 2 primaries"),
 
     rt:wait_until(fun() ->
                           NewPL = kv679_tombstone:get_preflist(CoordNode),
@@ -90,12 +94,12 @@ confirm() ->
 
     FBPL = kv679_tombstone:get_preflist(CoordNode),
 
-    lager:info("Got a preflist with coord and 2 fbs ~p~n", [FBPL]),
+    ?LOG_INFO("Got a preflist with coord and 2 fbs ~0p", [FBPL]),
 
     %% Write key twice at remaining, coordinating primary
     kv679_tombstone:write_key(CoordClient, [<<"bob">>, <<"jim">>]),
     kv679_tombstone2:dump_clock(CoordClient),
-    lager:info("Clock at 2 fallbacks"),
+    ?LOG_INFO("Clock at 2 fallbacks"),
 
     %% Kill the fallbacks before they can handoff
     Fallbacks = [Node || {{_Idx, Node}, Type} <- FBPL,
@@ -105,7 +109,7 @@ confirm() ->
 
     %% Bring back the primaries and do some more writes
     [rt:start_and_wait(P) || P <- OtherPrimaries],
-    lager:info("started primaries back up"),
+    ?LOG_INFO("started primaries back up"),
     rt:wait_until(fun() ->
                           NewPL = kv679_tombstone:get_preflist(CoordNode),
                           NewPL == PL
@@ -115,14 +119,14 @@ confirm() ->
 
     %% Kill those primaries with their frontier clocks
     [rt:brutal_kill(P) || P <- OtherPrimaries],
-    lager:info("killed primaries again"),
+    ?LOG_INFO("killed primaries again"),
 
     %% delete the local data at the coordinator Key
     kv679_dataloss:delete_datadir(hd(PL)),
 
     %% Start up those fallbacks
     [rt:start_and_wait(F) || F <- Fallbacks],
-    lager:info("restart fallbacks"),
+    ?LOG_INFO("restart fallbacks"),
     %% Wait for the fallback prefist
     rt:wait_until(fun() ->
                           NewPL = kv679_tombstone:get_preflist(CoordNode),
@@ -142,26 +146,26 @@ confirm() ->
     %% Time to start up those primaries, let handoff happen, and see
     %% what happened to that last write
     [rt:start_and_wait(P) || P <- OtherPrimaries],
-    lager:info("restart primaries _again_"),
+    ?LOG_INFO("restart primaries _again_"),
      rt:wait_until(fun() ->
                           NewPL = kv679_tombstone:get_preflist(CoordNode),
                           NewPL == PL
                   end),
 
-    lager:info("wait for handoffs"),
+    ?LOG_INFO("wait for handoffs"),
     [begin
          rpc:call(FB, riak_core_vnode_manager, force_handoffs, []),
          rt:wait_until_transfers_complete([FB])
      end || FB <- Fallbacks],
 
-    lager:info("final get"),
+    ?LOG_INFO("final get"),
 
     FetchFun =
         fun() ->
             Res = kv679_tombstone:read_key(CoordClient),
             ?assertMatch({ok, _}, Res),
             {ok, O} = Res,
-            lager:info("Final Object ~p~n", [O]),
+            ?LOG_INFO("Final Object ~0p", [O]),
             riakc_obj:get_values(O)
         end,
 
@@ -199,6 +203,6 @@ await_read_repair(Client) ->
     rt:wait_until(fun() ->
                           {ok, _O} = kv679_tombstone:read_key(Client),
                           {T, V} = kv679_tombstone:read_key(Client, [{pr,1},{r,1}, {sloppy_quorum, false}]),
-                          lager:info("pr=1 fetch res ~p ~p", [T, V]),
+                          ?LOG_INFO("pr=1 fetch res ~0p ~0p", [T, V]),
                           T /= error
                   end).

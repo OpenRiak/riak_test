@@ -22,11 +22,12 @@
 %%% @doc
 %%% riak_test for counter cabability
 %%% @end
-
 -module(verify_counter_capability).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"test-counters">>).
 -define(KEY, <<"foo">>).

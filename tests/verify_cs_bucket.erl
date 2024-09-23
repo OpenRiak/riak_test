@@ -17,14 +17,20 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %% @ doc tests the new CS Bucket fold message
-
 -module(verify_cs_bucket).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
--import(secondary_index_tests, [put_an_object/2, int_to_key/1]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
+-import(secondary_index_tests, [
+    int_to_key/1,
+    put_an_object/2
+]).
+
 -define(BUCKET, <<"2ibucket">>).
 -define(FOO, <<"foo">>).
 
@@ -77,7 +83,9 @@ confirm() ->
 %% Check the PB result against our expectations
 %% and the non-streamed HTTP
 assertEqual(PB, Expected, Bucket, Opts) ->
-    {ok, PBRes} = stream_pb(PB, Bucket, Opts),
+    Result = stream_pb(PB, Bucket, Opts),
+    ?assertMatch({ok, [_|_]}, Result),
+    {ok, PBRes} = Result,
     PBObjects = proplists:get_value(objects, PBRes, []),
     Keys = [riakc_obj:key(Obj) || Obj <- PBObjects],
     ?assertEqual(Expected, Keys),
@@ -99,5 +107,14 @@ stream_loop(Acc) ->
             {ok, orddict:store(continuation, Continuation, Acc)};
         {_Ref, {ok, Objects}} ->
             Acc2 = orddict:update(objects, fun(Existing) -> Existing++Objects end, Objects, Acc),
-            stream_loop(Acc2)
+            stream_loop(Acc2);
+        {_Ref, {error, <<"{error,", _/binary>> = Bin} = BinErr} ->
+            case rt_util:parse_term(Bin) of
+                {ok, {error, _} = ParsedErr} ->
+                    ParsedErr;
+                _ ->
+                    BinErr
+            end;
+        {_Ref, {error, _} = Err} ->
+            Err
     end.

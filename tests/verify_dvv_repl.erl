@@ -17,7 +17,6 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %%% @copyright (C) 2014, Basho Technologies
 %%% @doc
 %%% riak_test repl caused sibling explosion Encodes scenario as
@@ -26,11 +25,13 @@
 %%% to A 100 times. Without DVV you have 100 siblings on B, with, you
 %%% have 2 (the original B write, and the converged A writes)
 %%% @end
-
 -module(verify_dvv_repl).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"dvv-repl-bucket">>).
 -define(KEY, <<"dvv-repl-key">>).
@@ -42,7 +43,7 @@ confirm() ->
     {{ClientA, ClusterA}, {ClientB, ClusterB}} = make_clusters(),
 
     %% Write data to B
-    write_object(ClientB),
+    ok = fetch_resolve_write(ClientB),
 
     %% Connect for real time repl A->B
     connect_realtime(ClusterA, ClusterB),
@@ -52,7 +53,7 @@ confirm() ->
     rt:wait_until(IsReplicating),
 
     %% Update ClusterA 100 times
-    [write_object(ClientA) || _ <- lists:seq(1, 100)],
+    [ok = fetch_resolve_write(ClientA) || _ <- lists:seq(1, 100)],
 
     %% Get the object, and see if it has 100 siblings (not the two it
     %% should have.) Turn off DVV in `make_cluster` and see the
@@ -65,7 +66,7 @@ confirm() ->
     %% different nodes concurrently in the n_val=3 preflist.
     ?assertMatch(Count when Count =< 3, riakc_obj:value_count(AObj)),
     WaitFun = fun() ->
-                      lager:info("Checking sink object"),
+                      ?LOG_INFO("Checking sink object"),
                       BObj = get_object(ClientB),
                       Resolved0 = resolve(riakc_obj:get_values(BObj)),
                       Resolved = lists:sort(sets:to_list(Resolved0)),
@@ -114,14 +115,6 @@ make_cluster(Nodes, Name) ->
     riakc_pb_socket:set_options(C, [queue_if_disconnected]),
     {C, Nodes}.
 
-write_object([]) ->
-    ok;
-write_object([Client | Rest]) ->
-    ok = write_object(Client),
-    write_object(Rest);
-write_object(Client) ->
-    fetch_resolve_write(Client).
-
 get_object(Client) ->
     case riakc_pb_socket:get(Client, ?BUCKET, ?KEY) of
         {ok, Obj} ->
@@ -132,7 +125,7 @@ get_object(Client) ->
 
 fetch_resolve_write(Client) ->
     Obj = get_object(Client),
-    Value = resolve_update(riakc_obj:get_values(Obj)),
+    Value = term_to_binary(resolve_update(riakc_obj:get_values(Obj))),
     Obj3 = riakc_obj:update_metadata(riakc_obj:update_value(Obj, Value), dict:new()),
     ok = riakc_pb_socket:put(Client, Obj3).
 
@@ -153,7 +146,7 @@ resolve_update(Values) ->
 
 %% Set up one way RT repl
 connect_realtime(ClusterA, ClusterB) ->
-    lager:info("repl power...ACTIVATE!"),
+    ?LOG_INFO("repl power...ACTIVATE!"),
     LeaderA = get_leader(hd(ClusterA)),
     MgrPortB = get_mgr_port(hd(ClusterB)),
     repl_util:connect_cluster(LeaderA, "127.0.0.1", MgrPortB),

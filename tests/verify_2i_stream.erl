@@ -19,10 +19,20 @@
 %% -------------------------------------------------------------------
 -module(verify_2i_stream).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
--import(secondary_index_tests, [put_an_object/2, put_an_object/4, int_to_key/1,
-                               stream_pb/2, http_query/2, http_stream/3]).
+
+-include_lib("stdlib/include/assert.hrl").
+
+-import(secondary_index_tests, [
+    http_query/2,
+    http_stream/3,
+    int_to_key/1,
+    put_an_object/2,
+    put_an_object/4,
+    stream_pb/2
+]).
+
 -define(BUCKET, <<"2ibucket">>).
 -define(FOO, <<"foo">>).
 

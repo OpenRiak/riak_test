@@ -1,11 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2014-2015 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc The purpose of thie test is to ensure the realtime helpers on both
 %% the source and sink sides properly exit when a connection is flakey; ie
 %% then there are errors and not out-right closes of the connection.
-
 -module(repl_process_leak).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(SEND_ERROR_INTERVAL, 500).
 
@@ -17,29 +38,29 @@ confirm() ->
         ]}
     ],
 
-    lager:info("deploying 2 nodes"),
+    ?LOG_INFO("deploying 2 nodes"),
     Nodes = rt:deploy_nodes(2, Conf, [riak_kv, riak_repl]),
 
     [SourceNode, SinkNode] = Nodes,
 
-    lager:info("nameing clusters"),
+    ?LOG_INFO("nameing clusters"),
     repl_util:name_cluster(SourceNode, "source"),
     repl_util:name_cluster(SinkNode, "sink"),
 
     {ok, {_IP, Port}} = rpc:call(SinkNode, application, get_env, [riak_core, cluster_mgr]),
 
-    lager:info("connecting clusters using port ~p", [Port]),
+    ?LOG_INFO("connecting clusters using port ~b", [Port]),
     repl_util:connect_cluster(SourceNode, "127.0.0.1", Port),
     repl_util:wait_for_connection(SourceNode, "sink"),
 
-    lager:info("enabling and starting realtime"),
+    ?LOG_INFO("enabling and starting realtime"),
     repl_util:enable_realtime(SourceNode, "sink"),
     repl_util:start_realtime(SourceNode, "sink"),
 
-    lager:info("testing for leaks on flakey sink"),
+    ?LOG_INFO("testing for leaks on flakey sink"),
     flakey_sink(SourceNode, SinkNode),
 
-    lager:info("testing for leaks on flakey source"),
+    ?LOG_INFO("testing for leaks on flakey source"),
     flakey_source(SourceNode, SinkNode),
 
     pass.
@@ -92,7 +113,7 @@ flakey_source(SourceNode, _SinkNode) ->
 
     Biggest = lists:max(ProcCounts),
     Smallest = lists:min(ProcCounts),
-    %lager:info("initial: ~p; post: ~p", [InitialProcCount, PostProcCount]),
+    %?LOG_INFO("initial: ~w; post: ~w", [InitialProcCount, PostProcCount]),
     %?assertEqual(InitialProcCount, PostProcCount).
     ?assert(2 =< Biggest - Smallest),
     true.
@@ -107,12 +128,12 @@ send_source_tcp_errors(SourceNode, N, Acc) ->
             timer:sleep(?SEND_ERROR_INTERVAL),
             send_source_tcp_errors(SourceNode, N, Acc);
         Pid ->
-            lager:debug("Get the status"),
+            ?LOG_DEBUG("Get the status"),
             SysStatus = try sys:get_status(Pid) of
                 S -> S
             catch
                 W:Y ->
-                    lager:info("Sys failed due to ~p:~p", [W,Y]),
+                    ?LOG_INFO("Sys failed due to ~0p:~0p", [W,Y]),
                     {status, Pid, undefined, [undefined, undefined, undefined, undefined, [undefined, undefined, {data, [{"State", {Pid}}]}]]}
             end,
             {status, Pid, _Module, [_PDict, _Status, _, _, Data]} = SysStatus,
@@ -121,12 +142,12 @@ send_source_tcp_errors(SourceNode, N, Acc) ->
             [Helper | _] = lists:filter(fun(E) ->
                 is_pid(E)
             end, tuple_to_list(StateRec)),
-            lager:debug("mon the hlepr"),
+            ?LOG_DEBUG("mon the hlepr"),
             HelperMon = erlang:monitor(process, Helper),
-            lager:debug("Send the murder"),
+            ?LOG_DEBUG("Send the murder"),
             Pid ! {tcp_error, <<>>, test},
             Mon = erlang:monitor(process, Pid),
-            lager:debug("Wait for deaths"),
+            ?LOG_DEBUG("Wait for deaths"),
             receive
                 {'DOWN', Mon, process, Pid, _} -> ok
             end,

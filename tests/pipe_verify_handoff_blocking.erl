@@ -55,17 +55,19 @@
 %% riak_core, which at the time of this writing is not feasible for
 %% this rare failure case.
 -module(pipe_verify_handoff_blocking).
+-behavior(riak_test).
 
 -export([
-         %% riak_test's entry
-         confirm/0,
+    %% riak_test's entry
+    confirm/0,
 
-         %% test machinery
-         runner_wait/1,
-         queue_filler/3
-        ]).
+    %% test machinery
+    runner_wait/1,
+    queue_filler/3
+]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% local copy of riak_pipe.hrl
 -include("rt_pipe.hrl").
@@ -79,24 +81,24 @@ confirm() ->
     %% static list of inputs, so we keep hitting the same partitions
     Inputs = lists:seq(1, 20),
 
-    lager:info("Start ~b nodes", [?NODE_COUNT]),
+    ?LOG_INFO("Start ~b nodes", [?NODE_COUNT]),
     NodeDefs = lists:duplicate(?NODE_COUNT, {current, default}),
     Services = [riak_pipe],
     [Primary,Secondary] = Nodes = rt:deploy_nodes(NodeDefs, Services),
     %% Ensure each node owns 100% of it's own ring
     [?assertEqual([Node], rt:owners_according_to(Node)) || Node <- Nodes],
 
-    lager:info("Load useful modules"),
+    ?LOG_INFO("Load useful modules"),
     rt:load_modules_on_nodes([?MODULE, rt_pipe], Nodes),
 
-    lager:info("Start run coordinator"),
+    ?LOG_INFO("Start run coordinator"),
     Runner = spawn_link(?MODULE, runner_wait, [[]]),
 
     Spec = [#fitting_spec{name="blockhandoff",
                           module=riak_pipe_w_xform,
                           arg=pause_until_signal(Runner)}],
 
-    lager:info("Start pipe on Primary"),
+    ?LOG_INFO("Start pipe on Primary"),
     {ok, Pipe} =
         rpc:call(Primary, riak_pipe, exec,
                  [Spec, [{sink, rt_pipe:self_sink()}|?ALL_LOG]]),
@@ -106,12 +108,12 @@ confirm() ->
 
     _Status1 = pipe_status(Primary, Pipe),
 
-    lager:info("Join Secondary to Primary"),
+    ?LOG_INFO("Join Secondary to Primary"),
     %% Give slave a chance to start and master to notice it.
     rt:join(Secondary, Primary),
     rt:wait_until_nodes_agree_about_ownership(Nodes),
 
-    lager:info("Unpause workers"),
+    ?LOG_INFO("Unpause workers"),
     Runner ! go,
 
     ok = rt:wait_until_transfers_complete(Nodes),
@@ -124,7 +126,7 @@ confirm() ->
 
     _Status2 = pipe_status(Primary, Pipe),
 
-    lager:info("Send eoi and collect results"),
+    ?LOG_INFO("Send eoi and collect results"),
     riak_pipe:eoi(Pipe),
     {eoi, Out, Trace} = riak_pipe:collect_results(Pipe, 1000),
 
@@ -135,7 +137,7 @@ confirm() ->
 
     rt_pipe:assert_no_zombies(Nodes),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 %%% queue filling

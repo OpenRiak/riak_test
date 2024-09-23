@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(rolling_capabilities).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     TestMetaData = riak_test_runner:metadata(),
@@ -53,20 +56,20 @@ confirm() ->
                      {riak_kv, vnode_vclocks, true}];
         _ -> []
     end,
-    
-    lager:info("Deploying Riak ~p cluster", [OldVsn]),
+
+    ?LOG_INFO("Deploying Riak ~0p cluster", [OldVsn]),
     Nodes = rt:build_cluster([OldVsn || _ <- lists:seq(1,Count)]),
     lists:foldl(fun(Node, Upgraded) ->
                         rt:upgrade(Node, current),
                         Upgraded2 = Upgraded ++ [Node],
-                        lager:info("Verifying rolling/old capabilities"),
+                        ?LOG_INFO("Verifying rolling/old capabilities"),
                         (Upgraded2 == Nodes)
                             orelse check_capabilities(Upgraded2, ExpectedOld),
                         Upgraded2
                 end, [], Nodes),
-    lager:info("Verifying final/upgraded capabilities"),
+    ?LOG_INFO("Verifying final/upgraded capabilities"),
     check_capabilities(Nodes, ExpectedCurrent),
-    lager:info("Test ~p passed", [?MODULE]),
+    ?LOG_INFO("Test ~0p passed", [?MODULE]),
     pass.
 
 check_capabilities(Nodes, Expected) ->
@@ -82,5 +85,5 @@ check_capabilities(Nodes, Expected) ->
 
 verify_capability({ExpProj, ExpCap}, ExpVal, Caps) ->
     CurVal = proplists:get_value({ExpProj, ExpCap}, Caps),
-    lager:info("Verifying: ~p ~p ~p ~p", [ExpProj, ExpCap, ExpVal, CurVal]),
+    ?LOG_INFO("Verifying: ~0p ~0p ~0p ~0p", [ExpProj, ExpCap, ExpVal, CurVal]),
     CurVal =:=  ExpVal.

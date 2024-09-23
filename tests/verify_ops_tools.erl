@@ -19,25 +19,28 @@
 %% -------------------------------------------------------------------
 -module(verify_ops_tools).
 -behavior(riak_test).
--export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% Very basic test to confirm that redbug and recon are loaded and available
 %% to support troubleshooting
 
 confirm() ->
-    lager:info("Spinning up test nodes"),
+    ?LOG_INFO("Spinning up test nodes"),
     Config = [{riak_core, [{ring_creation_size, 8}]},
                 {riak_kv, [{anti_entropy, {off, []}}]}],
-    
+
     [RootNode | _RestNodes] = rt:build_cluster(2, Config),
     rt:wait_for_service(RootNode, riak_kv),
-    
-    lager:info("Calling redbug and recon - are they there?"),
-    ok = rpc:call(RootNode, redbug, help, []),
-    lager:info("Redbug present"),
-    2 = length(rpc:call(RootNode, recon, node_stats_list, [2, 2])),
-    lager:info("Recon present"),
-    
+
+    ?LOG_INFO("Calling redbug and recon - are they there?"),
+    ?assertMatch(ok, rpc:call(RootNode, redbug, help, [])),
+    ?LOG_INFO("Redbug present"),
+    ?assertMatch(2,
+        length(rpc:call(RootNode, recon, node_stats_list, [2, 2]))),
+    ?LOG_INFO("Recon present"),
+
     pass.

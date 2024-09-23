@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2015 Basho Technologies, Inc.
+%% Copyright (c) 2015-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,13 +25,14 @@
 %%% dvv_enabled=true when they should be false.
 %%%
 %%% @end
-
 -module(riak727).
 -behavior(riak_test).
--export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 
--define(HARNESS, (rt_config:get(rt_harness))).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 -define(TYPE1, <<"bob">>).
 -define(TYPE2, <<"fred">>).
 -define(DEF_APP_CONF, "1.4-default-app.config").
@@ -70,7 +71,7 @@ add_one_four_config(Node) ->
 
 -spec copy(file:filename(), file:filename()) -> ok.
 copy(File, DestDir) ->
-    lager:info("Copying ~p to ~p~n", [File, DestDir]),
+    ?LOG_INFO("Copying ~0p to ~0p", [File, DestDir]),
     {ok, _} = file:copy(File, DestDir),
     ok.
 
@@ -80,8 +81,7 @@ app_config_file() ->
 
 -spec node_config_file(node()) -> file:filename().
 node_config_file(Node) ->
-    ConfPath = ?HARNESS:get_riak_conf(Node),
-    filename:join(filename:dirname(ConfPath), ?APP_CONF).
+    filename:join([rt:get_node_path(Node), "etc", ?APP_CONF]).
 
 -spec get_props(node(), binary()) -> proplists:proplist() | no_return().
 get_props(Node, Type) ->

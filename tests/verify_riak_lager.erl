@@ -18,36 +18,38 @@
 %%
 %% -------------------------------------------------------------------
 -module(verify_riak_lager).
-
+-deprecated(module).
 -behavior(riak_test).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("kernel/include/file.hrl").
 
 -define(UNIX_RW_R__R__, 8#100644).
 
 confirm() ->
-    lager:info("Staring a node"),
+    ?LOG_INFO("Staring a node"),
     Nodes = [Node] = rt:deploy_nodes(1),
     ?assertEqual(ok, rt:wait_until_nodes_ready(Nodes)),
-    
-    lager:info("Stopping that node"),
+
+    ?LOG_INFO("Stopping that node"),
     rt:stop(Node),
-    
+
     rt:start(Node),
-    lager:info("Checking for log files"),
-    
+    ?LOG_INFO("Checking for log files"),
+
     {ok, LagerHandlers} = rt:rpc_get_env(Node, [{lager, handlers}]),
-    
+
     Files = [proplists:get_value(file, Config) || {Backend, Config} <- LagerHandlers,
                                     Backend == lager_file_backend ],
-    
-    lager:info("Checking for files: ~p", [Files]),
+
+    ?LOG_INFO("Checking for files: ~0p", [Files]),
     [?assert(rpc:call(Node, filelib, is_file, [File])) || File <- Files],
-    
+
     FileInfos = [ FileInfo || {ok, FileInfo} <- [rpc:call(Node, file, read_file_info, [File]) || File <- Files]],
-    
+
     [?assertEqual(?UNIX_RW_R__R__, ?UNIX_RW_R__R__ band FileInfo#file_info.mode) || FileInfo <- FileInfos],
     pass.
-    
+

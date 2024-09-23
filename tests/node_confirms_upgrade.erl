@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -17,16 +15,17 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %%% with the addition of `node_confirms` as a default bucket property
 %%% we must ensure that custom buckets and typed buckets all inherit
 %%% the default for `node_onfirms` when upgraded. This test verifies
 %%% that. https://github.com/nhs-riak/riak_kv/issues/9
-
 -module(node_confirms_upgrade).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TYPE, <<"type1">>).
 -define(KEY, <<"k">>).
@@ -55,9 +54,9 @@ confirm() ->
     %% Create a typed bucket (with no custom props)
     rt:create_and_activate_bucket_type(Node, ?TYPE, []),
     %% Create a custom bucket (change allow_mult to true!)
-    rt:pbc_set_bucket_prop(Pid, ?BUCKET, [{allow_mult, true}, {custom_prop, x}]),
+    rt:pbc_set_bucket_prop(Pid, ?BUCKET, [{allow_mult, true}]),
 
-    lager:info("Write values on `previous'"),
+    ?LOG_INFO("Write values on `previous'"),
     %% Write some sample data.
     TypedObject = riakc_obj:new(?TYPED_BUCKET, ?KEY, <<"v1">>),
     UntypedObject = riakc_obj:new(?BUCKET, ?KEY, <<"v1">>),
@@ -67,7 +66,7 @@ confirm() ->
     %% Stop PB connection.
     riakc_pb_socket:stop(Pid),
 
-    lager:info("Upgrade to current"),
+    ?LOG_INFO("Upgrade to current"),
     %% Upgrade all nodes.
     [upgrade(N, current) || N <- Nodes],
 
@@ -77,12 +76,12 @@ confirm() ->
 
     {ok, UTO2} = riakc_pb_socket:get(Pid2, ?BUCKET, ?KEY),
     UTO3 = riakc_obj:update_value(UTO2, <<"v2">>),
-    lager:info("Update custom bucket object on upgraded cluster"),
+    ?LOG_INFO("Update custom bucket object on upgraded cluster"),
     ok = riakc_pb_socket:put(Pid2, UTO3),
 
     {ok, TO2} = riakc_pb_socket:get(Pid2, ?TYPED_BUCKET, ?KEY),
     TO3 = riakc_obj:update_value(TO2, <<"v2">>),
-    lager:info("Update typed bucket object on upgraded cluster"),
+    ?LOG_INFO("Update typed bucket object on upgraded cluster"),
     riakc_pb_socket:put(Pid2, TO3),
     ok = riakc_pb_socket:put(Pid2, TO3),
 
@@ -92,7 +91,7 @@ confirm() ->
     pass.
 
 upgrade(Node, NewVsn) ->
-    lager:info("Upgrading ~p to ~p", [Node, NewVsn]),
+    ?LOG_INFO("Upgrading ~0p to ~0p", [Node, NewVsn]),
     rt:upgrade(Node, NewVsn),
     rt:wait_for_service(Node, riak_kv),
     ok.

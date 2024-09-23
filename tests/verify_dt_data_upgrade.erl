@@ -19,12 +19,13 @@
 %% -------------------------------------------------------------------
 %%% @doc r_t to verify changes to serialization/metadata/changes
 %%       across dt upgrades
-
 -module(verify_dt_data_upgrade).
+-behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(MAP_TYPE, <<"maps">>).
 -define(SET_TYPE, <<"sets">>).
@@ -74,19 +75,19 @@ confirm() ->
     riakc_pb_socket:set_options(Pid1, [queue_if_disconnected, auto_reconnect]),
     riakc_pb_socket:set_options(Pid2, [queue_if_disconnected, auto_reconnect]),
 
-    lager:info("Writing to Partition 1 Key ~p ", [?KEY]),
+    ?LOG_INFO("Writing to Partition 1 Key ~0p ", [?KEY]),
     make_and_check(Pid1, [a, b]),
 
     %% Upgrade Nodes 3 - 4 only
     upgrade(Nodes34, current),
 
-    lager:info("Writing to Partition 2 Key W/ Different Set ~p ", [?KEY]),
+    ?LOG_INFO("Writing to Partition 2 Key W/ Different Set ~0p ", [?KEY]),
     make_and_check(Pid2, [c, d, e]),
 
     rt:heal(Partition),
     rt:wait_until_transfers_complete(Nodes),
 
-    lager:info("Compare/Assert fetched values merge/remain as supposed to"
+    ?LOG_INFO("Compare/Assert fetched values merge/remain as supposed to"
                ", including binary information"),
 
     FetchSet0 = fetch(Pid1, ?BUCKET_S, ?KEY),
@@ -149,14 +150,14 @@ fetch(Client, Bucket, Key) ->
     DT.
 
 upgrade(Nodes, NewVsn) ->
-    lager:info("Upgrading to ~s version on Nodes ~p", [NewVsn, Nodes]),
+    ?LOG_INFO("Upgrading to ~s version on Nodes ~0p", [NewVsn, Nodes]),
     [rt:upgrade(ANode, NewVsn) || ANode <- Nodes],
     [rt:wait_for_service(ANode, riak_kv) || ANode <- Nodes],
     [rt:wait_until_capability_contains(ANode, {riak_kv, crdt}, [?SET_CAP])
      || ANode <- Nodes].
 
 downgrade(Nodes, OldVsn) ->
-    lager:info("Downgrading to ~s version on Nodes ~p", [OldVsn, Nodes]),
+    ?LOG_INFO("Downgrading to ~s version on Nodes ~0p", [OldVsn, Nodes]),
     [rt:upgrade(ANode, OldVsn) || ANode <- Nodes],
     [rt:wait_for_service(ANode, riak_kv) || ANode <- Nodes],
     [rt:wait_until_capability_contains(ANode, {riak_kv, crdt}, [?SET_CAP])

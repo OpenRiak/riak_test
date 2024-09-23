@@ -17,7 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %%% @copyright (C) 2015, Basho Technologies
 %%% @doc
 %%% riak_test for timing deadlock on riak_repl2_keylist_server:diff_bloom and riak_repl_aae_source:finish_sending_differences
@@ -28,37 +28,37 @@
 %%% Also tests fixes for riak_repl2_fscoordinator which used to cache the owner of an index at replication start, but those could change with handoff.
 %%% @end
 -module(repl_handoff_deadlock_common).
+
 -export([confirm/1]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"counter-bucket">>).
 -define(KEY, <<"counter-key">>).
 
 -define(CONF(Strategy), [
-    {riak_kv,
-        [
-            %% Specify fast building of AAE trees
-            {anti_entropy, {on, []}},
-            {anti_entropy_build_limit, {100, 1000}},
-            {anti_entropy_concurrency, 100}
-        ]
-    },
-    {riak_repl,
-        [
-            {fullsync_strategy, Strategy},
-            {fullsync_on_connect, false},
-            {fullsync_interval, disabled},
-            %% Force usage of Bloom to invoke race
-            {fullsync_direct_percentage_limit, 0},
-            {fullsync_direct_limit, 1}
+    {riak_kv, [
+        %% Specify fast building of AAE trees
+        {anti_entropy, {on, []}},
+        {anti_entropy_build_limit, {100, 1000}},
+        {anti_entropy_concurrency, 100}
+    ]},
+    {riak_repl, [
+        {fullsync_strategy, Strategy},
+        {fullsync_on_connect, false},
+        {fullsync_interval, disabled},
+        %% Force usage of Bloom to invoke race
+        {fullsync_direct_percentage_limit, 0},
+        {fullsync_direct_limit, 1}
 
-        ]}
+    ]}
 ]).
 
 confirm(Strategy) ->
 
     inets:start(),
-    lager:info("Testing fullsync handoff deadlock with strategy ~p~n", [Strategy]),
+    ?LOG_INFO("Testing fullsync handoff deadlock with strategy ~0p", [Strategy]),
     {ClusterA, ClusterB} = make_clusters(Strategy),
 
     %% Simulate stop of 1/10th of vnodes before fold begins to provoke deadlock
@@ -101,7 +101,7 @@ verify_data({Client, Node}, Count) ->
         begin
             case (riakc_pb_socket:get(Client, ?BUCKET, integer_to_binary(Num), [{notfound_ok, false}])) of
                 {error, notfound} ->
-                    erlang:error({not_found, lists:flatten(io_lib:format("Could not find ~p in cluster with node ~p", [Num, Node]))});
+                    erlang:error({not_found, lists:flatten(io_lib:format("Could not find ~0p in cluster with node ~0p", [Num, Node]))});
                 {ok, Object} ->
                     ?assertEqual(riakc_obj:get_value(Object), integer_to_binary(Num))
             end
@@ -111,7 +111,7 @@ verify_data({Client, Node}, Count) ->
 
 %% Set up bi-directional full sync replication.
 repl_power_activate(ClusterA, ClusterB) ->
-    lager:info("repl power...ACTIVATE!"),
+    ?LOG_INFO("repl power...ACTIVATE!"),
     LeaderA = get_leader(hd(ClusterA)),
     info("got leader A"),
     LeaderB = get_leader(hd(ClusterB)),
@@ -148,4 +148,4 @@ get_mgr_port({_, Node}) ->
     Port.
 
 info(Message) ->
-    lager:info(Message).
+    ?LOG_INFO(Message).

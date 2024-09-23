@@ -1,6 +1,26 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(rt_bench).
 -compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 -define(ESCRIPT, rt_config:get(basho_bench_escript)).
 
@@ -14,7 +34,7 @@ bench(Config, NodeList, TestName, Runners) ->
     bench(Config, NodeList, TestName, Runners, false).
 
 bench(Config, NodeList, TestName, Runners, Drop) ->
-    lager:info("Starting basho_bench run"),
+    ?LOG_INFO("Starting basho_bench run"),
 
     LoadGens = rt_config:get(perf_loadgens, ["localhost"]),
 
@@ -22,7 +42,7 @@ bench(Config, NodeList, TestName, Runners, Drop) ->
         true ->
             Fun = fun(Node) ->
                         R = rtssh:ssh_cmd(Node, "sudo ~/bin/drop_caches.sh"),
-                        lager:info("Dropped cache for node: ~p ret: ~p",
+                        ?LOG_INFO("Dropped cache for node: ~0p ret: ~0p",
                                    [Node, R])
                 end,
             rt:pmap(Fun, NodeList);
@@ -67,27 +87,27 @@ bench(Config, NodeList, TestName, Runners, Drop) ->
                     Cmd = ?ESCRIPT++" "++
                         BBDir++"/"++"basho_bench -d "++
                         BBDir++"/"++TestName++"_"++Num++" "++RemotePath,
-                    lager:info("Spawning remote basho_bench w/ ~p on ~p",
+                    ?LOG_INFO("Spawning remote basho_bench w/ ~0p on ~0p",
                                [Cmd, LG]),
                     {0, R} = rtssh:ssh_cmd(LG, Cmd, false),
-                    lager:info("bench run finished, on ~p returned ~p",
+                    ?LOG_INFO("bench run finished, on ~0p returned ~0p",
                    [LG, R]),
                     {0, _} = rtssh:ssh_cmd(LG, "rm -r "++BBTmp++"/"),
             Owner ! {done, ok}
                 catch
                     Class:Error ->
-                        lager:error("basho_bench died with error ~p:~p",
+                        ?LOG_ERROR("basho_bench died with error ~0p:~0p",
                                     [Class, Error]),
             Owner ! {done, error}
                 after
-                    lager:info("finished bb run")
+                    ?LOG_INFO("finished bb run")
                 end
         end,
     S = self(),
     [spawn(fun() -> F(R, S) end)|| R <- GenList],
     [ok] = lists:usort([receive {done, R} -> R end
             || _ <- GenList]),
-    lager:debug("removing stage dir"),
+    ?LOG_DEBUG("removing stage dir"),
     {ok, FL} = file:list_dir(BBTmpStage),
     [file:delete(BBTmpStage++File) || File <- FL],
     ok = file:del_dir(BBTmpStage).
@@ -115,7 +135,7 @@ config(Rate, Duration, NodeList, KeyGen,
 
 config(Rate, Duration, NodeList, KeyGen,
        ValGen, Operations, Bucket, Driver0) ->
-    lager:info("Bucket is: ~p", [Bucket]),
+    ?LOG_INFO("Bucket is: ~0p", [Bucket]),
     {Driver, DriverB} = case Driver0 of
         '2i' ->
             {pb, riakc_pb};

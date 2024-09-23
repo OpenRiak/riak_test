@@ -19,9 +19,11 @@
 %% -------------------------------------------------------------------
 -module(gh_riak_core_155).
 -behavior(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     [Node] = rt:build_cluster(1),
@@ -32,7 +34,7 @@ confirm() ->
     DocIdx = riak_core_util:chash_std_keyfun(BKey),
     PL = rpc:call(Node, riak_core_apl, get_apl, [DocIdx, 3, riak_kv]),
 
-    lager:info("Adding delayed start to app.config"),
+    ?LOG_INFO("Adding delayed start to app.config"),
     NewConfig = [{riak_core, [{delayed_start, 1000}]}],
     rt:update_app_config(Node, NewConfig),
 
@@ -45,17 +47,17 @@ confirm() ->
     rt_intercept:add(Node, {riak_core_vnode_proxy_sup,
                             [{{start_proxies,1}, sleep_start_proxies}]}),
 
-    lager:info("Installed intercept to delay riak_kv proxy startup"),
-    lager:info("Issuing 10000 gets against ~p", [Node]),
+    ?LOG_INFO("Installed intercept to delay riak_kv proxy startup"),
+    ?LOG_INFO("Issuing 10000 gets against ~0p", [Node]),
     perform_gets(10000, Node, PL, BKey),
 
-    lager:info("Verifying ~p has not crashed", [Node]),
+    ?LOG_INFO("Verifying ~0p has not crashed", [Node]),
     [begin
          ?assertEqual(pong, net_adm:ping(Node)),
          timer:sleep(1000)
      end || _ <- lists:seq(1,10)],
 
-    lager:info("Test passed"),
+    ?LOG_INFO("Test passed"),
     pass.
 
 perform_gets(Count, Node, PL, BKey) ->

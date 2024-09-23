@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -21,10 +19,13 @@
 %%
 %% Confirm that trees are returned that vary along with the data in the
 %% store
-
 -module(verify_aaefold_nval_api).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -74,7 +75,7 @@
 -define(DELTA_COUNT, 10).
 
 confirm() ->
-    lager:info("Testing without rebuilds - using http api"),
+    ?LOG_INFO("Testing without rebuilds - using http api"),
     Nodes0 = rt:build_cluster(?NUM_NODES, ?CFG_NOREBUILD),
     ClientHeadHTTP = rt:httpc(hd(Nodes0)),
     ClientTailHTTP = rt:httpc(lists:last(Nodes0)),
@@ -83,8 +84,8 @@ confirm() ->
     rt:clean_cluster(Nodes0),
 
     Nodes1 = rt:build_cluster(?NUM_NODES, ?CFG_REBUILD),
-    lager:info("Sleeping for twice rebuild tick - testing with rebuilds ongoing"),
-    lager:info("Testing this time with PB API"),
+    ?LOG_INFO("Sleeping for twice rebuild tick - testing with rebuilds ongoing"),
+    ?LOG_INFO("Testing this time with PB API"),
     timer:sleep(2 * ?REBUILD_TICK),
     ClientHeadPB = rt:pbc(hd(Nodes1)),
     ClientTailPB = rt:pbc(lists:last(Nodes1)),
@@ -98,11 +99,11 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
     TestStart = os:timestamp(),
     timer:sleep(1000),
 
-    lager:info("Fold for empty root"),
+    ?LOG_INFO("Fold for empty root"),
     {ok, {root, RH0}} = Mod:aae_merge_root(CH, ?N_VAL),
     {ok, {root, RT0}} = Mod:aae_merge_root(CT, ?N_VAL),
 
-    lager:info("Commencing object load"),
+    ?LOG_INFO("Commencing object load"),
     KeyLoadFun =
         fun(Node, KeyCount) ->
             KVs = test_data(KeyCount + 1,
@@ -113,22 +114,22 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
         end,
 
     lists:foldl(KeyLoadFun, 0, Nodes),
-    lager:info("Loaded ~w objects", [?NUM_KEYS_PERNODE * length(Nodes)]),
+    ?LOG_INFO("Loaded ~w objects", [?NUM_KEYS_PERNODE * length(Nodes)]),
     wait_until_root_stable(Mod, CH),
     wait_until_root_stable(Mod, CT),
 
-    lager:info("Fold for busy root"),
+    ?LOG_INFO("Fold for busy root"),
     {ok, {root, RH1}} = Mod:aae_merge_root(CH, ?N_VAL),
     {ok, {root, RT1}} = Mod:aae_merge_root(CT, ?N_VAL),
 
-    lager:info("Dirty segments ~w",
+    ?LOG_INFO("Dirty segments ~w",
         [leveled_tictac:find_dirtysegments(RH1, RT1)]),
-    
+
     ?assertMatch(true, RH1 == RT1),
     ?assertMatch(true, RH0 == RT0),
     ?assertMatch(false, RH0 == RH1),
 
-    lager:info("Make ~w changes", [?DELTA_COUNT]),
+    ?LOG_INFO("Make ~w changes", [?DELTA_COUNT]),
     Changes2 = test_data(1, ?DELTA_COUNT, list_to_binary("U2")),
     ok = write_data(hd(Nodes), Changes2),
 
@@ -137,42 +138,42 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
     {ok, {root, RH2}} = Mod:aae_merge_root(CH, ?N_VAL),
     DirtyBranches2 = aae_exchange:compare_roots(RH1, RH2),
 
-    lager:info("Found branch deltas ~w", [DirtyBranches2]),
-    
+    ?LOG_INFO("Found branch deltas ~w", [DirtyBranches2]),
+
     ?assertMatch(true, length(DirtyBranches2) > 0),
     ?assertMatch(true, length(DirtyBranches2) =< ?DELTA_COUNT),
 
     {ok, {branches, BH2}} =
         Mod:aae_merge_branches(CH, ?N_VAL, DirtyBranches2),
 
-    lager:info("Make ~w changes to same keys", [?DELTA_COUNT]),
+    ?LOG_INFO("Make ~w changes to same keys", [?DELTA_COUNT]),
     Changes3 = test_data(1, ?DELTA_COUNT, list_to_binary("U3")),
     ok = write_data(hd(Nodes), Changes3),
-    
+
     wait_until_root_stable(Mod, CH),
 
     {ok, {root, RH3}} = Mod:aae_merge_root(CH, ?N_VAL),
     DirtyBranches3 = aae_exchange:compare_roots(RH2, RH3),
 
-    lager:info("Found ~w branch deltas", [length(DirtyBranches3)]),
+    ?LOG_INFO("Found ~w branch deltas", [length(DirtyBranches3)]),
     ?assertMatch(true, DirtyBranches2 == DirtyBranches3),
 
     {ok, {branches, BH3}} =
         Mod:aae_merge_branches(CH, ?N_VAL, DirtyBranches3),
 
     DirtySegments1 = aae_exchange:compare_branches(BH2, BH3),
-    lager:info("Found ~w mismatched segments", [length(DirtySegments1)]),
+    ?LOG_INFO("Found ~w mismatched segments", [length(DirtySegments1)]),
     ?assertMatch(true, length(DirtySegments1) > 0),
     ?assertMatch(true, length(DirtySegments1) =< ?DELTA_COUNT),
 
     {ok, {keysclocks, KCL1}} =
         Mod:aae_fetch_clocks(CH, ?N_VAL, DirtySegments1),
 
-    lager:info("Found ~w mismatched keys", [length(KCL1)]),
+    ?LOG_INFO("Found ~w mismatched keys", [length(KCL1)]),
 
     ?assertMatch(true, length(KCL1) >= ?DELTA_COUNT),
 
-    lager:info("Checking all mismatched keys in result"),
+    ?LOG_INFO("Checking all mismatched keys in result"),
     MatchFun =
         fun(I) ->
                 K = to_key(I),
@@ -182,7 +183,7 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
         end,
     lists:foreach(MatchFun, lists:seq(1, ?DELTA_COUNT)),
 
-    lager:info("Stopping a node - query results should be unchanged"),
+    ?LOG_INFO("Stopping a node - query results should be unchanged"),
     rt:stop_and_wait(hd(tl(Nodes))),
     {ok, {branches, BH4}} =
         Mod:aae_merge_branches(CH, ?N_VAL, DirtyBranches3),
@@ -203,8 +204,8 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
 
     case Rebuild of
         true ->
-            lager:info("Test fold many times"),
-            lager:info("Maybe catch race with rebuild"),
+            ?LOG_INFO("Test fold many times"),
+            ?LOG_INFO("Maybe catch race with rebuild"),
             lists:foreach(
                 fun(_I) ->
                     check_all_ranges(Mod, CH, Stage1Range)
@@ -215,7 +216,7 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
             check_all_ranges(Mod, CH, Stage1Range)
     end,
 
-    lager:info("Regressing object version to 0 on head Node"),
+    ?LOG_INFO("Regressing object version to 0 on head Node"),
     ok = 
         rpc:call(
             hd(Nodes),
@@ -232,8 +233,8 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
     
     case Rebuild of
         true ->
-            lager:info("Test fold many times"),
-            lager:info("Maybe catch race with rebuild"),
+            ?LOG_INFO("Test fold many times"),
+            ?LOG_INFO("Maybe catch race with rebuild"),
             lists:foreach(
                 fun(_I) ->
                     check_all_ranges(Mod, CH, Stage1Range)
@@ -244,7 +245,7 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
             check_all_ranges(Mod, CH, Stage1Range)
     end,
 
-    lager:info("Reverting object version to 1 on head Node"),
+    ?LOG_INFO("Reverting object version to 1 on head Node"),
     ok = 
         rpc:call(
             hd(Nodes),
@@ -264,14 +265,14 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
 
     {ok, {keysclocks, KCL6}} =
         Mod:aae_range_clocks(CH, ?BUCKET, all, all, Stage2Range),
-    lager:info(
+    ?LOG_INFO(
         "Fetched ~w keys loaded in stage 2",
         [length(KCL6)]
     ),
     ?assert(length(KCL6) == ?NUM_NODES * ?NUM_KEYS_PERNODE),
     {ok, {keysclocks, KCL7}} =
         Mod:aae_range_clocks(CH, ?BUCKET, all, all, Stage3Range),
-    lager:info(
+    ?LOG_INFO(
         "Fetched ~w keys loaded in stage 3",
         [length(KCL7)]
     ),
@@ -279,8 +280,8 @@ verify_aae_fold(Nodes, Mod, CH, CT, Rebuild) ->
 
     case Rebuild of
         true ->
-            lager:info("Test fold many times"),
-            lager:info("Maybe catch race with rebuild"),
+            ?LOG_INFO("Test fold many times"),
+            ?LOG_INFO("Maybe catch race with rebuild"),
             lists:foreach(
                 fun(_I) ->
                     check_all_ranges(Mod, CH, Stage1Range)
@@ -328,12 +329,12 @@ wait_until_root_stable(Mod, Client) ->
     {ok, {root, RH1}} = Mod:aae_merge_root(Client, ?N_VAL),
     case aae_exchange:compare_roots(RH0, RH1) of
         [] ->
-            lager:info("Root appears stable matched");
+            ?LOG_INFO("Root appears stable matched");
         [L] ->
             Pre = L * 4,
             <<_B0:Pre/binary, V0:32/integer, _Post0/binary>> = RH0,
             <<_B1:Pre/binary, V1:32/integer, _Post1/binary>> = RH1,
-            lager:info("Root not stable: branch ~w compares ~w with ~w",
+            ?LOG_INFO("Root not stable: branch ~w compares ~w with ~w",
                         [L, V0, V1]),
             wait_until_root_stable(Mod, Client)
     end.
@@ -355,7 +356,7 @@ wait_until_object_format(Nodes, Format) ->
 check_all_ranges(Mod, CH, Stage1Range) ->
     {ok, {keysclocks, KCL5}} =
         Mod:aae_range_clocks(CH, ?BUCKET, all, all, Stage1Range),
-    lager:info(
+    ?LOG_INFO(
         "Fetched ~w keys loaded in stage 1",
         [length(KCL5)]
     ).

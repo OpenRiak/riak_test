@@ -5,7 +5,9 @@
 -module(nextgenrepl_rtq_workercount).
 -behavior(riak_test).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 16).
@@ -16,16 +18,11 @@
 -define(SNK_WORKERS, 2).
 -define(PEER_LIMIT, 2).
 -define(COMMMON_VAL_INIT, <<"CommonValueToWriteForAllObjects">>).
--define(COMMMON_VAL_MOD, <<"CommonValueToWriteForAllModifiedObjects">>).
 
 -define(INIT_MAX_DELAY, 60).
--define(STND_MAX_DELAY, 3600).
 -define(NUM_KEYS, 100000).
 -define(PEER_DISCOVERY_DELAY, 10).
 
--define(REPL_SLEEP, 2048). 
-    % May need to wait for 2 x the 1024ms max sleep time of a snk worker
--define(WAIT_LOOPS, 12).
 -define(INITIAL_TIMEOUT, 10000).
 
 -define(CONFIG(RingSize, NVal, SrcQueueDefns), [
@@ -79,18 +76,28 @@ confirm() ->
             {4, ?CONFIG(?A_RING, ?A_NVAL, ClusterASrcQ)},
             {2, ?CONFIG(?B_RING, ?B_NVAL, ClusterBSrcQ)}]),
 
-    cluster_test(ClusterA1, ClusterB1, pb).
+    cluster_test(ClusterA1, ClusterB1, pb),
+    
+    rt:clean_cluster(ClusterA1),
+    rt:clean_cluster(ClusterB1),
+
+    [ClusterA2, ClusterB2] =
+        rt:deploy_clusters([
+            {4, ?CONFIG(?A_RING, ?A_NVAL, ClusterASrcQ)},
+            {2, ?CONFIG(?B_RING, ?B_NVAL, ClusterBSrcQ)}]),
+    
+    cluster_test(ClusterA2, ClusterB2, http).
 
 cluster_test(ClusterA, ClusterB, Protocol) ->
 
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
 
-    lager:info("Discover Peer IP/ports and restart with peer config"),
+    ?LOG_INFO("Discover Peer IP/ports and restart with peer config"),
     lists:foreach(compare_peer_info(4, Protocol), ClusterA),
     lists:foreach(compare_peer_info(2, Protocol), ClusterB),
 
@@ -109,67 +116,67 @@ cluster_test(ClusterA, ClusterB, Protocol) ->
 
     reset_peer_config(ClusterA, cluster_a, PeerB),
     reset_peer_config(ClusterB, cluster_b, PeerA),
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
-    lager:info("Confirm riak_kv is up on all nodes."),
+    ?LOG_INFO("Confirm riak_kv is up on all nodes."),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB),
-    lager:info("Wait for initial timeout on nextgenrepl services"),
+    ?LOG_INFO("Wait for initial timeout on nextgenrepl services"),
     timer:sleep(?INITIAL_TIMEOUT),
 
-    lager:info("Ready for test - with ~w client for rtq.", [Protocol]),
-    lager:info(
+    ?LOG_INFO("Ready for test - with ~w client for rtq.", [Protocol]),
+    ?LOG_INFO(
         "Wait for peer discovery delay of ~w seconds",
         [?PEER_DISCOVERY_DELAY]),
     timer:sleep(?PEER_DISCOVERY_DELAY * 1000),
 
-    lager:info("Set worker counts to be lower for B2"),
+    ?LOG_INFO("Set worker counts to be lower for B2"),
     ok = rpc:call(NodeB1, riak_kv_replrtq_snk, set_workercount, [cluster_b, 8, 2]),
     ok = rpc:call(NodeB2, riak_kv_replrtq_snk, set_workercount, [cluster_b, 2, 2]),
 
-    lager:info("B1 state before load :~n~p", [get_snk_state(NodeB1)]),
-    lager:info("B2 state before load :~n~p", [get_snk_state(NodeB2)]),
-    lager:info("Commence data load ..."),
+    ?LOG_INFO("B1 state before load :~n~p", [get_snk_state(NodeB1)]),
+    ?LOG_INFO("B2 state before load :~n~p", [get_snk_state(NodeB2)]),
+    ?LOG_INFO("Commence data load ..."),
     SW0 = os:timestamp(),
     write_to_cluster(NodeA, 1, ?NUM_KEYS, new_obj),
-    lager:info(
+    ?LOG_INFO(
         "Write took ~w seconds", 
         [timer:now_diff(os:timestamp(), SW0) div (1000 * 1000)]),
-    lager:info("Wait for queues to drain"),
+    ?LOG_INFO("Wait for queues to drain"),
     verify_vclock_prune:wait_for_queues_to_drain(ClusterA, cluster_b),
     
     StatsB1_0 = get_stats([NodeB1]),
     StatsB2_0 = get_stats([NodeB2]),
-    lager:info("NodeB1 stats ~w", [StatsB1_0]),
-    lager:info("NodeB2 stats ~w", [StatsB2_0]),
+    ?LOG_INFO("NodeB1 stats ~w", [StatsB1_0]),
+    ?LOG_INFO("NodeB2 stats ~w", [StatsB2_0]),
     B1_Fetches0 = element(4, StatsB1_0),
     B2_Fetches0 = element(4, StatsB2_0),
     ?assert(B1_Fetches0 > (2 * B2_Fetches0)),
 
-    lager:info("B1 state before change :~n~p", [get_snk_state(NodeB1)]),
-    lager:info("B2 state before change :~n~p", [get_snk_state(NodeB2)]),
-    lager:info("Set worker counts to be lower for B1"),
+    ?LOG_INFO("B1 state before change :~n~p", [get_snk_state(NodeB1)]),
+    ?LOG_INFO("B2 state before change :~n~p", [get_snk_state(NodeB2)]),
+    ?LOG_INFO("Set worker counts to be lower for B1"),
     ok = rpc:call(NodeB1, riak_kv_replrtq_snk, set_workercount, [cluster_b, 2, 2]),
     ok = rpc:call(NodeB2, riak_kv_replrtq_snk, set_workercount, [cluster_b, 8, 2]),
-    lager:info("B1 state post change :~n~p", [get_snk_state(NodeB1)]),
-    lager:info("B2 state post change :~n~p", [get_snk_state(NodeB2)]),
+    ?LOG_INFO("B1 state post change :~n~p", [get_snk_state(NodeB1)]),
+    ?LOG_INFO("B2 state post change :~n~p", [get_snk_state(NodeB2)]),
 
-    lager:info("Commence data load ..."),
+    ?LOG_INFO("Commence data load ..."),
     SW1 = os:timestamp(),
     write_to_cluster(NodeA, ?NUM_KEYS + 1, 2 * ?NUM_KEYS, new_obj),
-    lager:info(
+    ?LOG_INFO(
         "Write took ~w seconds", 
         [timer:now_diff(os:timestamp(), SW1) div (1000 * 1000)]),
-    lager:info("Wait for queues to drain"),
+    ?LOG_INFO("Wait for queues to drain"),
     verify_vclock_prune:wait_for_queues_to_drain(ClusterA, cluster_b),
 
-    lager:info("B1 state post load :~n~p", [get_snk_state(NodeB1)]),
-    lager:info("B2 state post load :~n~p", [get_snk_state(NodeB2)]),
+    ?LOG_INFO("B1 state post load :~n~p", [get_snk_state(NodeB1)]),
+    ?LOG_INFO("B2 state post load :~n~p", [get_snk_state(NodeB2)]),
     StatsB1_1 = get_stats([NodeB1]),
     StatsB2_1 = get_stats([NodeB2]),
-    lager:info("NodeB1 stats ~w", [StatsB1_1]),
-    lager:info("NodeB2 stats ~w", [StatsB2_1]),
+    ?LOG_INFO("NodeB1 stats ~w", [StatsB1_1]),
+    ?LOG_INFO("NodeB2 stats ~w", [StatsB2_1]),
     B1_Fetches1 = element(4, StatsB1_1) - B1_Fetches0,
     B2_Fetches1 = element(4, StatsB2_1) - B2_Fetches0,
     ?assert(B2_Fetches1 > (2 * B1_Fetches1)),
@@ -195,7 +202,7 @@ compare_peer_info(ExpectedPeers, Protocol) ->
                     {rhc, rhc:create(IP, Port, "riak", [])}
             end,
         {ok, MemberList} = Mod:peer_discovery(RiakErlC),
-        lager:info(
+        ?LOG_INFO(
             "Discovered Member list (two ways) ~p ~p",
             [MemberList, Protocol]),
         ?assert(lists:member({list_to_binary(IP), Port}, MemberList)),
@@ -218,7 +225,7 @@ get_stats(Cluster) ->
     Stats = {0, 0, 0, 0, 0, 0},
         % {prefetch, tofetch, nofetch, object, error, empty}
     lists:foldl(fun(N, {PFAcc, TFAcc, NFAcc, FOAcc, FErAcc, FEmAcc}) -> 
-                        S = verify_riak_stats:get_stats(N, 1000),
+                        S = rt:get_stats(N, 1000),
                         {<<"ngrfetch_prefetch_total">>, PFT} =
                             lists:keyfind(<<"ngrfetch_prefetch_total">>, 1, S),
                         {<<"ngrfetch_tofetch_total">>, TFT} =
@@ -239,8 +246,7 @@ get_stats(Cluster) ->
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End, CommonValBin) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F = 
         fun(N, Acc) ->
@@ -249,13 +255,11 @@ write_to_cluster(Node, Start, End, CommonValBin) ->
                 case CommonValBin of
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
-                        riak_object:new(?TEST_BUCKET,
-                                        Key,
-                                        <<N:32/integer, CVB/binary>>);
-                    UpdateBin ->
-                        UPDV = <<N:32/integer, UpdateBin/binary>>,
-                        {ok, PrevObj} = riak_client:get(?TEST_BUCKET, Key, C),
-                        riak_object:update_value(PrevObj, UPDV)
+                        riak_object:new(
+                            ?TEST_BUCKET,
+                            Key,
+                            <<N:32/integer, CVB/binary>>
+                        )
                 end,
             try riak_client:put(Obj, C) of
                 ok ->
@@ -268,7 +272,7 @@ write_to_cluster(Node, Start, End, CommonValBin) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~p errors while writing: ~p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 get_snk_state(Node) ->

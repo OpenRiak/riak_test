@@ -1,13 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(replication_stats).
+-behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(FULL_NUM_KEYS, 5000).
 -define(TEST_BUCKET, <<"repl_bench">>).
-
--define(HARNESS, (rt_config:get(rt_harness))).
 
 -define(CONF, [
         {riak_core,
@@ -81,12 +100,12 @@ fullsync_enabled_and_started() ->
                 {FullTime, _} = timer:tc(repl_util,
                                          start_and_wait_until_fullsync_complete,
                                          [LeaderA, undefined, Me]),
-                lager:info("Fullsync completed in ~p", [FullTime])
+                ?LOG_INFO("Fullsync completed in ~0p", [FullTime])
         end),
 
     Result = receive
         fullsync_started ->
-            lager:info("Fullsync started!"),
+            ?LOG_INFO("Fullsync started!"),
 
             case rpc:call(LeaderA, riak_repl_console, fs_remotes_status,
                           []) of

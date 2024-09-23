@@ -1,6 +1,8 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2012-2016 Basho Technologies, Inc.
+%% Copyright (c) 2018-2023 Workday, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,150 +19,258 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
-%% @doc riak_test_runner runs a riak_test module's run/0 function.
+%%
+%% @doc Runs a riak_test module's confirm/0 function.
+%%
 -module(riak_test_runner).
--export([confirm/4, metadata/0, metadata/1, function_name/1]).
-%% Need to export to use with `spawn_link'.
--export([return_to_exit/3]).
--include_lib("eunit/include/eunit.hrl").
 
--spec(metadata() -> [{atom(), term()}]).
-%% @doc fetches test metadata from spawned test process
+%% Test metadata accessors
+-export([metadata/0, metadata/1]).
+
+%% Internal riak_test API
+-export([confirm/4, function_name/1]).
+
+%% Spawned test runner.
+-export([return_to_exit/3]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
+-type metadata() :: list({atom(), term()}).
+-type test_status() :: pass | fail.
+-type test_reason() :: undefined | term().
+
+-spec metadata() -> metadata().
+%% @doc Fetches test metadata to the spawned test process.
+%%
+%% If called from any process other than the one invoking the test entry
+%% point, the caller will hang forever! This functionality is maintained
+%% in support of existing tests, but will be changed in a future revision.
+%%
+%% To fetch metadata to ANY process, use {@link metadata/1}.
 metadata() ->
     riak_test ! metadata,
     receive
         {metadata, TestMeta} -> TestMeta
     end.
 
+-spec metadata(Pid :: pid()) -> metadata().
+%% @doc Fetches test metadata to a specified process.
+%%
+%% To fetch test metadata from any process, invoke```
+%%  riak_test_runner:metadata(erlang:self())'''
 metadata(Pid) ->
     riak_test ! {metadata, Pid},
     receive
         {metadata, TestMeta} -> TestMeta
     end.
 
--spec(confirm(integer(), atom(), [{atom(), term()}], list()) -> [tuple()]).
-%% @doc Runs a module's run/0 function after setting up a log capturing backend for lager.
-%%      It then cleans up that backend and returns the logs as part of the return proplist.
-confirm(TestModule, Outdir, TestMetaData, HarnessArgs) ->
-    start_logger_backend(TestModule, Outdir),
-    rt:setup_harness(TestModule, HarnessArgs),
+-spec confirm(
+    TestName :: atom(),
+    Outdir :: rtt:fs_path(),
+    TestMetaData :: metadata(),
+    HarnessArgs :: list(string()) )
+        -> list({atom(), term()}).
+%% @private
+%% Runs a test's entry function after setting up a per-test log file and a
+%% log capturing backend.
+%%
+%% After the test runs the log handlers are removed and the captured logs are
+%% included in the returned result.
+%%
+confirm(TestName, Outdir, TestMetaData, HarnessArgs) ->
+    {Module, Function} = function_name(TestName),
+    start_loggers(Module, Outdir),
+    rt:setup_harness(Module, HarnessArgs),
     BackendExtras = case proplists:get_value(multi_config, TestMetaData) of
-                        undefined -> [];
-                        Value -> [{multi_config, Value}]
-                    end,
-    Backend = rt:set_backend(proplists:get_value(backend, TestMetaData), BackendExtras),
-    {Mod, Fun} = function_name(TestModule),
-    {Status, Reason} = case check_prereqs(Mod) of
-        true ->
-            lager:notice("Running Test ~s", [TestModule]),
-            execute(TestModule, {Mod, Fun}, TestMetaData);
-        not_present ->
-            {fail, test_does_not_exist};
-        _ ->
-            {fail, all_prereqs_not_present}
+        undefined -> [];
+        Value -> [{multi_config, Value}]
     end,
+    Backend = rt:set_backend(
+        proplists:get_value(backend, TestMetaData), BackendExtras),
+    {ElapsedMS, Status, Reason} = case check_prereqs(Module) of
+        true ->
+            execute(TestName, Module, Function, TestMetaData);
+        not_present ->
+            {1, fail, test_does_not_exist};
+        _ ->
+            {1, fail, all_prereqs_not_present}
+    end,
+    Result = case Status of
+        fail ->
+            case Reason of
+                test_does_not_exist ->
+                    Reason;
+                all_prereqs_not_present ->
+                    Reason;
+                _ ->
+                    Status
+            end;
+        _ ->
+            Status
+    end,
+    ?LOG_NOTICE("~s Test Run Complete ~0p", [TestName, Result]),
+    Logs = stop_loggers(),
 
-    lager:notice("~s Test Run Complete ~p", [TestModule, Status]),
-    {ok, Logs} = stop_logger_backend(),
-    Log = unicode:characters_to_binary(Logs),
-
-    RetList = [{test, TestModule}, {status, Status}, {log, Log}, {backend, Backend} | proplists:delete(backend, TestMetaData)],
+    RetList = [
+        {test, TestName},
+        {status, Status},
+        {result, Result},
+        {log, unicode:characters_to_binary(Logs)},
+        {backend, Backend},
+        {elapsed_ms, ElapsedMS}
+        | proplists:delete(backend, TestMetaData)
+    ],
     case Status of
-        fail -> RetList ++ [{reason, iolist_to_binary(io_lib:format("~p", [Reason]))}];
-        _ -> RetList
+        fail ->
+            [{reason, erlang:iolist_to_binary(
+                io_lib:format("~p", [Reason]))} | RetList];
+        _ ->
+            RetList
     end.
 
-start_logger_backend(_TestModule, _Outdir) ->
-    ok.
+%% @hidden
+start_loggers(TestName, Outdir) ->
+    ?assertMatch(ok, rt_logger:start()),
+    Verbose = rt_config:get(verbose, false),
+    LogLevel = rt_config:get(log_level, info),
+    LogFile = filename:join([Outdir, log, TestName]) ++ ".test.log",
+    ?assertMatch(ok,
+        riak_test_logger_backend:start(Verbose, LogLevel, LogFile)).
 
-stop_logger_backend() ->
-    {ok, []}.
+%% @hidden
+stop_loggers() ->
+    %% Get the logs first, don't know who may be holding them.
+    Logs = riak_test_logger_backend:get_logs(),
+    rt_logger:stop(),
+    riak_test_logger_backend:stop(),
+    Logs.
 
-%% does some group_leader swapping, in the style of EUnit.
-execute(TestModule, {Mod, Fun}, TestMetaData) ->
-    process_flag(trap_exit, true),
-    OldGroupLeader = group_leader(),
-    NewGroupLeader = riak_test_group_leader:new_group_leader(self()),
-    group_leader(NewGroupLeader, self()),
+-spec execute(
+    TestName :: atom(),
+    Module :: module(),
+    Function :: atom(),
+    TestMetaData :: metadata() )
+        -> {ElapsedMilliSecs :: rtt:millisecs(),
+            Status :: test_status(), Reason :: test_reason()}.
+%% @hidden
+%% Does some group_leader swapping, in the style of EUnit.
+execute(TestName, Module, Function, TestMetaData) ->
+    ?LOG_NOTICE("Running Test ~s", [TestName]),
 
-    {0, UName} = rt:cmd("uname -a"),
-    lager:info("Test Runner `uname -a` : ~s", [UName]),
+    %% Take a snapshot of logger's primary config to restore after the test,
+    %% because some tests might change it. Hopefully they won't mess with
+    %% the individual handlers, which would be far more hassle to deal with.
+    PrimLogConfig = logger:get_primary_config(),
+    ThisPid = erlang:self(),
 
-    Pid = spawn_link(?MODULE, return_to_exit, [Mod, Fun, []]),
-    Ref = case rt_config:get(test_timeout, undefined) of
-        Timeout when is_integer(Timeout) ->
-            erlang:send_after(Timeout, self(), test_took_too_long);
+    OldGroupLeader = erlang:group_leader(),
+    NewGroupLeader = riak_test_group_leader:new_group_leader(ThisPid),
+    erlang:group_leader(NewGroupLeader, ThisPid),
+
+    {0, UName} = rt:cmd("uname", ["-a"]),
+    ?LOG_INFO("Test Runner `uname -a` : ~s", [string:trim(UName)]),
+    Timeout = rt_config:get(test_timeout, undefined),
+
+    TrapExit = erlang:process_flag(trap_exit, true),
+    Start = erlang:monotonic_time(),
+    Pid = proc_lib:spawn_link(?MODULE, return_to_exit, [Module, Function, []]),
+    Timer = case erlang:is_integer(Timeout) of
+        true ->
+            erlang:send_after(Timeout, ThisPid, test_took_too_long);
         _ ->
             undefined
     end,
+    {Status, Reason} = rec_loop(Pid, TestMetaData),
+    Timer =:= undefined orelse
+        erlang:cancel_timer(Timer, [{async, true}, {info, false}]),
+    Finish = erlang:monotonic_time(),
+    TrapExit orelse erlang:process_flag(trap_exit, TrapExit),
 
-    {Status, Reason} = rec_loop(Pid, TestModule, TestMetaData),
-    case Ref of
-        undefined ->
-            ok;
-        _ ->
-            erlang:cancel_timer(Ref)
-    end,
     riak_test_group_leader:tidy_up(OldGroupLeader),
+    ElapsedMS = erlang:convert_time_unit(
+        (Finish - Start), native, millisecond),
+
+    %% Reset logger's primary config before logging anything else.
+    logger:set_primary_config(PrimLogConfig),
+
     case Status of
         fail ->
-            ErrorHeader = "================ " ++ atom_to_list(TestModule) ++ " failure stack trace =====================",
-            ErrorFooter = [ $= || _X <- lists:seq(1,length(ErrorHeader))],
-            Error = io_lib:format("~n~s~n~p~n~s~n", [ErrorHeader, Reason, ErrorFooter]),
-            lager:error(Error);
-        _ -> meh
+            HeadChars = "==================",
+            ErrorHeader = lists:flatten([
+                HeadChars, $\s, erlang:atom_to_list(TestName),
+                " failure reason ", HeadChars
+            ]),
+            ErrorFooter = lists:duplicate(erlang:length(ErrorHeader), $=),
+            ?LOG_ERROR("~n~s~n~p~n~s", [ErrorHeader, Reason, ErrorFooter]);
+        _ ->
+            ok
     end,
-    {Status, Reason}.
+    {ElapsedMS, Status, Reason}.
 
-function_name(TestModule) ->
-    TMString = atom_to_list(TestModule),
+-spec function_name(TestName :: atom()) -> {module(), atom()}.
+%% @private
+%% Given a `TestName' atom that is either `module' or `module:function' returns
+%% the distinct `Module' and `Function' atoms of the test's entry point.
+%%
+%% If only a module name is supplied, the default function name `confirm' is
+%% returned.
+%%
+%% The function `Module:Function/0` must be exported.
+function_name(TestName) ->
+    TMString = erlang:atom_to_list(TestName),
     Tokz = string:tokens(TMString, ":"),
-    case length(Tokz) of
-        1 -> {TestModule, confirm};
+    case erlang:length(Tokz) of
+        1 ->
+            {TestName, confirm};
         2 ->
             [Module, Function] = Tokz,
-            {list_to_atom(Module), list_to_atom(Function)}
+            {erlang:list_to_atom(Module), erlang:list_to_atom(Function)}
     end.
 
-rec_loop(Pid, TestModule, TestMetaData) ->
+%% @hidden
+rec_loop(Pid, TestMetaData) ->
     receive
         test_took_too_long ->
-            exit(Pid, kill),
+            erlang:exit(Pid, kill),
             {fail, test_timed_out};
         metadata ->
             Pid ! {metadata, TestMetaData},
-            rec_loop(Pid, TestModule, TestMetaData);
+            rec_loop(Pid, TestMetaData);
         {metadata, P} ->
             P ! {metadata, TestMetaData},
-            rec_loop(Pid, TestModule, TestMetaData);
-        {'EXIT', Pid, normal} -> {pass, undefined};
+            rec_loop(Pid, TestMetaData);
+        {'EXIT', Pid, normal} ->
+            {pass, undefined};
         {'EXIT', Pid, Error} ->
-            lager:warning("~s failed: ~p", [TestModule, Error]),
             {fail, Error}
     end.
 
+%% @hidden
 %% A return of `fail' must be converted to a non normal exit since
 %% status is determined by `rec_loop'.
 %%
 %% @see rec_loop/3
--spec return_to_exit(module(), atom(), list()) -> ok.
-return_to_exit(Mod, Fun, Args) ->
-    case apply(Mod, Fun, Args) of
+-spec return_to_exit(
+    Module :: module(), Function :: atom(), Args :: list()) -> no_return().
+return_to_exit(Module, Function, Args) ->
+    case erlang:apply(Module, Function, Args) of
         pass ->
-            %% same as exit(normal)
-            ok;
+            erlang:exit(normal);
         fail ->
-            exit(fail)
+            erlang:exit(fail)
     end.
 
+-spec check_prereqs(Module :: module()) -> boolean() | not_present.
+%% @hidden
 check_prereqs(Module) ->
     try Module:module_info(attributes) of
         Attrs ->
             Prereqs = proplists:get_all_values(prereq, Attrs),
             P2 = [ {Prereq, rt_local:which(Prereq)} || Prereq <- Prereqs],
-            lager:info("~s prereqs: ~p", [Module, P2]),
-            [ lager:warning("~s prereq '~s' not installed.", [Module, P]) || {P, false} <- P2],
+            ?LOG_INFO("~s prereqs: ~0p", [Module, P2]),
+            [?LOG_WARNING("~s prereq '~s' not installed.", [Module, P])
+                || {P, false} <- P2],
             lists:all(fun({_, Present}) -> Present end, P2)
     catch
         _DontCare:_Really ->

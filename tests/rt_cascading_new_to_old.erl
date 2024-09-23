@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%      +------+
 %%      | New1 |
@@ -39,7 +40,8 @@
 
 -define(bucket, <<"objects">>).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% test requires allow_mult=false b/c of rt:systest_read
@@ -47,9 +49,9 @@ confirm() ->
 
     case rt_config:config_or_os_env(run_rt_cascading_1_3_tests, false) of
         false ->
-            lager:info("new_to_old_test_ not configured to run.");
+            ?LOG_INFO("new_to_old_test_ not configured to run.");
         _ ->
-            lager:info("new_to_old_test_ configured to run for 1.3"),
+            ?LOG_INFO("new_to_old_test_ configured to run for 1.3"),
             State = new_to_old_setup(),
             _ = new_to_old_tests(State)
     end,
@@ -144,7 +146,7 @@ new_to_old_tests(Nodes) ->
 
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== new to old: ~s =====", [Name]),
+        ?LOG_INFO("===== new to old: ~s =====", [Name]),
         Eval()
                   end, Tests).
 

@@ -22,11 +22,13 @@
 %%% @doc
 %%% riak_test for crdt cabability
 %%% @end
-
 -module(verify_crdt_capability).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"test-counters">>).
 -define(KEY, <<"foo">>).
@@ -57,10 +59,10 @@ confirm() ->
     ?assertEqual(ok, riakc_pb_socket:counter_incr(PB, ?BUCKET, ?KEY, 1)),
     ?assertEqual({ok, 4}, riakc_pb_socket:counter_val(PB, ?BUCKET, ?KEY)),
 
-    lager:info("Passed mixed test, upgrade time!"),
+    ?LOG_INFO("Passed mixed test, upgrade time!"),
 
     rt:upgrade(Previous, current),
-    lager:info("Upgrayded!!"),
+    ?LOG_INFO("Upgrayded!!"),
     ?assertEqual(ok, rt:wait_until_ready(Current)),
     ?assertEqual(ok, rt:wait_until_ready(Previous)),
     rt:wait_for_service(Previous, riak_kv),

@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%     +---+
 %%     | 1 |
@@ -39,14 +40,14 @@
 %%     | 4 |
 %%     +---+
 %% -------------------------------------------------------------------
-
 -module(rt_cascading_big_circle).
 -behavior(riak_test).
 
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% test requires allow_mult=false b/c of rt:systest_read
@@ -90,7 +91,7 @@ big_circle_tests(Nodes) ->
             riakc_pb_socket:put(C, Obj, [{w,1}]),
             riakc_pb_socket:stop(C),
             [begin
-                 ?debugFmt("Checking ~p", [Node]),
+                 ?LOG_DEBUG("Checking ~0p", [Node]),
                  ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(Node, Bucket, Bin))
              end || Node <- Nodes]
                       end},
@@ -110,7 +111,7 @@ big_circle_tests(Nodes) ->
             Obj = riakc_obj:new(Bucket, Bin, Bin),
             riakc_pb_socket:put(C, Obj, [{w,1}]),
             lists:map(fun(N) ->
-                ?debugFmt("Testing ~p", [N]),
+                ?LOG_DEBUG("Testing ~0p", [N]),
                 ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(N, Bucket, Bin))
                       end, Nodes)
         % there will be duplicate writes, but due to size of the circle,
@@ -148,7 +149,7 @@ big_circle_tests(Nodes) ->
                            end}
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== big circle: ~s =====", [Name]),
+        ?LOG_INFO("===== big circle: ~s =====", [Name]),
         Eval()
                   end, Tests).
 

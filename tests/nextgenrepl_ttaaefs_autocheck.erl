@@ -1,12 +1,30 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to test the auto_check method
 %% in nextgenrepl ttaaefs
-
 -module(nextgenrepl_ttaaefs_autocheck).
 -behavior(riak_test).
+
 -export([confirm/0]).
--export([delete_from_cluster/3]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 8).
@@ -67,33 +85,33 @@ setup_clusters(Now) ->
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
     rt:join_cluster(ClusterC),
-    
+
     wait_for_convergence(ClusterA, ClusterB, ClusterC),
-    
-    lager:info("Ready for test."),
+
+    ?LOG_INFO("Ready for test."),
     [ClusterA, ClusterB, ClusterC].
 
 
 test_repl_between_clusters(ClusterA, ClusterB, ClusterC, Now) ->
-    
+
     NodeA = hd(ClusterA),
     NodeB = hd(ClusterB),
     NodeC = hd(ClusterC),
 
     AutoCheckFun = autosync_checkfun(Now),
-    
+
     ok = setup_replqueues(ClusterA ++ ClusterB ++ ClusterC),
 
     wait_for_convergence(ClusterA, ClusterB, ClusterC),
 
-    lager:info("Test empty clusters don't show any differences"),
+    ?LOG_INFO("Test empty clusters don't show any differences"),
     {http, {IPA, PortA}} = lists:keyfind(http, 1, rt:connection_info(NodeA)),
     {http, {IPB, PortB}} = lists:keyfind(http, 1, rt:connection_info(NodeB)),
     {http, {IPC, PortC}} = lists:keyfind(http, 1, rt:connection_info(NodeC)),
-    lager:info("Cluster A ~s ~w Cluster B ~s ~w Cluster C ~s ~w",
+    ?LOG_INFO("Cluster A ~s ~w Cluster B ~s ~w Cluster C ~s ~w",
                 [IPA, PortA, IPB, PortB, IPC, PortC]),
-    
-    lager:info("Auto check should root compare"),
+
+    ?LOG_INFO("Auto check should root compare"),
     {root_compare, 0}
         = AutoCheckFun({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
@@ -103,12 +121,12 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC, Now) ->
     {root_compare, 0}
         = AutoCheckFun({NodeC, IPC, PortC, ?C_NVAL},
                         {NodeA, IPA, PortA, ?A_NVAL}),
-    
+
     lists:foreach(fun(N) -> ?assertMatch(none, get_range(N)) end,
                     [NodeA, NodeB, NodeC]),
 
 
-    lager:info("Test 100 key difference and resolve"),
+    ?LOG_INFO("Test 100 key difference and resolve"),
     % Write keys to cluster A, verify B and C do not have them.
     write_to_cluster(NodeA, 1, 100),
     read_from_cluster(NodeB, 1, 100, 100),
@@ -122,7 +140,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC, Now) ->
     ?assertMatch(?TEST_BUCKET, element(1, get_range(NodeA))),
     ?assertMatch(all, element(2, get_range(NodeA))),
     ?assertMatch(none, get_range(NodeB)),
-    lager:info("Range check attempt, but nothing left to fix"),
+    ?LOG_INFO("Range check attempt, but nothing left to fix"),
     {root_compare, 0}
         = AutoCheckFun({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
@@ -131,7 +149,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC, Now) ->
         = AutoCheckFun({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL}),
     ?assertMatch(none, get_range(NodeA)),
-    
+
     {clock_compare, 100}
         = AutoCheckFun({NodeB, IPB, PortB, ?B_NVAL},
                             {NodeC, IPC, PortC, ?C_NVAL}),
@@ -147,7 +165,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC, Now) ->
     pass.
 
 wait_for_convergence(ClusterA, ClusterB, ClusterC) ->
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
@@ -181,7 +199,7 @@ autosync_checkfun(Now) ->
         SrcHTTPC = rhc:create(SrcIP, SrcPort, "riak", []),
         {ok, SnkC} = riak:client_connect(SinkNode),
         N = drain_queue(SrcHTTPC, SnkC),
-        lager:info("Drained queue and pushed ~w objects", [N]),
+        ?LOG_INFO("Drained queue and pushed ~w objects", [N]),
         AAEResult
     end.
 
@@ -207,22 +225,20 @@ write_to_cluster(Node, Start, End) ->
     write_to_cluster(Node, Start, End, ?TEST_BUCKET, true, CommonValBin).
 
 write_to_cluster(Node, Start, End, Bucket, NewObj, CVB) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start + 1, Node]),
+    ?LOG_WARNING("Note that only utf-8 keys are used"),
     {ok, C} = riak:client_connect(Node),
-    F = 
+    F =
         fun(N, Acc) ->
             Key = key(N),
-            Obj = 
+            Obj =
                 case NewObj of
                     true ->
-                        riak_object:new(Bucket,
-                                        Key,
-                                        <<N:32/integer, CVB/binary>>);
-                    false ->
-                        UPDV = <<N:32/integer, CVB/binary>>,
-                        {ok, PrevObj} = riak_client:get(Bucket, Key, C),
-                        riak_object:update_value(PrevObj, UPDV)
+                        riak_object:new(
+                            Bucket,
+                            Key,
+                            <<N:32/integer, CVB/binary>>
+                        )
                 end,
             try riak_client:put(Obj, C) of
                 ok ->
@@ -235,30 +251,7 @@ write_to_cluster(Node, Start, End, Bucket, NewObj, CVB) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
-    ?assertEqual([], Errors).
-
-delete_from_cluster(Node, Start, End) ->
-    delete_from_cluster(Node, Start, End, ?TEST_BUCKET).
-
-delete_from_cluster(Node, Start, End, Bucket) ->
-    lager:info("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
-    {ok, C} = riak:client_connect(Node),
-    F = 
-        fun(N, Acc) ->
-            Key = key(N),
-            try riak_client:delete(Bucket, Key, C) of
-                ok ->
-                    Acc;
-                Other ->
-                    [{N, Other} | Acc]
-            catch
-                What:Why ->
-                    [{N, {What, Why}} | Acc]
-            end
-        end,
-    Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while deleting: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~b errors while writing: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 
@@ -269,9 +262,9 @@ read_from_cluster(Node, Start, End, Errors) ->
     read_from_cluster(Node, Start, End, Errors, ?TEST_BUCKET, CommonValBin).
 
 read_from_cluster(Node, Start, End, Errors, Bucket, CommonValBin) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
+    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
-    F = 
+    F =
         fun(N, Acc) ->
             Key = key(N),
             case  riak_client:get(Bucket, Key, C) of
@@ -288,21 +281,14 @@ read_from_cluster(Node, Start, End, Errors, Bucket, CommonValBin) ->
             end
         end,
     ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    case Errors of
-        undefined ->
-            lager:info("Errors Found in read_from_cluster ~w",
-                        [length(ErrorsFound)]),
-            length(ErrorsFound);
-        _ ->
-            ?assertEqual(Errors, length(ErrorsFound))
-    end.
+    ?assertEqual(Errors, length(ErrorsFound)).
 
 key(N) ->
     list_to_binary(io_lib:format("~8..0B~n", [N])).
 
 get_stats(Node) ->
-    lager:info("Fetching stats from ~w", [Node]),
-    S = verify_riak_stats:get_stats(Node, ?STATS_WAIT),
+    ?LOG_INFO("Fetching stats from ~w", [Node]),
+    S = rt:get_stats(Node, ?STATS_WAIT),
     {_, ACT} = lists:keyfind(<<"ttaaefs_allcheck_total">>, 1, S),
     {_, DCT} = lists:keyfind(<<"ttaaefs_daycheck_total">>, 1, S),
     {_, HCT} = lists:keyfind(<<"ttaaefs_hourcheck_total">>, 1, S),
@@ -313,13 +299,13 @@ get_stats(Node) ->
     {_, SnkAT} = lists:keyfind(<<"ttaaefs_snk_ahead_total">>, 1, S),
     {_, STimeMax} = lists:keyfind(<<"ttaaefs_sync_time_100">>, 1, S),
     {_, NSTimeMax} = lists:keyfind(<<"ttaaefs_nosync_time_100">>, 1, S),
-    lager:info(
+    ?LOG_INFO(
         "Stats all_check=~w day_check=~w hour_check=~w range_check=~w",
         [ACT, DCT, HCT, RCT]),
-    lager:info(
+    ?LOG_INFO(
         "Stats sync=~w nosync=~w src_ahead=~w snk_ahead=~w",
         [SST, NST, SrcAT, SnkAT]),
-    lager:info(
+    ?LOG_INFO(
         "Stats max_sync_time=~w ms max_nosync_time=~w ms",
         [STimeMax div 1000, NSTimeMax div 1000]),
     {ACT, DCT, HCT, RCT, SST, NST, SrcAT, SnkAT}.

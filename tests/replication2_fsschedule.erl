@@ -1,40 +1,63 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(replication2_fsschedule).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% This tests fullsync scheduling in 1.4+ Advanced Replication%% intercept
-%% gets called w/ v3 test too, let it
+%% This tests fullsync scheduling in 1.4+ Advanced Replication
+%% intercept gets called w/ v3 test too, let it
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 setup_repl_clusters(Conf, InterceptSetup) ->
     NumNodes = 6,
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
 
     Nodes = rt:deploy_nodes(NumNodes, Conf, [riak_kv, riak_repl]),
     InterceptSetup(Nodes),
 
-    lager:info("Nodes = ~p", [Nodes]),
+    ?LOG_INFO("Nodes = ~0p", [Nodes]),
     {[AFirst|_] = ANodes, Rest} = lists:split(2, Nodes),
     {[BFirst|_] = BNodes, [CFirst|_] = CNodes} = lists:split(2, Rest),
 
     %%AllNodes = ANodes ++ BNodes ++ CNodes,
     rt:log_to_nodes(Nodes, "Starting replication2_fullsync test"),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
-    lager:info("CNodes: ~p", [CNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
+    ?LOG_INFO("CNodes: ~0p", [CNodes]),
 
     rt:log_to_nodes(Nodes, "Building and connecting Clusters"),
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
-    lager:info("Build cluster C"),
+    ?LOG_INFO("Build cluster C"),
     repl_util:make_cluster(CNodes),
 
     repl_util:name_cluster(AFirst, "A"),
@@ -91,7 +114,7 @@ test_multiple_schedules() ->
            ],
     {LeaderA, _ANodes, _BNodes, _CNodes, AllNodes} =
         setup_repl_clusters(Conf, fun install_v3_intercepts/1),
-    lager:info("Waiting for fullsyncs"),
+    ?LOG_INFO("Waiting for fullsyncs"),
     wait_until_fullsyncs(LeaderA, "B", 5),
     wait_until_fullsyncs(LeaderA, "C", 5),
     rt:clean_cluster(AllNodes),
@@ -110,7 +133,7 @@ test_single_schedule() ->
         setup_repl_clusters(Conf, fun install_v3_intercepts/1),
     rt:log_to_nodes(AllNodes, "Test shared fullsync schedule from A -> [B,C]"),
     %% let some msgs queue up, doesn't matter how long we wait
-    lager:info("Waiting for fullsyncs"),
+    ?LOG_INFO("Waiting for fullsyncs"),
     wait_until_fullsyncs(LeaderA, "B", 10),
     wait_until_fullsyncs(LeaderA, "C", 10),
     rt:clean_cluster(AllNodes),
@@ -134,16 +157,16 @@ test_mixed_12_13() ->
     repl_util:wait_until_leader_converge(BNodes),
     repl_util:wait_until_leader_converge(CNodes),
 
-    lager:info("Adding repl listener to cluster A"),
+    ?LOG_INFO("Adding repl listener to cluster A"),
     ListenerArgs = [[atom_to_list(LeaderA), "127.0.0.1", "9010"]],
     Res = rpc:call(LeaderA, riak_repl_console, add_listener, ListenerArgs),
     ?assertEqual(ok, Res),
 
-    lager:info("Adding repl site to cluster B"),
+    ?LOG_INFO("Adding repl site to cluster B"),
     SiteArgs = ["127.0.0.1", "9010", "rtmixed"],
     Res = rpc:call(BFirst, riak_repl_console, add_site, [SiteArgs]),
 
-    lager:info("Waiting for v2 repl to catch up. Good time to light up a cold can of Tab."),
+    ?LOG_INFO("Waiting for v2 repl to catch up. Good time to light up a cold can of Tab."),
     wait_until_fullsyncs(LeaderA, "B", 3),
     wait_until_fullsyncs(LeaderA, "C", 3),
     wait_until_12_fs_complete(LeaderA, 9),
@@ -164,8 +187,6 @@ wait_until_fullsyncs(Node, ClusterName, N) ->
                 FS = get_cluster_fullsyncs(Node, ClusterName),
                 case FS of
                     {badrpc, _} ->
-                        false;
-                    undefined ->
                         false;
                     X when X >= N ->
                         true;

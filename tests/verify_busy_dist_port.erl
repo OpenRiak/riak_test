@@ -1,6 +1,22 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% ------------------------------------------------------------------
 %%
 %% Test for regression in riak_sysmon where busy_port/busy_dist_port were not set to
 %% true in app.config by default. Originally reported in az1018 (AgileZen 1018).
@@ -26,85 +42,81 @@
 %%
 %% -- END ORIGINAL TICKET --
 %%
-%% This file is provided to you under the Apache License,
-%% Version 2.0 (the "License"); you may not use this file
-%% except in compliance with the License.  You may obtain
-%% a copy of the License at
+%% !!! IMPORTANT !!!
 %%
-%%   http://www.apache.org/licenses/LICENSE-2.0
+%%  This test will only work against local devrels!
+%%  It *may* be destructive if run against remote instances, as it sends an
+%%  OS signal to a local OS Pid that was obtained from a remote system.
 %%
-%% Unless required by applicable law or agreed to in writing,
-%% software distributed under the License is distributed on an
-%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
-%% specific language governing permissions and limitations
-%% under the License.
-%%
-%% -------------------------------------------------------------------
 -module(verify_busy_dist_port).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     [Node1, Node2] = rt:build_cluster(2),
-    lager:info("deployed 2 nodes"),
+    ?LOG_INFO("deployed 2 nodes"),
 
-    rt:load_modules_on_nodes([cause_bdp, verify_bdp_event_handler,
-                             riak_test_lager_backend], [Node1]),
+    rt:load_modules_on_nodes([cause_bdp, verify_bdp_event_handler], [Node1]),
     Res = rpc:call(Node1, verify_bdp_event_handler, add_handler, [self()]),
     ok = rt_logger:plugin_logger(Node1),
-    lager:info("RES: ~p", [Res]),
+    ?LOG_INFO("RES: ~0p", [Res]),
 
     OsPid = rpc:call(Node2, os, getpid, []),
-    lager:info("pausing node 2 (~p) pid ~s", [Node2, OsPid]),
+    ?LOG_INFO("pausing node 2 (~0p) pid ~s", [Node2, OsPid]),
     %% must use cast here, call will never return
     rpc:cast(Node2, os, cmd, [lists:flatten(io_lib:format("kill -STOP ~s", [OsPid]))]),
 
-    lager:info("flooding node 2 (paused) with messages from node 1"),
+    ?LOG_INFO("flooding node 2 (paused) with messages from node 1"),
     rpc:call(Node1, cause_bdp, spam_nodes, [[Node2]]),
 
 
     receive
         go ->
-            lager:info("busy_dist_port event fired on node 1 (~p), checking logs", [Node1])
+            ?LOG_INFO(
+                "busy_dist_port event fired on node 1 (~0p), checking logs",
+                [Node1])
     after
         rt_config:get(rt_max_wait_time) ->
-            lager:error("no busy_dist_port event fired on node 1. test is borked",
-                        [])
+            ?LOG_ERROR(
+                "no busy_dist_port event fired on node 1 (~0p), test is borked",
+                [Node1])
     end,
 
-    lager:info("Verifying busy_dist_port message ended up in the log"),
-    CheckLogFun = fun() ->
-            Logs = rt_logger:get_logs(Node1),
+    ?LOG_INFO("Verifying busy_dist_port message ended up in the log"),
+    CheckLogFun = fun(Node) ->
+            Logs = rt_logger:get_logs(Node),
             try case re:run(Logs, "monitor busy_dist_port .*#Port", []) of
                     {match, _} -> true;
                     nomatch    -> false
                 end
             catch
                 Err:Reason ->
-                    lager:error("busy_dist_port re:run failed w/ ~p: ~p", [Err, Reason]),
+                    ?LOG_ERROR("busy_dist_port re:run failed w/ ~0p: ~0p", [Err, Reason]),
                     false
             end
     end,
 
-    Success = case rt:wait_until(CheckLogFun, 12, 5000) of
+    Success = case rt:wait_until(Node1, CheckLogFun) of
         ok ->
-            lager:info("found busy_dist_port message in log", []),
+            ?LOG_INFO("found busy_dist_port message in log"),
             true;
         _ ->
-            lager:error("busy_dist_port message not found in log", []),
+            ?LOG_ERROR("busy_dist_port message not found in log"),
             false
     end,
 
     rt_logger:unplug_logger(Node1),
 
-    lager:info("continuing node 2 (~p) pid ~s", [Node2, OsPid]),
+    ?LOG_INFO("continuing node 2 (~0p) pid ~s", [Node2, OsPid]),
     %% NOTE: this call must be executed on the OS running Node2 in order to unpause it
     %%       and not break future test runs. The command cannot be executed via
     %%       rpc:cast(Node2, os, cmd, ...) because Node2 is paused and will never process the
     %%       message!
-    rt:cmd(lists:flatten(io_lib:format("kill -CONT ~p", [OsPid]))),
+    _ = rt:cmd("kill", ["-CONT", OsPid]),
 
     ?assert(Success),
     pass.

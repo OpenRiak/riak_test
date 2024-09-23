@@ -18,7 +18,12 @@
 %%
 %% -------------------------------------------------------------------
 -module(replication2_console_tests).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% This test checks to see if the riak repl *shell script*
 %% communicates it's command line args to riak_repl_console
@@ -43,11 +48,9 @@
 %%   c) if interrupt isn't called, "pass" won't be printed
 %%      to stdout, test will fail via assert in check_cmd/2
 
--export([confirm/0]).
-
 confirm() ->
     %% Deploy a node to test against
-    lager:info("Deploy node to test riak repl command line"),
+    ?LOG_INFO("Deploy node to test riak repl command line"),
     [Node] = rt:deploy_nodes(1, [], [riak_kv, riak_repl]),
     ?assertEqual(ok, rt:wait_until_nodes_ready([Node])),
     rt_intercept:add(Node,
@@ -117,7 +120,7 @@ confirm() ->
     pass.
 
 check_cmd(Node, Cmd) ->
-    lager:info("Testing riak repl ~s on ~s", [Cmd, Node]),
-    {ok, Out} = rt:riak_repl(Node, [Cmd]),
+    ?LOG_INFO("Testing riak repl ~s on ~s", [Cmd, Node]),
+    S = string:tokens(Cmd, " "),
+    {ok, Out} = rt:riak_repl(Node, S),
     ?assertEqual("passok\n", Out).
-

@@ -18,9 +18,6 @@
 %%
 %% -------------------------------------------------------------------
 -module(cluster_meta_proxy_server).
-
--compile([export_all, nowarn_export_all]).
-
 -behaviour(gen_server).
 
 %% API
@@ -36,7 +33,7 @@
 -define(SERVER, ?MODULE).
 
 start_link() ->
-  gen_server:start_link({global, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({global, ?SERVER}, ?MODULE, [], []).
 
 history() ->
     gen_server:call({global, ?SERVER}, history, infinity).
@@ -45,7 +42,7 @@ is_empty(ThresholdSecs) ->
     gen_server:call({global, ?SERVER}, {is_empty, ThresholdSecs}, infinity).
 
 init([]) ->
-  {ok, #state{history = []}}.
+  {ok, #state{history = [], last_msg_ts = 1}}.
 
 handle_call({is_empty, ThresholdSecs}, _From, State=#state{last_msg_ts=LastMsgTs}) ->
     Now = moment(),

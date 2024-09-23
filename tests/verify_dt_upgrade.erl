@@ -22,8 +22,11 @@
 %%%      Currently, this is a mainly placeholder for future 2.0+ tests
 -module(verify_dt_upgrade).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(COUNTER_BUCKET, <<"cbucket">>).
 
@@ -48,7 +51,7 @@ confirm() ->
 
 %% @doc populate a counter via http and pbc
 populate_counters(Node) ->
-    lager:info("Writing counters to ~p", [Node]),
+    ?LOG_INFO("Writing counters to ~0p", [Node]),
     rt:wait_for_service(Node, riak_kv),
     ?assertEqual(ok, rt:wait_until(Node, fun has_counter_capability/1)),
 
@@ -64,7 +67,7 @@ populate_counters(Node) ->
 %% @doc check that the counter values exist after upgrade, and
 %%      check that you can get via default bucket
 verify_counters(Node) ->
-    lager:info("Verifying counters on ~p", [Node]),
+    ?LOG_INFO("Verifying counters on ~0p", [Node]),
     RHC = rt:httpc(Node),
     ?assertMatch({ok, 4}, rhc:counter_val(RHC, ?COUNTER_BUCKET, <<"pbkey">>)),
 
@@ -81,7 +84,7 @@ verify_counters(Node) ->
     ok.
 
 upgrade(Node, NewVsn) ->
-    lager:info("Upgrading ~p to ~p", [Node, NewVsn]),
+    ?LOG_INFO("Upgrading ~0p to ~0p", [Node, NewVsn]),
     rt:upgrade(Node, NewVsn),
     rt:wait_for_service(Node, riak_kv),
     ok.

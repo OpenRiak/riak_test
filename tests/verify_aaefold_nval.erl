@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -21,10 +19,13 @@
 %%
 %% Confirm that trees are returned that vary along with the data in the
 %% store
-
 -module(verify_aaefold_nval).
--export([confirm/0, verify_aae_fold/1]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -90,25 +91,25 @@ confirm() ->
     rt:clean_cluster([Node]),
 
     Nodes2 = rt:build_cluster(?NUM_NODES, ?CFG_REBUILD(?N_VAL)),
-    lager:info("Sleeping for twice rebuild tick - testing with rebuilds ongoing"),
+    ?LOG_INFO("Sleeping for twice rebuild tick - testing with rebuilds ongoing"),
     timer:sleep(2 * ?REBUILD_TICK),
     ok = verify_aae_fold(Nodes2),
     pass.
 
 
 verify_aae_fold(Nodes) ->
-    
+
     {ok, CH} = riak:client_connect(hd(Nodes)),
     {ok, CT} = riak:client_connect(lists:last(Nodes)),
 
-    lager:info("Fold for empty root"),
+    ?LOG_INFO("Fold for empty root"),
     {ok, RH0} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CH),
     {ok, RT0} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CT),
     NoDirtyBranches = aae_exchange:compare_roots(RH0, RT0),
-    lager:info("NoDirtyBranches ~w", [NoDirtyBranches]),
+    ?LOG_INFO("NoDirtyBranches ~w", [NoDirtyBranches]),
 
-    lager:info("Commencing object load"),
-    KeyLoadFun = 
+    ?LOG_INFO("Commencing object load"),
+    KeyLoadFun =
         fun(Node, KeyCount) ->
             KVs = test_data(KeyCount + 1,
                                 KeyCount + ?NUM_KEYS_NVAL3_PERNODE,
@@ -118,19 +119,19 @@ verify_aae_fold(Nodes) ->
         end,
 
     lists:foldl(KeyLoadFun, 1, Nodes),
-    lager:info("Loaded ~w objects", [?NUM_KEYS_NVAL3_PERNODE * length(Nodes)]),
+    ?LOG_INFO("Loaded ~w objects", [?NUM_KEYS_NVAL3_PERNODE * length(Nodes)]),
     wait_until_root_stable(CH),
     wait_until_root_stable(CT),
 
-    lager:info("Fold for busy root"),
+    ?LOG_INFO("Fold for busy root"),
     {ok, RH1} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CH),
     {ok, RT1} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CT),
-    
+
     ?assertMatch(true, RH1 == RT1),
     ?assertMatch(true, RH0 == RT0),
     ?assertMatch(false, RH0 == RH1),
-    
-    lager:info("Make ~w changes", [?DELTA_COUNT]),
+
+    ?LOG_INFO("Make ~w changes", [?DELTA_COUNT]),
     Changes2 = test_data(1, ?DELTA_COUNT, list_to_binary("U2")),
     ok = write_data(hd(Nodes), Changes2),
     wait_until_root_stable(CH),
@@ -138,14 +139,14 @@ verify_aae_fold(Nodes) ->
     {ok, RH2} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CH),
     DirtyBranches2 = aae_exchange:compare_roots(RH1, RH2),
 
-    lager:info("Found ~w branch deltas", [length(DirtyBranches2)]),
+    ?LOG_INFO("Found ~w branch deltas", [length(DirtyBranches2)]),
     ?assertMatch(true, length(DirtyBranches2) > 0),
     ?assertMatch(true, length(DirtyBranches2) =< ?DELTA_COUNT),
 
     {ok, BH2} =
         riak_client:aae_fold({merge_branch_nval, ?N_VAL, DirtyBranches2}, CH),
 
-    lager:info("Make ~w changes to same keys", [?DELTA_COUNT]),
+    ?LOG_INFO("Make ~w changes to same keys", [?DELTA_COUNT]),
     Changes3 = test_data(1, ?DELTA_COUNT, list_to_binary("U3")),
     ok = write_data(hd(Nodes), Changes3),
     wait_until_root_stable(CH),
@@ -153,79 +154,79 @@ verify_aae_fold(Nodes) ->
     {ok, RH3} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CH),
     DirtyBranches3 = aae_exchange:compare_roots(RH2, RH3),
 
-    lager:info("Found ~w branch deltas", [length(DirtyBranches3)]),
+    ?LOG_INFO("Found ~w branch deltas", [length(DirtyBranches3)]),
     ?assertMatch(true, DirtyBranches2 == DirtyBranches3),
 
     {ok, BH3} =
         riak_client:aae_fold({merge_branch_nval, ?N_VAL, DirtyBranches3}, CH),
-    
+
     DirtySegments1 = aae_exchange:compare_branches(BH2, BH3),
-    lager:info("Found ~w mismatched segments", [length(DirtySegments1)]),
+    ?LOG_INFO("Found ~w mismatched segments", [length(DirtySegments1)]),
     ?assertMatch(true, length(DirtySegments1) > 0),
     ?assertMatch(true, length(DirtySegments1) =< ?DELTA_COUNT),
 
     {ok, KCL1} =
         riak_client:aae_fold({fetch_clocks_nval, ?N_VAL, DirtySegments1}, CH),
 
-    lager:info("Found ~w mismatched keys", [length(KCL1)]),
+    ?LOG_INFO("Found ~w mismatched keys", [length(KCL1)]),
 
     ?assertMatch(true, length(KCL1) >= ?DELTA_COUNT),
     MappedKCL1 = lists:map(fun({B, K, VC}) -> {{B, K}, VC} end, KCL1),
 
-    lager:info("Checking all mismatched keys in result"),
-    MatchFun = 
+    ?LOG_INFO("Checking all mismatched keys in result"),
+    MatchFun =
         fun(I) ->
             K = to_key(I),
             InFetchClocks = lists:keyfind({?BUCKET, K}, 1, MappedKCL1),
             ?assertMatch(true, {?BUCKET, K} == element(1, InFetchClocks))
         end,
     lists:foreach(MatchFun, lists:seq(1, ?DELTA_COUNT)),
-    
-    lager:info("Create bucket type with nval of 2"),
+
+    ?LOG_INFO("Create bucket type with nval of 2"),
     rt:create_and_activate_bucket_type(hd(Nodes), ?NVAL_TYPE, [{n_val, 2}]),
     rt:wait_until_bucket_type_status(?NVAL_TYPE, active, Nodes),
     rt:wait_until_bucket_props(Nodes, {?NVAL_TYPE, ?NVAL_BUCKET}, [{n_val, 2}]),
 
-    lager:info("Stop and start nodes to notice new preflists"),
+    ?LOG_INFO("Stop and start nodes to notice new preflists"),
     lists:foreach(fun(N) -> rt:stop_and_wait(N) end, Nodes),
     lists:foreach(fun(N) -> rt:start_and_wait(N) end, Nodes),
     rt:wait_until_all_members(Nodes),
     rt:wait_for_cluster_service(Nodes, riak_kv),
 
-    lager:info("Check fetch_clocks for n_val 3"),
+    ?LOG_INFO("Check fetch_clocks for n_val 3"),
     {ok, KCL2} =
         riak_client:aae_fold({fetch_clocks_nval, ?N_VAL, DirtySegments1}, CH),
-    lager:info("Check fetch root for n_val 2 is empty root"),
+    ?LOG_INFO("Check fetch root for n_val 2 is empty root"),
     {ok, RH0N2} = riak_client:aae_fold({merge_root_nval, 2}, CH),
     ?assertMatch(KCL1, KCL2),
     ?assertMatch(RH0, RH0N2),
     {ok, RB0N2} =
         riak_client:aae_fold({merge_branch_nval, 2, lists:seq(1, 128)}, CH),
-    
-    lager:info("Write values to nval=2 bucket"),
+
+    ?LOG_INFO("Write values to nval=2 bucket"),
     KVs =
         test_data(1,
                     ?NUM_NODES * ?NUM_KEYS_NVAL2_PERNODE,
                     list_to_binary("NV2")),
     ok = write_data({?NVAL_TYPE, ?NVAL_BUCKET}, hd(Nodes), KVs, []),
-    lager:info("Check fetch root for n_val 2 is not empty"),
+    ?LOG_INFO("Check fetch root for n_val 2 is not empty"),
     {ok, RH1N2} = riak_client:aae_fold({merge_root_nval, 2}, CH),
     ?assertMatch(false, RH0N2 == RH1N2),
 
-    lager:info("Check fetch_clocks for n_val=3 unchanged"),
+    ?LOG_INFO("Check fetch_clocks for n_val=3 unchanged"),
     {ok, KCL3} =
         riak_client:aae_fold({fetch_clocks_nval, ?N_VAL, DirtySegments1}, CH),
     ?assertMatch(KCL2, KCL3),
-    lager:info("Check root for n_val=3 unchanged"),
+    ?LOG_INFO("Check root for n_val=3 unchanged"),
     {ok, RH4} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, CH),
     ?assertMatch(RH3, RH4),
 
-    lager:info("Fetch clocks for nval=2 bucket"),
+    ?LOG_INFO("Fetch clocks for nval=2 bucket"),
     {ok, RB1N2} =
         riak_client:aae_fold({merge_branch_nval, 2, lists:seq(1, 64)}, CH),
     DirtySegmentsN2 = aae_exchange:compare_branches(RB1N2, RB0N2),
-    lager:info("Dirty segments ~w", [length(DirtySegmentsN2)]),
-    lager:info("Confirm only nval=2 keys returned from fetch_clocks nval2"),
+    ?LOG_INFO("Dirty segments ~w", [length(DirtySegmentsN2)]),
+    ?LOG_INFO("Confirm only nval=2 keys returned from fetch_clocks nval2"),
     {ok, KCL0N2} =
         riak_client:aae_fold({fetch_clocks_nval,
                                     2,
@@ -235,7 +236,7 @@ verify_aae_fold(Nodes) ->
                         ?assertMatch({?NVAL_TYPE, ?NVAL_BUCKET}, B)
                     end,
                     KCL0N2),
-    lager:info("Fetched ~w keys from 32 dirty segments", [length(KCL0N2)]),
+    ?LOG_INFO("Fetched ~w keys from 32 dirty segments", [length(KCL0N2)]),
     ?assertMatch(true, length(KCL0N2) >= 32),
     {ok, KCL1N2} =
         riak_client:aae_fold(
@@ -245,7 +246,7 @@ verify_aae_fold(Nodes) ->
 
 
 
-    lager:info("No nval=2 keys from fetch_clocks when searching for nval=3"),
+    ?LOG_INFO("No nval=2 keys from fetch_clocks when searching for nval=3"),
     {ok, KCL0N3} =
         riak_client:aae_fold(
             {fetch_clocks_nval, 3, lists:sublist(DirtySegmentsN2, 10)},
@@ -253,7 +254,7 @@ verify_aae_fold(Nodes) ->
     lists:foreach(
         fun({B, _K, _C}) -> ?assertMatch(?BUCKET, B) end, KCL0N3),
 
-    lager:info("Stopping a node - query results should be unchanged"),
+    ?LOG_INFO("Stopping a node - query results should be unchanged"),
     rt:stop_and_wait(hd(tl(Nodes))),
     {ok, BH4} =
         riak_client:aae_fold({merge_branch_nval, ?N_VAL, DirtyBranches3}, CH),
@@ -270,7 +271,7 @@ verify_aae_fold(Nodes) ->
         riak_client:aae_fold({fetch_clocks_nval, ?N_VAL, DirtySegments1}, CH),
     
     rt_redbug:set_tracing_applied(true),
-    logger:info("Setup redbug tracing for force rebuild test"),
+    ?LOG_INFO("Setup redbug tracing for force rebuild test"),
     {ok, CWD} = file:get_cwd(),
     FnameBase = "rebug_aaefold",
     FileBase = filename:join([CWD, FnameBase]),
@@ -283,7 +284,7 @@ verify_aae_fold(Nodes) ->
 
     redbug_start(TraceFun, ApproxTrcFile, hd(Nodes)),
 
-    logger:info("Testing that each vnode repaired no more than once"),
+    ?LOG_INFO("Testing that each vnode repaired no more than once"),
 
     {ok, KCL2} =
         riak_client:aae_fold({fetch_clocks_nval, ?N_VAL, DirtySegments1}, CH),
@@ -306,12 +307,12 @@ verify_aae_fold(Nodes) ->
     .
 
 verify_aae_rebuildfold(Node) ->
-    logger:info("Loading nval 1 node with 10000 keys"),
+    ?LOG_INFO("Loading nval 1 node with 10000 keys"),
     KVs = test_data(1, 10000, list_to_binary("U1")),
     ok = write_data(Node, KVs),
 
     rt_redbug:set_tracing_applied(true),
-    logger:info("Setup redbug tracing for force rebuild test"),
+    ?LOG_INFO("Setup redbug tracing for force rebuild test"),
     {ok, CWD} = file:get_cwd(),
     FnameBase = "rebug_aaefold",
     FileBase = filename:join([CWD, FnameBase]),
@@ -343,7 +344,7 @@ verify_aae_rebuildfold(Node) ->
     
     VnodeCount = get_vnode_count(Node),
     redbug_start(TraceFun, RebuildTrcFile, Node),
-    logger:info("Testing each vnode repaired exactly once"),
+    ?LOG_INFO("Testing each vnode repaired exactly once"),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
@@ -362,7 +363,7 @@ verify_aae_rebuildfold(Node) ->
     enable_tree_rebuilds(Node),
 
     redbug_start(TraceFun, RerunTrcFile, Node),
-    logger:info("Testing each vnode repaired exactly once - again"),
+    ?LOG_INFO("Testing each vnode repaired exactly once - again"),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
     {ok, KCLN} = riak_client:aae_fold({fetch_clocks_nval, 1, TestSegs}, CH),
@@ -384,7 +385,7 @@ fold_until_segments_hit_key(CH, N) ->
         riak_client:aae_fold({fetch_clocks_nval, 1, lists:seq(1, N)}, CH),
     case length(KCL) of
         L when L > 0 ->
-            logger:info("Testing ~w segments hit ~w keys", [N, L]),
+            ?LOG_INFO("Testing ~w segments hit ~w keys", [N, L]),
             N;
         _ ->
             fold_until_segments_hit_key(CH, N + 100)
@@ -395,7 +396,7 @@ get_vnode_count(Node) ->
     length(rpc:call(Node, riak_core_ring, my_indices, [R])).
 
 trace_count(TraceFun, File) ->
-    logger:info("checking ~p", [File]),
+    ?LOG_INFO("checking ~p", [File]),
     case file:read_file(File) of
         {ok, FileData} ->
             count_matches(re:run(FileData, TraceFun, [global]));
@@ -411,16 +412,16 @@ count_matches({match, Matches}) ->
 
 redbug_start(TraceFun, TrcFile, Node) ->
     timer:sleep(1000), % redbug doesn't always appear to immediately stop
-    logger:info("TracingFun ~s on ~w", [TraceFun, Node]),
-    Start = redbug:start(TraceFun,
-                        rt_redbug:default_trace_options() ++
-                            [{target, Node},
-                            {arity, true},
-                            {print_file, TrcFile}]),
-    logger:info("Redbug start message ~w", [Start]).
+    ?LOG_INFO("TracingFun ~s on ~w", [TraceFun, Node]),
+    TraceOpts =
+        maps:merge(
+            maps:from_list(
+                [{target, Node}, {arity, true}, {print_file, TrcFile}]),
+                rt_redbug:default_trace_options()
+            ),
+    Start = redbug:start(TraceFun, TraceOpts),
+    ?LOG_INFO("Redbug start message ~w", [Start]).
     
-
-
 to_key(N) ->
     list_to_binary(io_lib:format("K~4..0B", [N])).
 
@@ -453,12 +454,12 @@ wait_until_root_stable(Client) ->
     {ok, RH1} = riak_client:aae_fold({merge_root_nval, ?N_VAL}, Client),
     case aae_exchange:compare_roots(RH0, RH1) of
         [] ->
-            lager:info("Root appears stable matched");
+            ?LOG_INFO("Root appears stable matched");
         [L] ->
             Pre = L * 4,
             <<_B0:Pre/binary, V0:32/integer, _Post0/binary>> = RH0,
             <<_B1:Pre/binary, V1:32/integer, _Post1/binary>> = RH1,
-            lager:info("Root not stable: branch ~w compares ~w with ~w",
+            ?LOG_INFO("Root not stable: branch ~w compares ~w with ~w",
                         [L, V0, V1]),
             wait_until_root_stable(Client)
     end.

@@ -1,9 +1,29 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2015 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(bucket_types).
-
 -behavior(riak_test).
+
 -export([confirm/0, mapred_modfun/3, mapred_modfun_type/3]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(SUMVALUE_MAPRED,
             [{map,
@@ -26,7 +46,7 @@
 
 confirm() ->
     application:start(inets),
-    lager:info("Deploy some nodes"),
+    ?LOG_INFO("Deploy some nodes"),
     Nodes = rt:build_cluster(4, [], [
                                      {riak_core, [{default_bucket_props,
                                                    [
@@ -45,7 +65,7 @@ confirm() ->
 
     PB = rt:pbc(Node),
 
-    lager:info("default type get/put test"),
+    ?LOG_INFO("default type get/put test"),
     %% write explicitly to the default type
     riakc_pb_socket:put(PB, riakc_obj:new({<<"default">>, <<"bucket">>},
                                              <<"key">>, <<"value">>)),
@@ -71,17 +91,17 @@ confirm() ->
 
     ?assertEqual(<<"newvalue">>, riakc_obj:get_value(O3)),
 
-    lager:info("list_keys test"),
+    ?LOG_INFO("list_keys test"),
     %% list keys
     ?assertEqual({ok, [<<"key">>]}, riakc_pb_socket:list_keys(PB, <<"bucket">>)),
     ?assertEqual({ok, [<<"key">>]}, riakc_pb_socket:list_keys(PB, {<<"default">>,
                                                       <<"bucket">>})),
-    lager:info("list_buckets test"),
+    ?LOG_INFO("list_buckets test"),
     %% list buckets
     ?assertEqual({ok, [<<"bucket">>]}, riakc_pb_socket:list_buckets(PB)),
     ?assertEqual({ok, [<<"bucket">>]}, riakc_pb_socket:list_buckets(PB, <<"default">>)),
 
-    lager:info("default type delete test"),
+    ?LOG_INFO("default type delete test"),
     %% delete explicitly via the default bucket
     ok = riakc_pb_socket:delete(PB, {<<"default">>, <<"bucket">>}, <<"key">>),
 
@@ -121,68 +141,68 @@ confirm() ->
     ?assertEqual({ok, []}, riakc_pb_socket:list_buckets(PB, <<"default">>)),
 
 
-    lager:info("custom type get/put test"),
+    ?LOG_INFO("custom type get/put test"),
     Type = <<"mytype">>,
     TypeProps = [{n_val, 3}],
-    lager:info("Create bucket type ~p, wait for propagation", [Type]),
+    ?LOG_INFO("Create bucket type ~0p, wait for propagation", [Type]),
     rt:create_and_activate_bucket_type(Node, Type, TypeProps),
     rt:wait_until_bucket_type_status(Type, active, Nodes),
     rt:wait_until_bucket_props(Nodes, {Type, <<"bucket">>}, TypeProps),
 
-    lager:info("doing put"),
+    ?LOG_INFO("doing put"),
     riakc_pb_socket:put(PB, riakc_obj:new({Type, <<"bucket">>},
                                              <<"key">>, <<"newestvalue">>)),
 
-    lager:info("custom type list_keys test"),
+    ?LOG_INFO("custom type list_keys test"),
     ?assertEqual({ok, []}, riakc_pb_socket:list_keys(PB, <<"bucket">>)),
     ?assertEqual({ok, [<<"key">>]}, riakc_pb_socket:list_keys(PB, {Type,
                                                       <<"bucket">>})),
-    lager:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, O5} = riakc_pb_socket:get(PB, {Type, <<"bucket">>}, <<"key">>),
 
     ?assertEqual(<<"newestvalue">>, riakc_obj:get_value(O5)),
 
-    lager:info("doing get"),
+    ?LOG_INFO("doing get"),
     %% this type is NOT aliased to the default buckey
     {error, notfound} = riakc_pb_socket:get(PB, <<"bucket">>, <<"key">>),
 
-    lager:info("custom type list_buckets test"),
+    ?LOG_INFO("custom type list_buckets test"),
     %% list buckets
     ?assertEqual({ok, []}, riakc_pb_socket:list_buckets(PB)),
     ?assertEqual({ok, [<<"bucket">>]}, riakc_pb_socket:list_buckets(PB, Type)),
 
     %%% Beginning of UTF-8 test
 
-    lager:info("UTF-8 type get/put test"),
+    ?LOG_INFO("UTF-8 type get/put test"),
     %% こんにちは - konnichiwa (Japanese)
     UnicodeType = unicode:characters_to_binary([12371,12435,12395,12385,12399], utf8),
     %% سلام - Salam (Arabic)
     UnicodeBucket = unicode:characters_to_binary([1587,1604,1575,1605], utf8),
-    lager:info("Create bucket type, wait for propagation"),
+    ?LOG_INFO("Create bucket type, wait for propagation"),
     rt:create_and_activate_bucket_type(Node, UnicodeType, TypeProps),
     rt:wait_until_bucket_type_status(UnicodeType, active, Nodes),
     rt:wait_until_bucket_props(Nodes, {UnicodeType, UnicodeBucket}, TypeProps),
 
-    lager:info("doing put"),
+    ?LOG_INFO("doing put"),
     riakc_pb_socket:put(PB, riakc_obj:new({UnicodeType, UnicodeBucket},
                                              <<"key">>, <<"yetanothervalue">>)),
 
-    lager:info("custom type list_keys test"),
+    ?LOG_INFO("custom type list_keys test"),
     ?assertEqual({ok, [<<"key">>]}, riakc_pb_socket:list_keys(PB,
                                                               {UnicodeType,
                                                                UnicodeBucket})),
-    lager:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, O6} = riakc_pb_socket:get(PB, {UnicodeType, UnicodeBucket}, <<"key">>),
 
     ?assertEqual(<<"yetanothervalue">>, riakc_obj:get_value(O6)),
 
-    lager:info("custom type list_buckets test"),
+    ?LOG_INFO("custom type list_buckets test"),
     %% list buckets
     ?assertEqual({ok, [UnicodeBucket]}, riakc_pb_socket:list_buckets(PB, UnicodeType)),
 
     %%% End of UTF-8 test
 
-    lager:info("bucket properties tests"),
+    ?LOG_INFO("bucket properties tests"),
     riakc_pb_socket:set_bucket(PB, {<<"default">>, <<"mybucket">>},
                                [{n_val, 5}]),
     {ok, BProps} = riakc_pb_socket:get_bucket(PB, <<"mybucket">>),
@@ -225,17 +245,17 @@ confirm() ->
 
     {error, NTGR} = riakc_pb_socket:get_bucket(PB, {<<"nonexistent">>, <<"mybucket">>}),
 
-    lager:info("GOT ERROR ~s", [NTGR]),
+    ?LOG_INFO("GOT ERROR ~s", [NTGR]),
 
     ?assertMatch(<<"No bucket-type named 'nonexistent'", _/binary>>, NTGR),
 
     {error, NTSR} = riakc_pb_socket:set_bucket(PB, {<<"nonexistent">>, <<"mybucket">>}, [{n_val, 3}]),
 
-    lager:info("GOT ERROR ~s", [NTSR]),
+    ?LOG_INFO("GOT ERROR ~s", [NTSR]),
 
     ?assertMatch(<<"No bucket-type named 'nonexistent'", _/binary>>, NTSR),
 
-    lager:info("bucket type properties test"),
+    ?LOG_INFO("bucket type properties test"),
 
     riakc_pb_socket:set_bucket_type(PB, Type,
                                [{n_val, 5}]),
@@ -328,29 +348,23 @@ confirm() ->
             riakc_pb_socket:put(PB, Obj1),
             riakc_pb_socket:put(PB, Obj2),
 
-            ?assertMatch({ok, {index_results_v1, [<<"JRD">>], _, _}}, riakc_pb_socket:get_index(PB, <<"test">>,
-                                                                                                {binary_index,
-                                                                                                 "name"},
-                                                                                                <<"John">>)),
+            ?assertMatch({ok, {index_results_v1, [<<"JRD">>], _, _}},
+                riakc_pb_socket:get_index_eq(PB,
+                    <<"test">>, {binary_index, "name"}, <<"John">>)),
 
-            ?assertMatch({ok, {index_results_v1, [], _, _}}, riakc_pb_socket:get_index(PB, <<"test">>,
-                                                                                       {binary_index,
-                                                                                        "name"},
-                                                                                       <<"Jane">>)),
+            ?assertMatch({ok, {index_results_v1, [], _, _}},
+                riakc_pb_socket:get_index_eq(PB,
+                    <<"test">>, {binary_index, "name"}, <<"Jane">>)),
 
-            ?assertMatch({ok, {index_results_v1, [<<"JRD">>], _, _}}, riakc_pb_socket:get_index(PB,
-                                                                                                {Type,
-                                                                                                 <<"test">>},
-                                                                                                {binary_index,
-                                                                                                 "name"},
-                                                                                                <<"Jane">>)),
+            ?assertMatch({ok, {index_results_v1, [<<"JRD">>], _, _}},
+                riakc_pb_socket:get_index_eq(PB,
+                    {Type, <<"test">>}, {binary_index, "name"}, <<"Jane">>)),
 
             %% wild stab at the undocumented cs_bucket_fold
             {ok, ReqID} = riakc_pb_socket:cs_bucket_fold(PB, <<"test">>, []),
             accumulate(ReqID),
 
-            {ok, ReqID2} = riakc_pb_socket:cs_bucket_fold(PB, {Type,
-                                                               <<"test">>}, []),
+            {ok, ReqID2} = riakc_pb_socket:cs_bucket_fold(PB, {Type, <<"test">>}, []),
             accumulate(ReqID2),
             ok
     end,
@@ -364,7 +378,7 @@ confirm() ->
                     MD2=riakc_obj:add_secondary_index(MD, {{integer_index,
                                                             "i_idx"}, [II]}),
                     OTwo=riakc_obj:update_metadata(O,MD2),
-                    lager:info("storing ~p", [OTwo]),
+                    ?LOG_INFO("storing ~0p", [OTwo]),
                     riakc_pb_socket:put(PB,riakc_obj:update_value(OTwo, V, "application/json"))
             end,
 
@@ -382,10 +396,14 @@ confirm() ->
                          {<<"baz">>, <<"4">>, <<"a">>, 4},
                          {<<"bam">>, <<"5">>, <<"a">>, 3}]],
 
-    ?assertEqual({ok, [{0, [<<"2">>]}]},
-                 riakc_pb_socket:mapred(PB, {{Type, <<"MRbucket">>},
-                                             [[<<"starts_with">>, <<"f">>]]},
-                                        [{map, {modfun, riak_kv_mapreduce, map_object_value}, none, true}])),
+    ?assertEqual(
+        {ok, [{0, [<<"2">>]}]},
+        riakc_pb_socket:mapred(
+            PB,
+            {{Type, <<"MRbucket">>}, [[<<"starts_with">>, <<"f">>]]},
+            [{map, {modfun, riak_kv_mapreduce, map_object_value}, none, true}]
+        )
+    ),
 
     ?assertEqual({ok, [{2, [14]}]},
                  riakc_pb_socket:mapred_bucket(PB, {Type, <<"MRbucket">>},
@@ -465,16 +483,24 @@ confirm() ->
     ok = rt:load_modules_on_nodes([?MODULE], Nodes),
 
     %% do a modfun mapred using the function from this module
-    ?assertEqual({ok, [{2, [2]}]},
-                 riakc_pb_socket:mapred_bucket(PB, {modfun, ?MODULE,
-                                                    mapred_modfun, []},
-                                       ?SUMVALUE_MAPRED)),
+    ?assertEqual(
+        {ok, [{2, [2]}]},
+        riakc_pb_socket:mapred(
+            PB,
+            {modfun, ?MODULE, mapred_modfun, []},
+            ?SUMVALUE_MAPRED
+        )
+    ),
 
     %% do a modfun mapred using the function from this module
-    ?assertEqual({ok, [{2, [5]}]},
-                 riakc_pb_socket:mapred_bucket(PB, {modfun, ?MODULE,
-                                                    mapred_modfun_type, []},
-                                       ?SUMVALUE_MAPRED)),
+    ?assertEqual(
+        {ok, [{2, [5]}]},
+        riakc_pb_socket:mapred(
+            PB,
+            {modfun, ?MODULE, mapred_modfun_type, []},
+            ?SUMVALUE_MAPRED
+        )
+    ),
 
     riakc_pb_socket:stop(PB),
     pass.
@@ -484,7 +510,7 @@ accumulate(ReqID) ->
         {ReqID, {done, _}} ->
             ok;
         {ReqID, Msg} ->
-            lager:info("got ~p", [Msg]),
+            ?LOG_INFO("got ~0p", [Msg]),
             accumulate(ReqID)
     end.
 

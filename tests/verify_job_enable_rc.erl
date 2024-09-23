@@ -17,15 +17,14 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %% Verify functionality of async job enable/disable flags in riak.conf.
 %% Toggling flags at runtime is tested in verify_job_enable_ac.
 -module(verify_job_enable_rc).
-
 -behavior(riak_test).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
 -include("job_enable_common.hrl").
 
 -define(TEST_ORDER, [true, false]).
@@ -54,7 +53,7 @@ confirm() ->
         % everything's enabled on the trailing nodes
         || Bool <- ?TEST_ORDER ++ [true, true]],
 
-    lager:info("Deploying ~b nodes ...", [erlang:length(Configs)]),
+    ?LOG_INFO("Deploying ~b nodes ...", [erlang:length(Configs)]),
     Nodes = rt:deploy_nodes(Configs),
 
     job_enable_common:setup_cluster(Nodes),

@@ -17,13 +17,14 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_util).
+
 -compile([export_all, nowarn_export_all]).
 
 -define(DEFAULT_RING_SIZE, 16).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 build_cluster(Num, Config, NVal) ->
     Nodes = rt:deploy_nodes(Num, Config),
@@ -36,10 +37,7 @@ build_cluster(Num, Config, NVal) ->
 
 build_cluster_without_quorum(Num, Config) ->
     Nodes = rt:deploy_nodes(Num, Config),
-    SetupLogCaptureFun = fun(Node) ->
-       rt:setup_log_capture(Node)
-    end,
-    lists:map(SetupLogCaptureFun, Nodes),
+    rt:setup_log_capture(Nodes),
     Node = hd(Nodes),
     ok = rpc:call(Node, riak_ensemble_manager, enable, []),
     _ = rpc:call(Node, riak_core_ring_manager, force_update, []),
@@ -64,10 +62,12 @@ fast_config(NVal, RingSize, EnableAAE) ->
              {allow_mult, true},
              {dvv_enabled, true}
           ]},
-          {vnode_management_timer, 10000},
-          {target_n_val, max(4, NVal)},
-          {ring_creation_size, RingSize},
-          {enable_consensus, true}]}].
+            {vnode_inactivity_timeout, 15000},
+            {forced_ownership_handoff, 8},
+            {handoff_concurrency, 8},
+            {target_n_val, max(4, NVal)},
+            {ring_creation_size, RingSize},
+            {enable_consensus, true}]}].
 
 config_aae(true) ->
     {riak_kv, [{anti_entropy_build_limit, {100, 1000}},
@@ -101,7 +101,7 @@ kill_leaders(Node, Ensembles) ->
     ok.
 
 wait_until_cluster(Nodes) ->
-    lager:info("Waiting until riak_ensemble cluster includes all nodes"),
+    ?LOG_INFO("Waiting until riak_ensemble cluster includes all nodes"),
     Node = hd(Nodes),
     F = fun() ->
                 case rpc:call(Node, riak_ensemble_manager, cluster, []) of
@@ -112,18 +112,18 @@ wait_until_cluster(Nodes) ->
                 end
         end,
     ?assertEqual(ok, rt:wait_until(F)),
-    lager:info("....cluster ready"),
+    ?LOG_INFO("....cluster ready"),
     ok.
 
 wait_until_stable(Node, Count) ->
-    lager:info("Waiting until all ensembles are stable"),
+    ?LOG_INFO("Waiting until all ensembles are stable"),
     Ensembles = rpc:call(Node, riak_kv_ensembles, ensembles, []),
     wait_until_quorum(Node, root),
     [wait_until_quorum(Node, Ensemble) || Ensemble <- Ensembles],
-    lager:info("All ensembles have quorum"),
+    ?LOG_INFO("All ensembles have quorum"),
     [wait_until_quorum_count(Node, Ensemble, Count) || Ensemble <- Ensembles],
-    lager:info("All ensembles have quorum count ~w confirmed", [Count]),
-    lager:info("....all stable"),
+    ?LOG_INFO("All ensembles have quorum count ~w confirmed", [Count]),
+    ?LOG_INFO("....all stable"),
     ok.
 
 wait_until_quorum(Node, Ensemble) ->
@@ -133,7 +133,7 @@ wait_until_quorum(Node, Ensemble) ->
                     true ->
                         true;
                     false ->
-                        lager:info("Quorum not ready: ~p", [Ensemble]),
+                        ?LOG_INFO("Quorum not ready: ~0p", [Ensemble]),
                         false
                 end
         end,
@@ -146,14 +146,14 @@ wait_until_quorum_count(Node, Ensemble, Want) ->
                     Count when Count >= Want ->
                         true;
                     Count ->
-                        lager:info("Count: ~p :: ~p < ~p", [Ensemble, Count, Want]),
+                        ?LOG_INFO("Count: ~0p :: ~0p < ~0p", [Ensemble, Count, Want]),
                         false
                 end
         end,
     ?assertEqual(ok, rt:wait_until(F)).
 
 wait_for_membership(Node) ->
-    lager:info("Waiting until ensemble membership matches ring ownership"),
+    ?LOG_INFO("Waiting until ensemble membership matches ring ownership"),
     F = fun() ->
                 case rpc:call(Node, riak_kv_ensembles, check_membership, []) of
                     Results when is_list(Results) ->
@@ -163,5 +163,5 @@ wait_for_membership(Node) ->
                 end
         end,
     ?assertEqual(ok, rt:wait_until(F)),
-    lager:info("....ownership matches"),
+    ?LOG_INFO("....ownership matches"),
     ok.

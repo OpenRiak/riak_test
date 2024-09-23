@@ -19,7 +19,10 @@
 %% -------------------------------------------------------------------
 -module(cluster_meta_rmr).
 -behavior(riak_test).
+
 -export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
 
 -define(CM_PREFIX, {test, cm}).
 
@@ -32,7 +35,7 @@ confirm() ->
 run(NumNodes, SuperRounds, NumRounds, StableRounds) when is_list(NumNodes) ->
     [begin
          [begin
-              lager:info("starting super round ~p: ~p nodes ~p total rounds ~p stable rounds",
+              ?LOG_INFO("starting super round ~0p: ~0p nodes ~0p total rounds ~0p stable rounds",
                          [S, N, NumRounds, StableRounds]),
               run(N, NumRounds, StableRounds)
           end || S <- lists:seq(1, SuperRounds)]
@@ -47,10 +50,10 @@ run(NumNodes, NumRounds, StableRounds) ->
 %    wait_until_no_messages(),
 %    {ok, R} = rpc:call(hd(AllNodes), riak_core_ring_manager, get_my_ring, []),
 %    Nodes = riak_core_ring:active_members(R),
-%    lager:info("GOSSIP TREE: ~p", [riak_core_util:build_tree(2, Nodes, [cycles])]),
-    lager:info("running ~p broadcast rounds on nodes: ~p", [NumRounds, AllNodes]),
+%    ?LOG_INFO("GOSSIP TREE: ~0p", [riak_core_util:build_tree(2, Nodes, [cycles])]),
+    ?LOG_INFO("running ~0p broadcast rounds on nodes: ~0p", [NumRounds, AllNodes]),
     DownNodes = run_rounds(NumRounds, StableRounds, fun broadcast/2, fun wait_until_broadcast_consistent/2, AllNodes, []),
-%    lager:info("running ~p gossip rounds on nodes: ~p", [NumRounds, AllNodes]),
+%    ?LOG_INFO("running ~0p gossip rounds on nodes: ~0p", [NumRounds, AllNodes]),
 %    run_rounds(NumRounds, fun gossip/2, fun wait_until_gossip_consistent/2, AllNodes),
     calc_stuff(AllNodes, NumNodes, NumRounds),
     exit(Pid, kill),
@@ -70,17 +73,17 @@ setup_nodes(NumNodes) ->
 run_rounds(0, _, _, _, _, DownNodes) ->
     DownNodes;
 run_rounds(_, _, _, _, [_SenderNode], DownNodes) ->
-    lager:info("ran out of nodes to shut down"),
+    ?LOG_INFO("ran out of nodes to shut down"),
     DownNodes;
 run_rounds(Round, 0, SendFun, ConsistentFun, [SenderNode | OtherNodes]=UpNodes, DownNodes) ->
-    lager:info("round ~p (unstable): starting", [Round]),
+    ?LOG_INFO("round ~0p (unstable): starting", [Round]),
     %% get down nodes too just so it prints nicer, debug_get_tree handles them being down
     Tree = rpc:call(SenderNode, riak_core_broadcast, debug_get_tree, [SenderNode, UpNodes ++ DownNodes]),
-    lager:info("round ~p (unstable): tree before sending ~p", [Round, Tree]),
+    ?LOG_INFO("round ~0p (unstable): tree before sending ~0p", [Round, Tree]),
     {FailedNode, RemainingNodes} = fail_node(Round, OtherNodes),
     NewUpNodes = [SenderNode | RemainingNodes],
     SendFun(SenderNode, Round),
-    lager:info("round: ~p (unstable): waiting until updates have reached all running nodes", [Round]),
+    ?LOG_INFO("round: ~0p (unstable): waiting until updates have reached all running nodes", [Round]),
     try ConsistentFun(NewUpNodes, Round) of
         _ ->
             run_rounds(Round - 1, 0, SendFun, ConsistentFun, NewUpNodes, [FailedNode | DownNodes])
@@ -89,22 +92,22 @@ run_rounds(Round, 0, SendFun, ConsistentFun, [SenderNode | OtherNodes]=UpNodes, 
             NumDown = length([FailedNode | DownNodes]),
             NumUp = length(NewUpNodes),
             Total = NumDown + NumUp,
-            lager:error("round ~p (unstable): consistency check failed w/ ~p down ~p up, total ~p",
+            ?LOG_ERROR("round ~0p (unstable): consistency check failed w/ ~0p down ~0p up, total ~0p",
                         [Round, NumDown, NumUp, Total]),
             [FailedNode | DownNodes]
     end;
 run_rounds(Round, StableRound, SendFun, ConsistentFun, [SenderNode | _]=UpNodes, DownNodes) ->
-    lager:info("round ~p (stable): starting", [Round]),
+    ?LOG_INFO("round ~0p (stable): starting", [Round]),
     SendFun(SenderNode, Round),
-    lager:info("round ~p (stable): waiting until there are no messages left", [Round]),
+    ?LOG_INFO("round ~0p (stable): waiting until there are no messages left", [Round]),
     wait_until_no_messages(),
-    lager:info("round ~p (stable): waiting until updates have reached all running nodes", [Round]),
+    ?LOG_INFO("round ~0p (stable): waiting until updates have reached all running nodes", [Round]),
     ConsistentFun(UpNodes, Round),
     run_rounds(Round - 1, StableRound - 1, SendFun, ConsistentFun, UpNodes, DownNodes).
 
 fail_node(Round, OtherNodes) ->
     Failed = lists:nth(rand:uniform(length(OtherNodes)), OtherNodes),
-    lager:info("round: ~p (unstable): shutting down ~p", [Round, Failed]),
+    ?LOG_INFO("round: ~0p (unstable): shutting down ~0p", [Round, Failed]),
     rt:stop(Failed),
     {Failed, lists:delete(Failed, OtherNodes)}.
 
@@ -112,16 +115,16 @@ calc_stuff(AllNodes, NumNodes, NumRounds) ->
     History = cluster_meta_proxy_server:history(),
     %% GossipHistory = [{From, To, element(2, riak_core_ring:get_meta(round, R))} ||
     %%                     {From, To, {reconcile_ring, R}} <- History, riak_core_ring:get_meta(round, R) =/= undefined],
-    %% lager:info("GOSSIP HISTORY:"),
-    %% [lager:info("~p", [X]) || X <- GossipHistory],
+    %% ?LOG_INFO("GOSSIP HISTORY:"),
+    %% [?LOG_INFO("~0p", [X]) || X <- GossipHistory],
     ResultsDict = calc_stuff(AllNodes, History),
     ResultsList = lists:reverse(orddict:to_list(ResultsDict)),
-    ResultsFileName = io_lib:format("results-~p.csv", [NumNodes]),
+    ResultsFileName = io_lib:format("results-~0p.csv", [NumNodes]),
     {ok, ResultsFile} = file:open(ResultsFileName, [write]),
     io:format(ResultsFile, "round,broadcastrmr,gossiprmr,broadcastldh,gossipldh~n", []),
-    [io:format(ResultsFile, "~p,~p,~p,~p,~p~n", [abs(Round - NumRounds), BRMR, GRMR, BLDH, GLDH])
+    [io:format(ResultsFile, "~0p,~0p,~0p,~0p,~0p~n", [abs(Round - NumRounds), BRMR, GRMR, BLDH, GLDH])
      || {{round, Round}, {{BRMR, GRMR}, {BLDH, GLDH}}} <- ResultsList],
-    lager:info("NumNodes: ~p NumRounds: ~p RESULTS: ~p", [NumNodes, NumRounds, ResultsList]).
+    ?LOG_INFO("NumNodes: ~0p NumRounds: ~0p RESULTS: ~0p", [NumNodes, NumRounds, ResultsList]).
 
 calc_stuff(AllNodes, History) ->
     CountDict = lists:foldl(fun process_message/2, orddict:new(), History),

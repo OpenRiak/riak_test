@@ -17,10 +17,10 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %% This module tests the various AAE additions made in
 %% https://github.com/basho/riak_kv/pull/765
-
+%%
 %% !!! DO NOT ADD TO GIDDYUP
 %%
 %% This module is not meant to be used as an automated CI test. It
@@ -28,10 +28,13 @@
 %% made in basho/riak_kv#765 work as the pull-request claims.
 %%
 %% !!! DO NOT ADD TO GIDDYUP
-
 -module(gh_riak_kv_765).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     pass = check_empty_build(),
@@ -53,7 +56,7 @@ check_empty_build() ->
                  done -> pass
              after
                  10000 ->
-                     lager:info("Failed. Empty AAE trees were not built instantly"),
+                     ?LOG_INFO("Failed. Empty AAE trees were not built instantly"),
                      fail
              end,
     rt:clean_cluster(Nodes),
@@ -70,7 +73,7 @@ check_throttle_and_expiration() ->
     Node = hd(Nodes),
     timer:sleep(2000),
 
-    lager:info("Write 1000 keys"),
+    ?LOG_INFO("Write 1000 keys"),
     rt:systest_write(Node, 1000),
     enable_aae(Node),
     time_build(Node),
@@ -79,10 +82,10 @@ check_throttle_and_expiration() ->
     ?assert(Duration2 > (2 * Duration1)),
 
     %% Test manual expiration
-    lager:info("Disabling automatic expiration"),
+    ?LOG_INFO("Disabling automatic expiration"),
     rpc:call(Node, application, set_env,
              [riak_kv, anti_entropy_expire, never]),
-    lager:info("Manually expiring hashtree for partition 0"),
+    ?LOG_INFO("Manually expiring hashtree for partition 0"),
     expire_tree(Node, 0),
     pass.
 
@@ -90,7 +93,7 @@ time_build(Node) ->
     T0 = os:timestamp(),
     rt:wait_until_aae_trees_built([Node]),
     Duration = timer:now_diff(os:timestamp(), T0),
-    lager:info("Build took ~b us", [Duration]),
+    ?LOG_INFO("Build took ~b us", [Duration]),
     Duration.
 
 rebuild(Node, Limit, Wait) ->

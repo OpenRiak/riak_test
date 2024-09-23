@@ -1,9 +1,37 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(location).
 -behavior(riak_test).
+
 -export([confirm/0]).
--export([setup_location/2, plan_and_wait/2]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+%% Shared
+-export([
+    algorithm_supported/2,
+    assert_no_location_violation/3,
+    assert_no_ownership_change/4,
+    assert_ring_satisfy_n_val/1,
+    plan_and_wait/2,
+    setup_location/2
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(N_VAL, 3).
 -define(CLAIMANT_TICK, 5000).
@@ -12,50 +40,61 @@
 -define(RACK_B, "rack_b").
 -define(RACK_C, "rack_c").
 -define(RACK_D, "rack_d").
--define(RACK_E, "rack_e").
--define(RACK_F, "rack_f").
 
 confirm() ->
-  % Test takes a long time, so testing other ring sizes is expensive
-  % The Ring size of 64 is a distinct scenario to ring size of 32 or
-  % 128 (because it does not create a tail violation).
-  pass = run_test(64, choose_claim_v2), 
-  pass = run_test(128, choose_claim_v2),
-  pass = run_test(64, choose_claim_v4),
-  pass = run_test(256, choose_claim_v4),
-  pass = run_test(512, choose_claim_v4),
-  pass.
+    % Test takes a long time, so testing other ring sizes is expensive
+    % The Ring size of 64 is a distinct scenario to ring size of 32 or
+    % 128 (because it does not create a tail violation).
+
+    pass = run_test(64, choose_claim_v2),
+    pass = run_test(128, choose_claim_v2),
+    pass = run_test(64, choose_claim_v4),
+    pass = run_test(256, choose_claim_v4),
+    pass = run_test(512, choose_claim_v4),
+    pass.
 
 run_test(RingSize, ClaimAlgorithm) ->
-    Conf =
-        [
-        {riak_kv, [{anti_entropy, {off, []}}]},
-        {riak_core,
-            [
-              {ring_creation_size, RingSize},
-              {claimant_tick, ?CLAIMANT_TICK},
-              {vnode_management_timer, 2000},
-              {vnode_inactivity_timeout, 4000},
-              {handoff_concurrency, 16},
-              {choose_claim_fun, ClaimAlgorithm},
-              {default_bucket_props,
-                [{allow_mult, true}, {dvv_enabled, true}]}
-              ]}
-            ],
+    Conf = [
+        {riak_kv, [
+            {anti_entropy, {off, []}}
+        ]},
+        {riak_core, [
+            {ring_creation_size,        RingSize},
+            {choose_claim_fun,          ClaimAlgorithm},
+            {claimant_tick,             ?CLAIMANT_TICK},
+            {default_bucket_props,      [{allow_mult, true}, {dvv_enabled, true}]},
+            {handoff_concurrency,       max(8, RingSize div 16)},
+            {forced_ownership_handoff,  max(8, RingSize div 16)},
+            {vnode_inactivity_timeout,  4000},
+            {vnode_management_timer,    2000}
+        ]}
+    ],
 
-    lager:info("*************************"),
-    lager:info("Testing with ring-size ~w", [RingSize]),
-    lager:info("Testing with claim algorithm ~w", [ClaimAlgorithm]),
-    lager:info("*************************"),
+    ?LOG_INFO("*************************"),
+    ?LOG_INFO("Testing with ring-size ~b", [RingSize]),
+    ?LOG_INFO("Testing with claim algorithm ~w", [ClaimAlgorithm]),
+    ?LOG_INFO("*************************"),
 
     AllNodes = rt:deploy_nodes(6, Conf),
+
+    case algorithm_supported(ClaimAlgorithm, hd(AllNodes)) of
+        true ->
+            run_test(RingSize, ClaimAlgorithm, AllNodes);
+        false ->
+            ?LOG_INFO("*************************"),
+            ?LOG_INFO("Skipping unsupported algorithm ~w", [ClaimAlgorithm]),
+            ?LOG_INFO("*************************"),
+            pass
+    end.
+
+run_test(RingSize, ClaimAlgorithm, AllNodes) ->
     [Node1, Node2, Node3, Node4, Node5, Node6] = AllNodes,
     Nodes = [Node1, Node2, Node3, Node4],
 
     rt:staged_join(Node2, Node1),
     rt:staged_join(Node3, Node1),
     rt:staged_join(Node4, Node1),
-    
+
     % Set one location
     setup_location(Nodes, #{Node1 => ?RACK_A}),
     Ring1 = rt:get_ring(Node1),
@@ -160,26 +199,23 @@ run_test(RingSize, ClaimAlgorithm) ->
         assert_no_location_violation(Ring10, 4, 3);
 
       N ->
-        lager:info(
-          "Test skipped for ring size ~w =/= 64 - as will fail "
-          "for unsolveable tail violations",
-          [N]),
-        ok
-
+        ?LOG_INFO(
+          "Test skipped for ring size ~b =/= 64 - as will fail "
+          "for unsolveable tail violations", [N])
     end,
 
-    lager:info("Test verify location settings with ring size ~w: Passed",
+    ?LOG_INFO("Test verify location settings with ring size ~b: Passed",
                 [RingSize]),
-    
+
     rt:clean_cluster(AllNodes),
 
-    lager:info("Cluster cleaned"),
+    ?LOG_INFO("Cluster cleaned"),
 
     pass.
 
 -spec set_location(node(), string()) -> ok | {fail, term()}.
 set_location(Node, Location) ->
-    lager:info("Set ~p node location to ~p", [Node, Location]),
+    ?LOG_INFO("Set ~0p node location to ~0p", [Node, Location]),
     JoinFun = fun() ->
         {ok, Result} = rt:admin(Node, ["cluster", "location", Location]),
         lists:prefix("Success:", Result)
@@ -196,41 +232,35 @@ plan_and_wait(Claimant, Nodes) ->
     rt:wait_until_ring_converged(Nodes),
     rt:plan_and_commit(Claimant),
     rt:wait_until_ring_converged(Nodes),
-    lists:foreach(fun(N) -> rt:wait_until_ready(N) end, Nodes),
-    lager:info("Sleeping claimant_tick before checking transfer progress"),
+    lists:foreach(fun rt:wait_until_ready/1, Nodes),
+    ?LOG_INFO("Sleeping claimant_tick before checking transfer progress"),
     timer:sleep(?CLAIMANT_TICK),
     ok = rt:wait_until_transfers_complete(Nodes),
-    lists:foreach(
-      fun(N) -> rt:wait_until_node_handoffs_complete(N) end,
-      Nodes),
-    lager:info(
-      "Sleeping claimant_tick  + 1s before confirming transfers complete"),
-    timer:sleep(?CLAIMANT_TICK + 1000),
-    ok = rt:wait_until_transfers_complete(Nodes),
-    lager:info(
+    lists:foreach(fun rt:wait_until_node_handoffs_complete/1, Nodes),
+    ?LOG_INFO(
       "Sleeping claimant_tick  + 1s before confirming transfers complete"),
     timer:sleep(?CLAIMANT_TICK + 1000),
     ok = rt:wait_until_transfers_complete(Nodes).
 
 assert_ring_satisfy_n_val(Ring) ->
-  lager:info("Ensure that every preflists satisfy n_val"),
+  ?LOG_INFO("Ensure that every preflists satisfy n_val"),
   ?assertEqual([], riak_core_ring_util:check_ring(Ring, ?N_VAL)).
 
 assert_no_ownership_change(RingA, RingB, choose_claim_v2, _TolerateChange) ->
-  lager:info("Ensure no ownership changed"),
+  ?LOG_INFO("Ensure no ownership changed"),
   ?assertEqual(
     riak_core_ring:all_owners(RingA), riak_core_ring:all_owners(RingB));
 assert_no_ownership_change(RingA, RingB, _, false) ->
-  lager:info("Ensure no ownership changed"),
+  ?LOG_INFO("Ensure no ownership changed"),
   ?assertEqual(
     riak_core_ring:all_owners(RingA), riak_core_ring:all_owners(RingB));
 assert_no_ownership_change(RingA, RingB, choose_claim_v4, true) ->
   OwnersA = riak_core_ring:all_owners(RingA),
   OwnersB = riak_core_ring:all_owners(RingB),
   DiffOwners = lists:subtract(OwnersA, OwnersB),
-  lager:info(
+  ?LOG_INFO(
     "choose_claim_v4 does not guarrantee no ownership change on "
-    "change of location name - ~w changes out of ~w",
+    "change of location name - ~b changes out of ~b",
     [length(DiffOwners), length(OwnersA)]),
   ok.
 
@@ -243,9 +273,19 @@ assert_no_location_violation(Ring, NVal, MinNumberOfDistinctLocation) ->
   ?assertEqual([], riak_core_location:check_ring(Ring, NVal, MinNumberOfDistinctLocation)).
 
 log_assert_no_location_violation(Nval, Nval) ->
-  lager:info("Ensure that every preflists have uniq locations");
+  ?LOG_INFO("Ensure that every preflists have uniq locations");
 log_assert_no_location_violation(NVal, MinNumberOfDistinctLocation) ->
-  lager:info("Ensure that every preflists (n_val: ~p) have at leaset ~p distinct locations",
+  ?LOG_INFO("Ensure that every preflists (n_val: ~b) have at leaset ~b distinct locations",
              [NVal, MinNumberOfDistinctLocation]).
 
-  
+-spec algorithm_supported(ClaimAlgorithm :: atom(), node()) -> boolean().
+algorithm_supported(ClaimAlgorithm, Node) ->
+    Swapping = [riak_core_claim_swapping, ClaimAlgorithm, 3],
+    Membership = [riak_core_membership_claim, ClaimAlgorithm, 3],
+    Original = [riak_core_claim, ClaimAlgorithm, 3],
+    CheckFun =
+      fun(MFA) ->
+        rpc:call(Node, code, ensure_loaded, [hd(MFA)]),
+        rpc:call(Node, erlang, function_exported, MFA)
+      end,
+    CheckFun(Swapping) orelse CheckFun(Membership) orelse CheckFun(Original).

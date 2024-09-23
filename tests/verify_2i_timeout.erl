@@ -19,10 +19,22 @@
 %% -------------------------------------------------------------------
 -module(verify_2i_timeout).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
--import(secondary_index_tests, [put_an_object/2, put_an_object/4, int_to_key/1,
-                               stream_pb/3, url/2, http_query/3, http_stream/3]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
+-import(secondary_index_tests, [
+    http_query/3,
+    http_stream/3,
+    int_to_key/1,
+    put_an_object/2,
+    put_an_object/4,
+    stream_pb/3,
+    url/2
+]).
+
 -define(BUCKET, <<"2ibucket">>).
 -define(FOO, <<"foo">>).
 
@@ -52,7 +64,7 @@ confirm() ->
         httpc:request(
             url("~s/buckets/~s/index/~s/~s~s", [Http, ?BUCKET, <<"$bucket">>, ?BUCKET, []])),
     
-    lager:info("Query error with ErrCode ~p", [ErrCode]),
+    ?LOG_INFO("Query error with ErrCode ~p", [ErrCode]),
 
     ?assertEqual(true, ErrCode == 503),
     ?assertMatch({match, _}, re:run(Body, "request timed out|{error,timeout}")), %% shows the app.config timeout
@@ -69,7 +81,7 @@ stream_http(Http, Query, ExpectedKeys) ->
     {TC, Res} = timer:tc(fun() -> http_stream(Http, Query, []) end),
     case lists:keyfind(<<"keys">>, 1, Res) of
         {<<"keys">>, Keys} ->
-            lager:info(
+            ?LOG_INFO(
                 "Stream returned in ~w microseconds result with keys ~p",
                 [TC, length(Keys)]);
         _ ->

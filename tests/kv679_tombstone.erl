@@ -29,13 +29,22 @@
 %%% write new value
 %%% fallback hands off and the tombstone dominates the new value.
 %%% @end
-
 -module(kv679_tombstone).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+%% shared
+-export([
+    coordinating_client/2,
+    create_pb_clients/1,
+    get_preflist/1, get_preflist/2,
+    read_key/1, read_key/2,
+    write_key/2
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"kv679">>).
 -define(KEY, <<"test">>).
@@ -58,19 +67,19 @@ confirm() ->
     %% Write key some times
     write_key(CoordClient, [<<"bob">>, <<"phil">>, <<"pete">>]),
 
-    lager:info("wrote key thrice"),
+    ?LOG_INFO("wrote key thrice"),
 
     %% %% take a node that is a primary down
     {NewPL, DeadPrimary, _} = kill_primary(PL),
 
-    lager:info("killed a primary"),
+    ?LOG_INFO("killed a primary"),
 
     %% %% This way a tombstone finds its way to a fallback, to later
     %% %% wreak DOOM!!!!
     Client = up_client(DeadPrimary, Clients),
     delete_key(Client),
 
-    lager:info("deleted key, and have tombstone response"),
+    ?LOG_INFO("deleted key, and have tombstone response"),
 
     %% %% Take down the fallback
     {NewPL2, DeadFallback, _DeadPartition} = kill_fallback(NewPL),
@@ -78,14 +87,14 @@ confirm() ->
     %% %% Bring the primary back up
     _PL3 = start_node(DeadPrimary, NewPL2),
 
-    lager:info("killed the fallback, and restored the primary"),
+    ?LOG_INFO("killed the fallback, and restored the primary"),
 
     %% %% wait for reaping maybe read for vclock ts and wait until there
     %% %% is not one
     UpClient = up_client(DeadFallback, Clients),
     read_it_and_reap(UpClient),
 
-    lager:info("read repaired, and reaped the tombstone"),
+    ?LOG_INFO("read repaired, and reaped the tombstone"),
 
     %% %% write the key again, this will start a new clock, a clock
     %% that is in the past of that lingering tombstone. We use the
@@ -98,10 +107,10 @@ confirm() ->
     %% Read twice, just in case (repair, reap.)
     Res1 = read_key(P1),
 
-    lager:info("TS? ~p~n", [Res1]),
+    ?LOG_INFO("TS? ~0p", [Res1]),
     Res2 = read_key(P1),
 
-    lager:info("res ~p", [Res2]),
+    ?LOG_INFO("res ~0p", [Res2]),
 
     ?assertMatch({ok, _}, Res2),
     {ok, Obj} = Res2,
@@ -136,11 +145,11 @@ write_key(Client, [Val | Rest], Opts) ->
 write_key({_, Client}, Val, Opts) when is_binary(Val) ->
     Object = case riakc_pb_socket:get(Client, ?BUCKET, ?KEY, []) of
                  {ok, O1} ->
-                     lager:info("writing existing!"),
+                     ?LOG_INFO("writing existing!"),
                      O2 = riakc_obj:update_metadata(O1, dict:new()),
                      riakc_obj:update_value(O2, Val);
                  _ ->
-                     lager:info("writing new!"),
+                     ?LOG_INFO("writing new!"),
                      riakc_obj:new(?BUCKET, ?KEY, Val)
              end,
     riakc_pb_socket:put(Client, Object, Opts).
@@ -157,10 +166,10 @@ delete_key({_, Client}) ->
     rt:wait_until(fun() ->
                           case  riakc_pb_socket:get(Client, ?BUCKET, ?KEY, [deletedvclock]) of
                               {error, notfound, VC} ->
-                                  lager:info("TSVC ~p~n", [VC]),
+                                  ?LOG_INFO("TSVC ~0p", [VC]),
                                   true;
                               Res ->
-                                  lager:info("no ts yet: ~p~n", [Res]),
+                                  ?LOG_INFO("no ts yet: ~0p", [Res]),
                                   false
                           end
                   end).
@@ -171,7 +180,7 @@ read_it_and_reap({_, Client}) ->
                               {error, notfound} ->
                                   true;
                               Res ->
-                                  lager:info("not reaped ts yet: ~p~n", [Res]),
+                                  ?LOG_INFO("not reaped ts yet: ~0p", [Res]),
                                   false
                           end
                   end).
@@ -203,7 +212,7 @@ kill_and_wait(Preflist, Type) ->
             erlang:error(no_nodes_of_type, [Type, Preflist]);
         {value, {{Idx, Node}, Type}, PL2} ->
             kill_node(Node),
-            lager:info("killed ~p~n", [Node]),
+            ?LOG_INFO("killed ~0p", [Node]),
             [{{_, N2}, _}|_] = PL2,
             {wait_for_new_pl(Preflist, N2), Node, Idx}
     end.
@@ -214,7 +223,7 @@ kill_node(Node) ->
 wait_for_new_pl(PL, Node) ->
     rt:wait_until(fun() ->
                           NewPL = get_preflist(Node),
-                          lager:info("new ~p~n old ~p~nNode ~p~n", [NewPL, PL, Node]),
+                          ?LOG_INFO("new ~0p old ~0p Node ~0p", [NewPL, PL, Node]),
                           NewPL /= PL
                   end),
     get_preflist(Node).

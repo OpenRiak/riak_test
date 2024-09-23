@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,16 +25,35 @@
 %% testing.
 -module(mapred_basic_compat).
 -behavior(riak_test).
--export([
-         %% riak_test api
-         confirm/0,
 
-         %% test helpers
-         inputs_gen_seq/3,
-         inputs_gen_bkeys_1/3
-        ]).
--compile([export_all, nowarn_export_all]). %% because we call ?MODULE:TestName
--include_lib("eunit/include/eunit.hrl").
+-export([
+    %% riak_test api
+    confirm/0,
+
+    %% run on Riak node
+    inputs_gen_seq/3,
+    inputs_gen_bkeys_1/3,
+
+    %% called via ?MODULE:TestName
+    basic_link/1,
+    empty_query/1,
+    error_not_found_propagation/1,
+    explicity_rereduce/1,
+    keep_both/1,
+    keep_first_only/1,
+    keep_neither/1,
+    keep_second_only/1,
+    key_filters/1,
+    keydata/1,
+    link_not_found/1,
+    map_output_with_btype/1,
+    modfun_generator1/1,
+    modfun_generator2/1,
+    reduce_zero_inputs/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(INTS_BUCKET, <<"foonum">>).
 -define(LINK_BUCKET, <<"link bucket">>).
@@ -53,7 +72,7 @@ confirm() ->
     rt:load_modules_on_nodes([?MODULE], Nodes),
 
     [ begin
-          lager:info("Running test ~p", [T]),
+          ?LOG_INFO("Running test ~0p", [T]),
           ?MODULE:T(Nodes)
       end
       || T <- [empty_query,
@@ -76,10 +95,10 @@ confirm() ->
 
 load_test_data([Node|_]) ->
     %% creates foonum/1..5 - this is what populates ?INTS_BUCKET
-    lager:info("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
+    ?LOG_INFO("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
     ok = rpc:call(Node, riak_kv_mrc_pipe, example_setup, []),
 
-    lager:info("Adding Link object"),
+    ?LOG_INFO("Adding Link object"),
     Obj = riakc_obj:new(?LINK_BUCKET,
                         <<"yo">>,
                         <<"link val">>,

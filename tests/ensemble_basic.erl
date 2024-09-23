@@ -17,15 +17,17 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(ensemble_basic).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 confirm() ->
     NumNodes = 5,
     NVal = 5,
     Config = ensemble_util:fast_config(NVal),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     ensemble_util:build_cluster(NumNodes, Config, NVal),
     pass.

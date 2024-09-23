@@ -18,17 +18,18 @@
 %%
 %% -------------------------------------------------------------------
 %% @doc Verify that the riak_pipe example use functions work.
-
 -module(pipe_verify_examples).
+-behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(NODE_COUNT, 3).
 
 confirm() ->
-    lager:info("Build ~b node cluster", [?NODE_COUNT]),
+    ?LOG_INFO("Build ~b node cluster", [?NODE_COUNT]),
     Nodes = rt:build_cluster(?NODE_COUNT),
 
     [rt:wait_for_service(Node, riak_pipe) || Node <- Nodes],
@@ -39,21 +40,21 @@ confirm() ->
 
     rt_pipe:assert_no_zombies(Nodes),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 verify_example([RN|_]) ->
-    lager:info("Run riak_pipe:example/0"),
+    ?LOG_INFO("Run riak_pipe:example/0"),
     ?assertMatch({eoi, [{empty_pass, "hello"}], _Trc},
                  rpc:call(RN, riak_pipe, example, [])).
 
 verify_example_transform([RN|_]) ->
-    lager:info("Run riak_pipe:example_transform/0"),
+    ?LOG_INFO("Run riak_pipe:example_transform/0"),
     ?assertEqual({eoi, [{"generic transform", 55}], []},
                  rpc:call(RN, riak_pipe, example_transform, [])).
 
 verify_example_reduce([RN|_]) ->
-    lager:info("Run riak_pipe:example_reduce/0"),
+    ?LOG_INFO("Run riak_pipe:example_reduce/0"),
     {eoi, Res, []} = rpc:call(RN, riak_pipe, example_reduce, []),
     ?assertEqual([{"sum reduce", {a, [55]}},
                   {"sum reduce", {b, [155]}}],

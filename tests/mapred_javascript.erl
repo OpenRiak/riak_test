@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,11 +26,19 @@
 -module(mapred_javascript).
 -behavior(riak_test).
 -export([
-         %% riak_test api
-         confirm/0
-        ]).
--compile([export_all, nowarn_export_all]). %% because we run tests as ?MODULE:T(Nodes)
--include_lib("eunit/include/eunit.hrl").
+    %% riak_test api
+    confirm/0,
+
+    %% called via ?MODULE:TestName
+    js_notfound/1,
+    jsanon_bkey/1,
+    jsanon_source/1,
+    jsfun/1,
+    keydata/1
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(INTS_BUCKET, <<"foonum">>).
 -define(NUM_INTS, 5).
@@ -48,7 +56,7 @@ confirm() ->
     load_test_data(Nodes),
 
     [ begin
-          lager:info("Running test ~p", [T]),
+          ?LOG_INFO("Running test ~0p", [T]),
           ?MODULE:T(Nodes)
       end
       || T<- [jsanon_source,
@@ -60,10 +68,10 @@ confirm() ->
 
 load_test_data([Node|_]) ->
     %% creates foonum/1..5 - this is what populates ?INTS_BUCKET
-    lager:info("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
+    ?LOG_INFO("Filling INTS_BUCKET (~s)", [?INTS_BUCKET]),
     ok = rpc:call(Node, riak_kv_mrc_pipe, example_setup, [?NUM_INTS]),
 
-    lager:info("Adding Javascript source objects"),
+    ?LOG_INFO("Adding Javascript source objects"),
     Map = riakc_obj:new(?JS_BUCKET, <<"map">>, ?MAP_JS, "text/plain"),
     Red = riakc_obj:new(?JS_BUCKET, <<"reduce">>, ?REDUCE_JS, "text/plain"),
 

@@ -1,14 +1,33 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(repl_fs_bench).
+-behavior(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(DIFF_NUM_KEYS, 10).
 -define(FULL_NUM_KEYS, 100).
 -define(TEST_BUCKET, <<"repl_bench">>).
-
--define(HARNESS, (rt_config:get(rt_harness))).
 
 -define(CONF(Strategy), [
         {riak_core,
@@ -45,15 +64,15 @@ confirm() ->
     {E5, F5, D5, N5} = fullsync_test(aae, 10),
     {E6, F6, D6, N6} = fullsync_test(aae, 100),
 
-    lager:info("Keylist Empty: ~pms ~pms ~pms", [E1 / 1000, E2 / 1000, E3 / 1000]),
-    lager:info("Keylist Full:  ~pms ~pms ~pms", [F1 / 1000, F2 / 1000, F3 / 1000]),
-    lager:info("Keylist Diff:  ~pms ~pms ~pms", [D1 / 1000, D2 / 1000, D3 / 1000]),
-    lager:info("Keylist None:  ~pms ~pms ~pms", [N1 / 1000, N2 / 1000, N3 / 1000]),
+    ?LOG_INFO("Keylist Empty: ~wms ~wms ~wms", [E1 / 1000, E2 / 1000, E3 / 1000]),
+    ?LOG_INFO("Keylist Full:  ~wms ~wms ~wms", [F1 / 1000, F2 / 1000, F3 / 1000]),
+    ?LOG_INFO("Keylist Diff:  ~wms ~wms ~wms", [D1 / 1000, D2 / 1000, D3 / 1000]),
+    ?LOG_INFO("Keylist None:  ~wms ~wms ~wms", [N1 / 1000, N2 / 1000, N3 / 1000]),
 
-    lager:info("AAE Empty: ~pms ~pms ~pms", [E4 / 1000, E5 / 1000, E6 / 1000]),
-    lager:info("AAE Full:  ~pms ~pms ~pms", [F4 / 1000, F5 / 1000, F6 / 1000]),
-    lager:info("AAE Diff:  ~pms ~pms ~pms", [D4 / 1000, D5 / 1000, D6 / 1000]),
-    lager:info("AAE None:  ~pms ~pms ~pms", [N4 / 1000, N5 / 1000, N6 / 1000]),
+    ?LOG_INFO("AAE Empty: ~wms ~wms ~wms", [E4 / 1000, E5 / 1000, E6 / 1000]),
+    ?LOG_INFO("AAE Full:  ~wms ~wms ~wms", [F4 / 1000, F5 / 1000, F6 / 1000]),
+    ?LOG_INFO("AAE Diff:  ~wms ~wms ~wms", [D4 / 1000, D5 / 1000, D6 / 1000]),
+    ?LOG_INFO("AAE None:  ~wms ~wms ~wms", [N4 / 1000, N5 / 1000, N6 / 1000]),
 
     pass.
 

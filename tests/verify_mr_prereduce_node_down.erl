@@ -32,36 +32,35 @@
 %%
 %% [http://lists.basho.com/pipermail/riak-users_lists.basho.com/2013-January/010896.html]
 -module(verify_mr_prereduce_node_down).
+-behavior(riak_test).
 
--export([
-         %% riak_test's entry
-         confirm/0
-        ]).
+-export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% @doc riak_test callback
 confirm() ->
     NodeCount = 4,
-    lager:info("Build ~b-node cluster", [NodeCount]),
+    ?LOG_INFO("Build ~b-node cluster", [NodeCount]),
     [Primary,ToKill|_] = rt:build_cluster(NodeCount),
 
     %% We need one node down for this test
-    rt:stop(ToKill),
+    rt:stop_and_wait(ToKill),
 
     %% store our test data
     Bucket = <<"verify_mr_prereduce_node_down">>,
     ObjCount = 100,
-    lager:info("Loading ~b objects of test data", [ObjCount]),
+    ?LOG_INFO("Loading ~b objects of test data", [ObjCount]),
     [] = rt:systest_write(Primary, 1, ObjCount, Bucket, 3),
 
     %% run the query a bunch
     C = rt:pbc(Primary),
     TestCount = 100,
-    lager:info("Running the MR query ~b times", [TestCount]),
+    ?LOG_INFO("Running the MR query ~b times", [TestCount]),
     Runs = [ run_query(C, Bucket) || _ <- lists:seq(1, TestCount) ],
 
-    lager:info("Evaluating results"),
+    ?LOG_INFO("Evaluating results"),
 
     %% Errors == failures that even Riak thinks were failures
     %% Correct == correct answers
@@ -77,7 +76,7 @@ confirm() ->
     ?assertEqual({TestCount, [], []},
                  {length(Correct), Incorrect, Errors}),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 %% result should be a count of the objects in the bucket

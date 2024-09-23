@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(riaknostic_rt).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% Build a small cluster
@@ -34,13 +37,13 @@ confirm() ->
     check_riaknostic_log_levels(Node1),
 
     %% Done!
-    lager:info("Test riaknostic: PASS"),
+    ?LOG_INFO("Test riaknostic: PASS"),
     pass.
 
 %% Check that riaknostic executes
 check_riaknostic_execute(Node) ->
     %% Execute
-    lager:info("**  Check Riaknostic executes"),
+    ?LOG_INFO("**  Check Riaknostic executes"),
     {ok, RiaknosticOut} = rt:admin(Node, ["diag"]),
     ?assertNot(rt:str(RiaknosticOut, "is not present!")),
     ?assertNot(rt:str(RiaknosticOut, "[debug]")),
@@ -49,7 +52,7 @@ check_riaknostic_execute(Node) ->
 %% Check that riaknostic gives a usage message
 check_riaknostic_usage(Node) ->
     %% Check usage message
-    lager:info("**  Run Riaknostic usage message"),
+    ?LOG_INFO("**  Run Riaknostic usage message"),
     {ok, RiaknosticOut} = rt:admin(Node, ["diag", "--help"]),
     ?assert(rt:str(RiaknosticOut, "Usage: riak admin")),
     ok.
@@ -57,7 +60,7 @@ check_riaknostic_usage(Node) ->
 %% Check that riaknostic gives a command listing
 check_riaknostic_command_list(Node) ->
     %% Check commands list
-    lager:info("**  Run Riaknostic commands list message"),
+    ?LOG_INFO("**  Run Riaknostic commands list message"),
     {ok, RiaknosticOut} = rt:admin(Node, ["diag", "--list"]),
     ?assert(rt:str(RiaknosticOut, "Available diagnostic checks")),
     ?assert(rt:str(RiaknosticOut, "  disk           ")),
@@ -67,13 +70,12 @@ check_riaknostic_command_list(Node) ->
     ?assert(rt:str(RiaknosticOut, "  ring_membership")),
     ?assert(rt:str(RiaknosticOut, "  ring_preflists ")),
     ?assert(rt:str(RiaknosticOut, "  ring_size      ")),
-    ?assert(rt:str(RiaknosticOut, "  search         ")),
     ok.
 
 %% Check that log levels can be set
 check_riaknostic_log_levels(Node) ->
     %% Check log levels
-    lager:info("**  Run Riaknostic with a different log level"),
+    ?LOG_INFO("**  Run Riaknostic with a different log level"),
     {ok, RiaknosticOut} = rt:admin(Node, ["diag", "--level", "debug"]),
     ?assert(rt:str(RiaknosticOut, "[debug]")),
     ok.

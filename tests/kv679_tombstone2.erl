@@ -31,13 +31,20 @@
 %%% technically it is not determenistic. If you think of a better way,
 %%% please let me know.
 %%% @end
-
 -module(kv679_tombstone2).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+%% shared
+-export([
+    dump_clock/1,
+    perfect_preflist/1,
+    perfect_preflist/2
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"kv679">>).
 -define(KEY, <<"test">>).
@@ -63,29 +70,29 @@ confirm() ->
     %% lingering doomstone will stay
     {CoordClient, Patsy} = get_coord_client_and_patsy(Clients, PL),
 
-    lager:info("CoordClient ~p~nPatsy ~p~n", [CoordClient, Patsy]),
+    ?LOG_INFO("CoordClient ~0p Patsy ~0p", [CoordClient, Patsy]),
 
     %% Write key some times
     kv679_tombstone:write_key(CoordClient, [<<"bob">>, <<"phil">>, <<"pete">>]),
 
     dump_clock(CoordClient),
 
-    lager:info("wrote key thrice"),
+    ?LOG_INFO("wrote key thrice"),
 
     delete_key(CoordClient),
 
-    lager:info("deleted key"),
+    ?LOG_INFO("deleted key"),
 
     %% kill the patsy, must happen before the reap
     rt:brutal_kill(Patsy),
 
-    lager:info("killed the patsy"),
+    ?LOG_INFO("killed the patsy"),
 
     %% A time to reap wait for the up nodes to reap, can't use
     %% kv679_tombstone:read_it_and_reap
     timer:sleep(15000),
 
-    lager:info("tombstone (should be) reaped"),
+    ?LOG_INFO("tombstone (should be) reaped"),
 
     %% %% write the key again, this will start a new clock, a clock
     %% that is in the past of that un-reaped primary tombstone. We use the
@@ -109,13 +116,13 @@ confirm() ->
                {I, kv679_tombstone:read_key(CoordClient)}
            end || I <- lists:seq(1, 5)],
 
-    lager:info("res ~p", [Res]),
+    ?LOG_INFO("res ~0p", [Res]),
 
     First = hd(lists:dropwhile(fun({_I, {ok, _}}) -> false;
                                   (_) -> true end,
                                Res)),
 
-    lager:info("res ~p", [First]),
+    ?LOG_INFO("res ~0p", [First]),
 
     %% The last result
     {_, Res2} = hd(lists:reverse(Res)),
@@ -151,11 +158,11 @@ dump_clock({Node, Client}) ->
         {ok, O} ->
             VCE = riakc_obj:vclock(O),
             VC = rpc:call(Node, riak_object, decode_vclock, [VCE]),
-            lager:info("VC ~p~n", [VC]),
+            ?LOG_INFO("VC ~0p", [VC]),
             NodeId = erlang:crc32(term_to_binary(Node)),
             Id = <<NodeId:32/unsigned-integer>>,
-            lager:info("Coord Node ID ~p~n", [Id]);
+            ?LOG_INFO("Coord Node ID ~0p", [Id]);
         Res ->
-            lager:info("no clock in ~p~n", [Res])
+            ?LOG_INFO("no clock in ~0p", [Res])
     end.
 

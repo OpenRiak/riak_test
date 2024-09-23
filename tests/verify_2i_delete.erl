@@ -20,12 +20,14 @@
 -module(verify_2i_delete).
 -behavior(riak_test).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
+
 -import(secondary_index_tests, [put_an_object/2, put_an_object/4, int_to_key/1,
                                 stream_pb/3, http_query/3, pb_query/3]).
 -define(BUCKET, <<"2ibucket">>).
--define(FOO, <<"foo">>).
 -define(EXCHANGE_TICK, 10 * 1000). % Must be > inactivity timeout
 -define(DELETE_TIMEOUT, 5000).
 
@@ -67,10 +69,10 @@ confirm() ->
 
 test_keepmode_keeps(Nodes) ->
     
-    lager:info("Test $key index in keep mode"),
-    lager:info(
+    ?LOG_INFO("Test $key index in keep mode"),
+    ?LOG_INFO(
         "The $key index does not discriminate tombstone from object ..."),
-    lager:info(
+    ?LOG_INFO(
         "... so deleting an object will not change results from %key query"),
 
     RiakHttp = rt:httpc(hd(Nodes)),
@@ -106,7 +108,7 @@ test_keepmode_keeps(Nodes) ->
 
     ?assertMatch(ExpectedKeys, lists:sort(HttpResKeysD1)),
 
-    lager:info("Double-checked deleting leaves a tombstone which is on $key"),
+    ?LOG_INFO("Double-checked deleting leaves a tombstone which is on $key"),
 
     timer:sleep(?DELETE_TIMEOUT + 1000),
 
@@ -123,8 +125,8 @@ test_keepmode_keeps(Nodes) ->
 
 test_deletemode_cleans(Nodes, KeyCount) ->
 
-    lager:info("Testing $key index with delayed reap"),
-    lager:info("Deleting an object will now change the results after timeout"),
+    ?LOG_INFO("Testing $key index with delayed reap"),
+    ?LOG_INFO("Deleting an object will now change the results after timeout"),
 
     RiakHttp = rt:httpc(hd(Nodes)),
     PBC = rt:pbc(hd(Nodes)),
@@ -135,7 +137,7 @@ test_deletemode_cleans(Nodes, KeyCount) ->
 
     ?assertMatch(ok, riakc_pb_socket:delete(PBC, ?BUCKET, int_to_key(1))),
     
-    lager:info("Deleted a key - after timeout should not be returned"),
+    ?LOG_INFO("Deleted a key - after timeout should not be returned"),
 
     timer:sleep(?DELETE_TIMEOUT + 1000),
 
@@ -144,7 +146,7 @@ test_deletemode_cleans(Nodes, KeyCount) ->
             RiakHttp, ?BUCKET, <<"$key">>, {int_to_key(1), int_to_key(KeyCount)}),
     {ok, ?INDEX_RESULTS{keys=HttpResKeysD0}} = HttpResD0,
 
-    lager:info("Should have one less key than was added"),
+    ?LOG_INFO("Should have one less key than was added"),
     ?assertMatch(KeyCount, length(HttpResKeysD0) + 1),
 
     ?assertMatch(ExpectedKeys, lists:sort(HttpResKeysD0)),
@@ -163,7 +165,7 @@ test_deletemode_cleans(Nodes, KeyCount) ->
             RiakHttp, ?BUCKET, <<"$key">>, {int_to_key(1), int_to_key(KeyCount)}),
     {ok, ?INDEX_RESULTS{keys=HttpResKeysD1}} = HttpResD1,
 
-    lager:info("All keys deleted ~p", [HttpResKeysD1]),
+    ?LOG_INFO("All keys deleted ~p", [HttpResKeysD1]),
     ?assertMatch(0, length(HttpResKeysD1)),
 
     pass.

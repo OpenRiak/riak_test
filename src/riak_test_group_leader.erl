@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2013 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,13 +21,13 @@
 
 -export([new_group_leader/1, group_leader_loop/1, tidy_up/1]).
 
--include("stacktrace.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 % @doc spawns the new group leader
 new_group_leader(Runner) ->
     spawn_link(?MODULE, group_leader_loop, [Runner]).
 
-% @doc listens for io_requests, and pipes them into lager
+% @doc listens for io_requests, and pipes them into logger
 group_leader_loop(Runner) ->
     receive
     {io_request, From, ReplyAs, Req} ->
@@ -68,11 +68,11 @@ io_request({put_chars, Chars}) ->
 io_request({put_chars, M, F, As}) ->
     try apply(M, F, As) of
     Chars ->
-        log_chars(Chars), 
+        log_chars(Chars),
         ok
     catch
-        ?_exception_(C, T, StackToken) ->
-            {error, {C,T,?_get_stacktrace_(StackToken)}}
+        Class:Reason:StackTrace ->
+            {error, {Class, Reason, StackTrace}}
     end;
 io_request({put_chars, _Enc, Chars}) ->
     io_request({put_chars, Chars});
@@ -108,6 +108,6 @@ io_requests([R | Rs], ok) ->
 io_requests(_, Result) ->
     Result.
 
-%% If we get multiple lines, we'll split them up for lager to maximize the prettiness.
+%% If we get multiple lines, we'll split them up for logger to maximize the prettiness.
 log_chars(Chars) ->
-    [lager:info("~s", [Line]) || Line <- string:tokens(lists:flatten(Chars), "\n")].
+    [?LOG_INFO("~s", [Line]) || Line <- string:tokens(lists:flatten(Chars), "\n")].

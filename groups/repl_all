@@ -11,6 +11,7 @@ repl_handoff_deadlock_keylist
 repl_location_failures
 repl_fs_bench
 repl_fs_stat_caching
+replication
 replication2
 replication2_console_tests
 replication2_fsschedule
@@ -18,7 +19,6 @@ replication2_connections
 replication2_dirty
 replication2_rt_sink_connection
 replication2_ssl
-replication
 replication_ssl
 replication_stats
 repl_rt_cascading_rtq

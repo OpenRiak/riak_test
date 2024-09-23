@@ -1,13 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to exercise the Active
 %% Anti-Entropy Fullsync replication.  It sets up two clusters, runs a
 %% fullsync over all partitions, and verifies the missing keys were
 %% replicated to the sink cluster.
-
 -module(nextgenrepl_rtq_autocrdt).
 -behavior(riak_test).
+
 -export([confirm/0, check_value/6]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(A_RING, 16).
 -define(B_RING, 8).
@@ -26,7 +45,7 @@
 
 -define(SNK_WORKERS, 2).
 
--define(REPL_SLEEP, 512). 
+-define(REPL_SLEEP, 512).
     % May need to wait for 2 x the 256ms max sleep time of a snk worker
 -define(WAIT_LOOPS, 12).
 
@@ -60,8 +79,8 @@
           ]}
         ]).
 
--define(SNK_CONFIG(RTQ, PeerList), 
-        [{riak_kv, 
+-define(SNK_CONFIG(RTQ, PeerList),
+        [{riak_kv,
             [{replrtq_enablesink, true},
                 {replrtq_sinkqueue, RTQ},
                 {replrtq_sinkpeers, PeerList},
@@ -75,10 +94,10 @@ confirm() ->
         rt:deploy_clusters([
             {3, ?CONFIG(?A_RING, ?A_NVAL, ClusterASrcQ)},
             {3, ?CONFIG(?B_RING, ?B_NVAL, ClusterBSrcQ)}]),
-    
+
     setup_clusters(http, ClusterAH, ClusterBH),
     pass = test_rtqrepl_between_clusters(http, ClusterAH, ClusterBH),
-    
+
     rt:clean_cluster(ClusterAH),
     rt:clean_cluster(ClusterBH),
 
@@ -86,16 +105,16 @@ confirm() ->
         rt:deploy_clusters([
             {3, ?CONFIG(?A_RING, ?A_NVAL, ClusterASrcQ)},
             {3, ?CONFIG(?B_RING, ?B_NVAL, ClusterBSrcQ)}]),
-    
+
     setup_clusters(pb, ClusterAP, ClusterBP),
     pass = test_rtqrepl_between_clusters(pb, ClusterAP, ClusterBP),
     pass.
 
 
 setup_clusters(Protocol, ClusterA, ClusterB) ->
-    lager:info("Setup test using protocol ~w", [Protocol]),
-    lager:info("Discover Peer IP/ports and restart with peer config"),
-    FoldToPeerConfig = 
+    ?LOG_INFO("Setup test using protocol ~w", [Protocol]),
+    ?LOG_INFO("Discover Peer IP/ports and restart with peer config"),
+    FoldToPeerConfig =
         fun(Node, Acc) ->
             {Protocol, {IP, Port}} =
                 lists:keyfind(Protocol, 1, rt:connection_info(Node)),
@@ -115,36 +134,36 @@ setup_clusters(Protocol, ClusterA, ClusterB) ->
 
     rt:join_cluster(ClusterA),
     rt:join_cluster(ClusterB),
-    
-    lager:info("Waiting for convergence."),
+
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB),
-    
+
     setup_snkreplworkers(Protocol, ClusterA, ClusterB, ttaaefs_b),
     setup_snkreplworkers(Protocol, ClusterB, ClusterA, ttaaefs_a),
-    
-    lager:info("Creating bucket types"),
+
+    ?LOG_INFO("Creating bucket types"),
     rt:create_and_activate_bucket_type(hd(ClusterA),
-                                        <<"_maps">>, 
+                                        <<"_maps">>,
                                         [{datatype, map}, {allow_mult, true}]),
     rt:create_and_activate_bucket_type(hd(ClusterB),
-                                        <<"_maps">>, 
+                                        <<"_maps">>,
                                         [{datatype, map}, {allow_mult, true}]),
-    lager:info("Pause to ensure creation of type is complete..."),
-    lager:info("... and has propogated through each cluster"),
+    ?LOG_INFO("Pause to ensure creation of type is complete..."),
+    ?LOG_INFO("... and has propogated through each cluster"),
     timer:sleep(2000),
 
-    lager:info("Ready for test.").
+    ?LOG_INFO("Ready for test.").
 
 test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
-    lager:info("Replication test using protocol ~w", [Protocol]),
+    ?LOG_INFO("Replication test using protocol ~w", [Protocol]),
 
     NodeA = hd(ClusterA),
     NodeB = hd(ClusterB),
-    
-    lager:info("Initiate a map in Cluster A"),
+
+    ?LOG_INFO("Initiate a map in Cluster A"),
     ClientA = rt:pbc(NodeA),
     ClientB = rt:pbc(NodeB),
     riakc_pb_socket:modify_type(
@@ -172,31 +191,31 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                                     end,
                                     M2)
                         end,
-                        {<<"_maps">>, <<"test_map">>}, 
+                        {<<"_maps">>, <<"test_map">>},
                         <<"TestKey">>,
                         [create]),
-    
-    ExpVal1 = 
+
+    ExpVal1 =
         [{{<<"followers">>, counter}, 10},
             {{<<"friends">>, set}, [<<"Russell">>]},
             {{<<"name">>, register}, <<"Original">>}],
-    lager:info("Read own write in Cluster A"),
+    ?LOG_INFO("Read own write in Cluster A"),
     ok = check_value(ClientA,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal1),
-    
-    lager:info("Read repl'd write eventually in Cluster B"),
+
+    ?LOG_INFO("Read repl'd write eventually in Cluster B"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal1),
-    
-    lager:info("Make a change to set and counter"),
+
+    ?LOG_INFO("Make a change to set and counter"),
     riakc_pb_socket:modify_type(
                         ClientA,
                         fun(M) ->
@@ -215,10 +234,10 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                                     end,
                                     M1)
                         end,
-                        {<<"_maps">>, <<"test_map">>}, 
+                        {<<"_maps">>, <<"test_map">>},
                         <<"TestKey">>,
                         [create]),
-    ExpVal2 = 
+    ExpVal2 =
         [{{<<"followers">>, counter}, 20},
             {{<<"friends">>, set}, [<<"Martin">>, <<"Russell">>]},
             {{<<"name">>, register}, <<"Original">>}],
@@ -228,17 +247,17 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal2),
-    
-    lager:info("Read repl'd write eventually in Cluster B"),
+
+    ?LOG_INFO("Read repl'd write eventually in Cluster B"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal2),
-    
-    lager:info("Breaking real-time replication"),
-    StopReplFun = 
+
+    ?LOG_INFO("Breaking real-time replication"),
+    StopReplFun =
         fun(SrcNode) ->
             ok = rpc:call(SrcNode,
                             riak_kv_replrtq_src,
@@ -246,7 +265,7 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                             [rtq_b])
         end,
     lists:foreach(StopReplFun, ClusterA),
-    lager:info("Make a change to set"),
+    ?LOG_INFO("Make a change to set"),
     riakc_pb_socket:modify_type(
                         ClientA,
                         fun(M) ->
@@ -258,11 +277,11 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                                     end,
                                     M)
                         end,
-                        {<<"_maps">>, <<"test_map">>}, 
+                        {<<"_maps">>, <<"test_map">>},
                         <<"TestKey">>,
                         [create]),
-    lager:info("Check local value"),
-    ExpVal3 = 
+    ?LOG_INFO("Check local value"),
+    ExpVal3 =
         [{{<<"followers">>, counter}, 20},
             {{<<"friends">>, set},
                 [<<"Martin">>, <<"Pontus">>, <<"Russell">>]},
@@ -274,16 +293,16 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                     riakc_map,
                     ExpVal3),
     timer:sleep(?REPL_SLEEP),
-    lager:info("After a pause replicated value remains unchanged"),
+    ?LOG_INFO("After a pause replicated value remains unchanged"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal2),
-    
-    lager:info("Re-enabling real-time replication"),
-    RestartReplFun = 
+
+    ?LOG_INFO("Re-enabling real-time replication"),
+    RestartReplFun =
         fun(SrcNode) ->
             ok = rpc:call(SrcNode,
                             riak_kv_replrtq_src,
@@ -292,16 +311,16 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
         end,
     lists:foreach(RestartReplFun, ClusterA),
     timer:sleep(?REPL_SLEEP),
-    lager:info("After a pause replicated value remains unchanged"),
-    lager:info("Resume does not replay any replication"),
+    ?LOG_INFO("After a pause replicated value remains unchanged"),
+    ?LOG_INFO("Resume does not replay any replication"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal2),
-    
-    lager:info("Update the register"),
+
+    ?LOG_INFO("Update the register"),
     riakc_pb_socket:modify_type(
                         ClientA,
                         fun(M) ->
@@ -313,31 +332,31 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                                     end,
                                     M)
                         end,
-                        {<<"_maps">>, <<"test_map">>}, 
+                        {<<"_maps">>, <<"test_map">>},
                         <<"TestKey">>,
                         [create]),
-    
-    ExpVal4 = 
+
+    ExpVal4 =
         [{{<<"followers">>, counter}, 20},
             {{<<"friends">>, set},
                 [<<"Martin">>, <<"Pontus">>, <<"Russell">>]},
             {{<<"name">>, register}, <<"Jaded">>}],
-    lager:info("Check local value"),
+    ?LOG_INFO("Check local value"),
     ok = check_value(ClientA,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal4),
-    lager:info("Check that remote value has converged with all changes"),
+    ?LOG_INFO("Check that remote value has converged with all changes"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal4),
-    
-    lager:info("Testing of full-sync - return in-sync"),
+
+    ?LOG_INFO("Testing of full-sync - return in-sync"),
     {Protocol, {IPB, PortB}} =
         lists:keyfind(Protocol, 1, rt:connection_info(NodeB)),
     ModRef = riak_kv_ttaaefs_manager,
@@ -351,9 +370,9 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
 
     ?assertEqual({tree_compare, 0}, AAEResult1),
 
-    lager:info("Breaking real-time replication - again"),
+    ?LOG_INFO("Breaking real-time replication - again"),
     lists:foreach(StopReplFun, ClusterA),
-    lager:info("Make a change to counter"),
+    ?LOG_INFO("Make a change to counter"),
     riakc_pb_socket:modify_type(
                         ClientA,
                         fun(M) ->
@@ -365,15 +384,15 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                                     end,
                                     M)
                         end,
-                        {<<"_maps">>, <<"test_map">>}, 
+                        {<<"_maps">>, <<"test_map">>},
                         <<"TestKey">>,
                         [create]),
-    ExpVal5 = 
+    ExpVal5 =
         [{{<<"followers">>, counter}, 30},
             {{<<"friends">>, set},
                 [<<"Martin">>, <<"Pontus">>, <<"Russell">>]},
             {{<<"name">>, register}, <<"Jaded">>}],
-    lager:info("Check local value"),
+    ?LOG_INFO("Check local value"),
     ok = check_value(ClientA,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
@@ -381,18 +400,18 @@ test_rtqrepl_between_clusters(Protocol, ClusterA, ClusterB) ->
                     riakc_map,
                     ExpVal5),
     timer:sleep(?REPL_SLEEP),
-    lager:info("After a pause replicated value remains unchanged"),
+    ?LOG_INFO("After a pause replicated value remains unchanged"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
                     <<"TestKey">>,
                     riakc_map,
                     ExpVal4),
-    
-    lager:info("Testing of full-sync - resolve delta"),
+
+    ?LOG_INFO("Testing of full-sync - resolve delta"),
     AAEResult2 = rpc:call(NodeA, riak_client, ttaaefs_fullsync, [all_check, 60]),
     ?assertEqual({clock_compare, 1}, AAEResult2),
-    lager:info("Check that remote value has converged with all changes"),
+    ?LOG_INFO("Check that remote value has converged with all changes"),
     ok = check_value(ClientB,
                     riakc_pb_socket,
                     {<<"_maps">>, <<"test_map">>},
@@ -419,8 +438,8 @@ check_value(Client, CMod, Bucket, Key, DTMod, Expected, Options) ->
                             true
                         catch
                             Type:Error ->
-                                lager:info("check_value(~p,~p,~p,~p,~p) "
-                                            "failed: ~p:~p", [Client, Bucket,
+                                ?LOG_INFO("check_value(~0p,~0p,~0p,~0p,~0p) "
+                                            "failed: ~0p:~0p", [Client, Bucket,
                                                             Key, DTMod,
                                                             Expected, Type,
                                                             Error]),
@@ -436,7 +455,7 @@ setup_snkreplworkers(Protocol, SrcCluster, SnkNodes, SnkName) ->
             {{Acc, 0, IP, Port, Protocol}, Acc + 1}
         end,
     {PeerList, _} = lists:mapfoldl(PeerMap, 1, SrcCluster),
-    SetupSnkFun = 
+    SetupSnkFun =
         fun(Node) ->
             ok = rpc:call(Node,
                             riak_kv_replrtq_snk,

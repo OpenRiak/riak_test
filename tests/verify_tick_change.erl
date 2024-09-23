@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2014 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,11 +17,13 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(verify_tick_change).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     ClusterSize = 4,
@@ -38,32 +40,32 @@ confirm() ->
     write_stuff(Nodes, Start, End, Bucket, W, <<>>),
     read_stuff(Nodes, Start, End, Bucket, W, <<>>),
 
-    io:format("Start ticktime daemon on ~p, then wait a few seconds\n",[Node1]),
+    ?LOG_INFO("Start ticktime daemon on ~0p, then wait a few seconds",[Node1]),
     rpc:call(Node1, riak_core_net_ticktime, start_set_net_ticktime_daemon,
              [Node1, NewTime]),
     timer:sleep(2*1000),
 
-    io:format("Changing net_ticktime to ~p\n", [NewTime]),
+    ?LOG_INFO("Changing net_ticktime to ~0p", [NewTime]),
     ok = rt:wait_until(
            fun() ->
                    write_read_poll_check(Nodes, NewTime, Start, End, Bucket, W)
            end),
-    lager:info("If we got this far, then we found no inconsistencies\n"),
+    ?LOG_INFO("If we got this far, then we found no inconsistencies"),
     [begin
         rt:wait_until(
             fun() ->
                 RemoteTime = rpc:call(Node, net_kernel, get_net_ticktime, []),
-                io:format("Node ~p tick is ~p\n", [Node, RemoteTime]),
+                ?LOG_INFO("Node ~0p tick is ~0p", [Node, RemoteTime]),
                 RemoteTime == NewTime
             end
         )
      end || Node <- lists:usort([node()|nodes(connected)])],
-    io:format("If we got this far, all nodes are using the same tick time\n"),
+    ?LOG_INFO("If we got this far, all nodes are using the same tick time"),
 
     pass.
 
 make_common() ->
-    list_to_binary(io_lib:format("~p", [os:timestamp()])).
+    list_to_binary(io_lib:format("~0p", [os:timestamp()])).
 
 write_stuff(Nodes, Start, End, Bucket, W, Common) ->
     Nd = lists:nth(length(Nodes), Nodes),

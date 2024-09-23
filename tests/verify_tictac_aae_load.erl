@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -18,14 +16,17 @@
 %%
 %% -------------------------------------------------------------------
 %% @doc Verification of Active Anti Entropy performance.
-
 -module(verify_tictac_aae_load).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(DEFAULT_RING_SIZE, 8).
 
-% Amend defaults for 
+% Amend defaults for
 -define(EXCHANGE_TICK, 30).
 -define(MAX_RESULTS, 128).
 -define(REPAIR_LOOPS, 4).
@@ -69,31 +70,31 @@
 
 confirm() ->
 
-    lager:info("Not to be considered as a functional test"),
-    lager:info("Useful only for comparing repair performance"),
-    lager:info("e.g. between current and previous"),
+    ?LOG_INFO("Not to be considered as a functional test"),
+    ?LOG_INFO("Useful only for comparing repair performance"),
+    ?LOG_INFO("e.g. between current and previous"),
 
     [Nodes] = rt:build_clusters([{?NUM_NODES, ?TEST_VERSION, ?CFG}]),
     ok = verify_aae_defaults(Nodes),
-    
+
     pass.
 
 
 verify_aae_defaults(Nodes) ->
-    lager:info("Tictac AAE tests for large load to time recovery"),
+    ?LOG_INFO("Tictac AAE tests for large load to time recovery"),
     Node1 = hd(Nodes),
 
     % Recovery without tree rebuilds
 
     % Test recovery from too few replicas written
-    lager:info("Generating ~w Keys/Values", [?PRELOAD_KEYS_PERBUCKET div 2]),
+    ?LOG_INFO("Generating ~w Keys/Values", [?PRELOAD_KEYS_PERBUCKET div 2]),
     KV1 = test_data(1, ?PRELOAD_KEYS_PERBUCKET div 2),
     write_data(Node1, KV1, [{n_val, 3}], ?ALT_BUCKET1),
     write_data(Node1, KV1, [{n_val, 3}], ?ALT_BUCKET2),
     write_data(Node1, KV1, [{n_val, 3}], ?ALT_BUCKET3),
     write_data(Node1, KV1, [{n_val, 3}], ?ALT_BUCKET4),
 
-    lager:info("Generating ~w Keys/Values", [?PRELOAD_KEYS_PERBUCKET div 2]),
+    ?LOG_INFO("Generating ~w Keys/Values", [?PRELOAD_KEYS_PERBUCKET div 2]),
     KV2 =
         test_data(1 + ?PRELOAD_KEYS_PERBUCKET div 2, ?PRELOAD_KEYS_PERBUCKET),
     write_data(Node1, KV2, [{n_val, 3}], ?ALT_BUCKET1),
@@ -102,7 +103,7 @@ verify_aae_defaults(Nodes) ->
     write_data(Node1, KV2, [{n_val, 3}], ?ALT_BUCKET4),
 
     SW0 = os:timestamp(),
-    lager:info("Start to introduce discrepancy"),
+    ?LOG_INFO("Start to introduce discrepancy"),
 
     KV3 = test_data(?PRELOAD_KEYS_PERBUCKET + 1,
                     ?PRELOAD_KEYS_PERBUCKET + ?N1_KEYS_PERBUCKET),
@@ -115,8 +116,8 @@ verify_aae_defaults(Nodes) ->
     write_data(Node1, KV4, [{n_val, 2}], ?ALT_BUCKET1),
 
     SW1 = os:timestamp(),
-    lager:info("Discrepancies written in ~w s", [timer:now_diff(SW1, SW0) div ?MICRO]),
-    lager:info("Writes completed - attempting verify"),
+    ?LOG_INFO("Discrepancies written in ~w s", [timer:now_diff(SW1, SW0) div ?MICRO]),
+    ?LOG_INFO("Writes completed - attempting verify"),
 
     verify_data(Node1, KV3 ++ KV4, ?ALT_BUCKET1),
     verify_data(Node1, KV3, ?ALT_BUCKET2),
@@ -124,8 +125,8 @@ verify_aae_defaults(Nodes) ->
     verify_data(Node1, KV3, ?ALT_BUCKET3),
 
     SW2 = os:timestamp(),
-    lager:info("Verification complete in ~w s", [timer:now_diff(SW2, SW1) div ?MICRO]),
-    lager:info("Overall time ~w s", [timer:now_diff(SW2, SW0) div ?MICRO]),
+    ?LOG_INFO("Verification complete in ~w s", [timer:now_diff(SW2, SW1) div ?MICRO]),
+    ?LOG_INFO("Overall time ~w s", [timer:now_diff(SW2, SW0) div ?MICRO]),
 
     ok.
 
@@ -139,7 +140,7 @@ test_data(Start, End) ->
 
 
 write_data(Node, KVs, Opts, Bucket) ->
-    lager:info("Loading batch of ~w keys to ~s bucket", [length(KVs), Bucket]),
+    ?LOG_INFO("Loading batch of ~w keys to ~s bucket", [length(KVs), Bucket]),
     PB = rt:pbc(Node),
     [begin
          O =
@@ -156,7 +157,7 @@ write_data(Node, KVs, Opts, Bucket) ->
 
 
 verify_data(Node, KeyValues, Bucket) ->
-    lager:info("Verify all replicas are eventually correct"),
+    ?LOG_INFO("Verify all replicas are eventually correct"),
     PB = rt:pbc(Node),
     CheckFun =
         fun() ->
@@ -168,7 +169,7 @@ verify_data(Node, KeyValues, Bucket) ->
                 case Num == NumGood of
                     true -> true;
                     false ->
-                        lager:info("Data not yet correct: ~p mismatches",
+                        ?LOG_INFO("Data not yet correct: ~0p mismatches",
                                 [Num-NumGood]),
                         false
                 end
@@ -176,12 +177,12 @@ verify_data(Node, KeyValues, Bucket) ->
     MaxTime = rt_config:get(rt_max_wait_time),
     Delay = ?VERIFY_DELAY, % every two seconds until max time.
     Retry = MaxTime div Delay,
-    ok = 
+    ok =
         case rt:wait_until(CheckFun, Retry, Delay) of
             ok ->
-                lager:info("Data is now correct. Yay!");
-            fail ->
-                lager:error("AAE failed to fix data"),
+                ?LOG_INFO("Data is now correct. Yay!");
+            _ ->
+                ?LOG_ERROR("AAE failed to fix data"),
                 aae_failed_to_fix_data
         end,
     riakc_pb_socket:stop(PB),

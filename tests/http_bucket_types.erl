@@ -1,9 +1,33 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
+%% Copyright (c) 2023 Workday, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(http_bucket_types).
-
 -behavior(riak_test).
--export([confirm/0, mapred_modfun/3, mapred_modfun_type/3]).
 
--include_lib("eunit/include/eunit.hrl").
+-export([confirm/0]).
+
+%% MFA callbacks
+-export([mapred_modfun/3, mapred_modfun_type/3]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
 -define(SUMVALUE_MAPRED,
@@ -29,7 +53,7 @@
 
 confirm() ->
     application:start(ibrowse),
-    logger:info("Deploy some nodes"),
+    ?LOG_INFO("Deploy some nodes"),
     Nodes = rt:build_cluster(4, [], [
                                      {riak_core, [{default_bucket_props,
                                                    [
@@ -47,7 +71,7 @@ confirm() ->
                   end,
 
     RHC = rt:httpc(Node),
-    logger:info("default type get/put test"),
+    ?LOG_INFO("default type get/put test"),
     %% write explicitly to the default type
     ok = rhc:put(RHC, riakc_obj:new({<<"default">>, <<"bucket">>},
                                <<"key">>, <<"value">>)),
@@ -73,18 +97,18 @@ confirm() ->
 
     ?assertEqual(<<"newvalue">>, riakc_obj:get_value(O3)),
 
-    logger:info("list_keys test"),
+    ?LOG_INFO("list_keys test"),
     %% list keys
     ?WAIT({ok, [<<"key">>]} == rhc:list_keys(RHC, <<"bucket">>)),
     ?WAIT({ok, [<<"key">>]} == rhc:list_keys(RHC, {<<"default">>, <<"bucket">>})),
 
-    logger:info("list_buckets test"),
+    ?LOG_INFO("list_buckets test"),
     %% list buckets
     ?WAIT({ok, [<<"bucket">>]} == rhc:list_buckets(RHC)),
     ?WAIT({ok, [<<"bucket">>]} == rhc:list_buckets(RHC, <<"default">>)),
 
     timer:sleep(5000),
-    logger:info("default type delete test"),
+    ?LOG_INFO("default type delete test"),
     %% delete explicitly via the default bucket
     ok = rhc:delete_obj(RHC, O3),
 
@@ -122,33 +146,33 @@ confirm() ->
     ?WAIT({ok, []} == rhc:list_buckets(RHC)),
     ?WAIT({ok, []} == rhc:list_buckets(RHC, <<"default">>)),
 
-    logger:info("custom type get/put test"),
+    ?LOG_INFO("custom type get/put test"),
     %% create a new type
     ok = rt:create_activate_and_wait_for_bucket_type(Nodes, <<"mytype">>, [{n_val,3}]),
 
-    logger:info("doing put"),
+    ?LOG_INFO("doing put"),
     ok = rhc:put(RHC, riakc_obj:new({<<"mytype">>, <<"bucket">>},
                                <<"key">>, <<"newestvalue">>)),
 
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, O5} = rhc:get(RHC, {<<"mytype">>, <<"bucket">>}, <<"key">>),
 
     ?assertEqual(<<"newestvalue">>, riakc_obj:get_value(O5)),
 
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     %% this type is NOT aliased to the default buckey
     {error, notfound} = rhc:get(RHC, <<"bucket">>, <<"key">>),
 
-    logger:info("custom type list_keys test"),
+    ?LOG_INFO("custom type list_keys test"),
     ?WAIT({ok, []} == rhc:list_keys(RHC, <<"bucket">>)),
     ?WAIT({ok, [<<"key">>]} == rhc:list_keys(RHC, {<<"mytype">>, <<"bucket">>})),
 
-    logger:info("custom type list_buckets test"),
+    ?LOG_INFO("custom type list_buckets test"),
     %% list buckets
     ?WAIT({ok, []} == rhc:list_buckets(RHC)),
     ?WAIT({ok, [<<"bucket">>]} == rhc:list_buckets(RHC, <<"mytype">>)),
 
-    logger:info("UTF-8 type get/put test"),
+    ?LOG_INFO("UTF-8 type get/put test"),
     %% こんにちは - konnichiwa (Japanese)
     UnicodeTypeBin = unicode:characters_to_binary([12371,12435,12395,12385,12399], utf8),
     %% سلام - Salam (Arabic)
@@ -158,19 +182,19 @@ confirm() ->
 
     ok = rt:create_activate_and_wait_for_bucket_type(Nodes, UnicodeTypeBin, [{n_val,3}]),
 
-    logger:info("doing put"),
+    ?LOG_INFO("doing put"),
     ok = rhc:put(RHC, riakc_obj:new(UCBBin,
                                     <<"key">>, <<"unicode">>)),
 
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, O6} = rhc:get(RHC, UCBBin, <<"key">>),
 
     ?assertEqual(<<"unicode">>, riakc_obj:get_value(O6)),
 
-    logger:info("unicode type list_keys test"),
+    ?LOG_INFO("unicode type list_keys test"),
     ?WAIT({ok, [<<"key">>]}== rhc:list_keys(RHC, UCBBin)),
 
-    logger:info("unicode type list_buckets test"),
+    ?LOG_INFO("unicode type list_buckets test"),
     %% list buckets
 
     %% This is a rather awkward representation, but it's what rhc is
@@ -181,7 +205,7 @@ confirm() ->
     %% name
     ?WAIT({ok, [<<"0633064406270645">>]} == rhc:list_buckets(RHC, UnicodeTypeBin)),
 
-    logger:info("bucket properties tests"),
+    ?LOG_INFO("bucket properties tests"),
     rhc:set_bucket(RHC, {<<"default">>, <<"mybucket">>},
                    [{n_val, 5}]),
     {ok, BProps} = rhc:get_bucket(RHC, <<"mybucket">>),
@@ -208,7 +232,7 @@ confirm() ->
                                          <<"mybucket">>}),
     ?assertEqual(3, proplists:get_value(n_val, BProps4)),
 
-    logger:info("bucket type properties test"),
+    ?LOG_INFO("bucket type properties test"),
 
     rhc:set_bucket_type(RHC, <<"mytype">>,
                         [{n_val, 5}]),
@@ -415,19 +439,19 @@ confirm() ->
 
     rt:clean_cluster(Nodes),
     rt_redbug:set_tracing_applied(true),
-    logger:info("Deploy a single node cluster"),
-    logger:info("Can only monitor one node with redbug"),
-    [SingleNode] 
-        = rt:build_cluster(1, 
-                            [], 
-                            [{riak_core, 
+    ?LOG_INFO("Deploy a single node cluster"),
+    ?LOG_INFO("Can only monitor one node with redbug"),
+    [SingleNode]
+        = rt:build_cluster(1,
+                            [],
+                            [{riak_core,
                                 [{default_bucket_props,
                                     [{n_val, 3},
                                         {allow_mult, true},
                                         {dvv_enabled, true}
                                     ]}]}]),
 
-    logger:info("Create a bucket type with selective sync enabled"),
+    ?LOG_INFO("Create a bucket type with selective sync enabled"),
     ok =
         rt:create_activate_and_wait_for_bucket_type(
             [SingleNode], <<"sync_backend">>, [{sync_on_write,backend}, {n_val,3}]),
@@ -438,68 +462,59 @@ confirm() ->
         rt:create_activate_and_wait_for_bucket_type(
             [SingleNode], <<"sync_all">>, [{sync_on_write,all}, {n_val,3}]),
 
-    logger:info("Setup redbug tracing for selective sync test"),
-    {ok, CWD} = file:get_cwd(),
-    FnameBase = "rt_vhc",
-    FileBase = filename:join([CWD, FnameBase]),
-    OneTrcFile = FileBase ++ "One",
-    AllTrcFile = FileBase ++ "All",
-    BackendTrcFile = FileBase ++ "Backend",
-    file:delete(OneTrcFile),
-    file:delete(AllTrcFile),
-    file:delete(BackendTrcFile),
+    ScratchDir = rt_config:get(rt_scratch_dir),
+    [OneTrcFile, AllTrcFile, BackendTrcFile] = TraceFiles =
+        [filename:join(ScratchDir, FN) || FN <-
+            ["hbt_one.trace", "hbt_all.trace", "hbt_backend.trace"]],
+    %% Make sure the trace files don't exist from some previous run!
+    delete_files(TraceFiles),
 
-    logger:info("STARTING TRACE"),
+    ?LOG_INFO("STARTING TRACE"),
     Backend = proplists:get_value(backend, riak_test_runner:metadata()),
     TraceFun = flushputfun(Backend),
 
     redbug_start(TraceFun, OneTrcFile, SingleNode),
-    logger:info("doing put"),
+    ?LOG_INFO("doing put"),
     ok = rhc:put(RHC,
         riakc_obj:new({<<"sync_one">>, <<"b_sync_one">>}, <<"key">>, <<"newestvalue">>)),
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, _} = rhc:get(RHC, {<<"sync_one">>, <<"b_sync_one">>}, <<"key">>),
-    
-    stopped = redbug:stop(SingleNode),
-        % but why? It has been started! We're going to check the file next
+
+    redbug_stop(),
     ?assertMatch(1, flushput_cnt(TraceFun, OneTrcFile)),
 
 
     redbug_start(TraceFun, BackendTrcFile, SingleNode),
-    logger:info("doing put"),
+    ?LOG_INFO("doing put"),
     ok = rhc:put(RHC,
         riakc_obj:new({<<"sync_backend">>, <<"b_sync_backend">>}, <<"key">>, <<"newestvalue">>)),
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, _} = rhc:get(RHC, {<<"sync_backend">>, <<"b_sync_backend">>}, <<"key">>),
 
-    stopped = redbug:stop(SingleNode),
+    redbug_stop(),
     ?assertMatch(0, flushput_cnt(TraceFun, BackendTrcFile)),
 
     redbug_start(TraceFun, AllTrcFile, SingleNode),
-    logger:info("doing put"),
+    ?LOG_INFO("doing put"),
     ok = rhc:put(RHC,
         riakc_obj:new({<<"sync_all">>, <<"b_sync_all">>}, <<"key">>, <<"newestvalue">>)),
-    logger:info("doing get"),
+    ?LOG_INFO("doing get"),
     {ok, _} = rhc:get(RHC, {<<"sync_all">>, <<"b_sync_all">>}, <<"key">>),
 
-    stopped = redbug:stop(SingleNode),
+    redbug_stop(),
     ?assertMatch(3, flushput_cnt(TraceFun, AllTrcFile)),
 
-    file:delete(OneTrcFile),
-    file:delete(AllTrcFile),
-    file:delete(BackendTrcFile),
-    
+    %% Only delete trace files on success
+    delete_files(TraceFiles),
     pass.
 
 redbug_start(TraceFun, TrcFile, Node) ->
-    timer:sleep(1000), % redbug doesn't always appear to immediately stop
-    logger:info("TracingFun ~s on ~w", [TraceFun, Node]),
-    Start = redbug:start(TraceFun,
-                        rt_redbug:default_trace_options() ++
-                            [{target, Node},
-                            {arity, true},
-                            {print_file, TrcFile}]),
-    logger:info("Redbug start message ~w", [Start]).
+    ?LOG_INFO("TracingFun ~s on ~s", [TraceFun, Node]),
+    ?assertMatch(ok, rt_redbug:trace(Node, TraceFun,
+        #{arity => true, print_file => TrcFile})).
+
+redbug_stop() ->
+    ?assertMatch(ok, rt_redbug:stop()).
 
 mapred_modfun(Pipe, _Args, _Timeout) ->
     riak_pipe:queue_work(Pipe, {{<<"MRbucket">>, <<"foo">>}, {struct, []}}),
@@ -514,14 +529,20 @@ flushputfun(leveled) ->
 flushputfun(eleveldb) ->
     "riak_kv_eleveldb_backend:flush_put/5";
 flushputfun(bitcask) ->
-    "riak_kv_bitcask_backend:flush_put/5".
+    "riak_kv_bitcask_backend:flush_put/5";
+flushputfun(undefined) ->
+    flushputfun(bitcask).
 
 flushput_cnt(TraceFun, File) ->
-    logger:info("checking ~p", [File]),
+    ?LOG_INFO("checking ~0p", [File]),
+    %% redbug doesn't create the file until it has something to write to it,
+    %% so accommodate non-existence
     case file:read_file(File) of
         {ok, FileData} ->
-            count_matches(re:run(FileData, TraceFun, [global]));
-        {error, enoent} ->
+            Pattern = "\\b" ++ TraceFun ++ "\\b",
+            count_matches(re:run(FileData, Pattern, [global]));
+        Error ->
+            ?assertMatch({error, enoent}, Error),
             0
     end.
 
@@ -529,3 +550,6 @@ count_matches(nomatch) ->
     0;
 count_matches({match, Matches}) ->
     length(Matches).
+
+delete_files(Files) ->
+    lists:foreach(fun file:delete/1, Files).

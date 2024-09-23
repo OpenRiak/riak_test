@@ -328,7 +328,7 @@ req_cnf(DN) ->
      "default_bits	= ", DN#dn.default_bits, "\n"
      "RANDFILE		= $ROOTDIR/RAND\n"
      "encrypt_key	= no\n"
-     "default_md	= sha1\n"
+     "default_md	= sha256\n"
      %% use string_mask to force the use of UTF8 for CN fields, as some OpenSSL installs
      %% end up creating 'teletexString' fields, which nobody supports any more (since 2003)
      "string_mask	= utf8only\n"

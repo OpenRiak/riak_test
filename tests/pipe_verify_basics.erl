@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2012-2015 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -23,15 +23,13 @@
 %% it can reference its functions in pipe workers.
 %%
 %% These tests used to be known as riak_pipe:basic_test_/0.
-
 -module(pipe_verify_basics).
+-behavior(riak_test).
 
--export([
-         %% riak_test's entry
-         confirm/0
-        ]).
+-export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(NODE_COUNT, 3).
 
@@ -39,7 +37,7 @@
 -include("rt_pipe.hrl").
 
 confirm() ->
-    lager:info("Build ~b node cluster", [?NODE_COUNT]),
+    ?LOG_INFO("Build ~b node cluster", [?NODE_COUNT]),
     Nodes = rt:build_cluster(?NODE_COUNT),
 
     [rt:wait_for_service(Node, riak_pipe) || Node <- Nodes],
@@ -53,7 +51,7 @@ confirm() ->
 
     rt_pipe:assert_no_zombies(Nodes),
 
-    lager:info("~s: PASS", [atom_to_list(?MODULE)]),
+    ?LOG_INFO("~s: PASS", [atom_to_list(?MODULE)]),
     pass.
 
 %% @doc generic driver used as a riak_pipe:generic_transform
@@ -69,10 +67,10 @@ mult_by_2(X) ->
     2 * X.
 
 verify_order([RN|_]) ->
-    lager:info("Verifying fittings operate in order"),
+    ?LOG_INFO("Verifying fittings operate in order"),
 
     AllLog = [{log, sink}, {trace, all}],
-    {eoi, Res, Trace} = 
+    {eoi, Res, Trace} =
         rpc:call(RN, riak_pipe, generic_transform,
                  [fun mult_by_2/1, fun order_fun/1, AllLog, 5]),
 
@@ -83,12 +81,12 @@ verify_order([RN|_]) ->
     ?assertEqual([1,2,4,8,16], [X || {_, X} <- Qed]).
 
 verify_trace_filtering([RN|_]) ->
-    lager:info("Verify that trace messages are filtered"),
-    {eoi, Res, Trace1} = 
+    ?LOG_INFO("Verify that trace messages are filtered"),
+    {eoi, Res, Trace1} =
         rpc:call(RN, riak_pipe, generic_transform,
                  [fun mult_by_2/1, fun order_fun/1,
                   [{log,sink}, {trace, [eoi]}], 5]),
-    {eoi, Res, Trace2} = 
+    {eoi, Res, Trace2} =
         rpc:call(RN, riak_pipe, generic_transform,
                  [fun mult_by_2/1, fun order_fun/1,
                   [{log,sink}, {trace, all}], 5]),
@@ -97,7 +95,7 @@ verify_trace_filtering([RN|_]) ->
     ?assert(length(Trace1) < length(Trace2)).
 
 verify_recursive_countdown_1([RN|_]) ->
-    lager:info("Verify recurse_input"),
+    ?LOG_INFO("Verify recurse_input"),
     Spec = [#fitting_spec{name=counter,
                           module=riak_pipe_w_rec_countdown}],
     Opts = [{sink, rt_pipe:self_sink()}],
@@ -108,7 +106,7 @@ verify_recursive_countdown_1([RN|_]) ->
     ?assertEqual([{counter,0},{counter,1},{counter,2},{counter,3}], Res).
 
 verify_recursive_countdown_2([RN|_]) ->
-    lager:info("Verify nondeterministic recurse_input"),
+    ?LOG_INFO("Verify nondeterministic recurse_input"),
     verify_recursive_countdown_2(RN, 10).
 
 verify_recursive_countdown_2(RN, Retries) when Retries > 0 ->
@@ -127,12 +125,12 @@ verify_recursive_countdown_2(RN, Retries) when Retries > 0 ->
         [{counter,{trace,[restart],{vnode,{restart,_}}}}] ->
             ok;
         [] ->
-            lager:info("recursive countdown test #2 did not"
+            ?LOG_INFO("recursive countdown test #2 did not"
                        " trigger the done/eoi race it tests."
                        " Retries left: ~b", [Retries-1]),
             verify_recursive_countdown_2(RN, Retries-1)
     end;
 verify_recursive_countdown_2(_, _) ->
-    lager:warning("recursive countdown test #2 did not"
+    ?LOG_WARNING("recursive countdown test #2 did not"
                   " trigger the done/eoi race it tests."
                   " Consider re-running.").

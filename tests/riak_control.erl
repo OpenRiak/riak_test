@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,50 +21,49 @@
 %% @doc Run Riak Control on all nodes, and verify that we can upgrade
 %%      from legacy and previous to current, while ensuring Riak Control
 %%      continues to operate and doesn't crash on any node.
-
 -module(riak_control).
-
 -behaviour(riak_test).
 
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(RC_ENABLE_CFG, [{riak_control, [{enabled, true}, {auth, none}]}]).
 
 %% @doc Verify that Riak Control operates predictably during an upgrade.
 confirm() ->
     verify_upgrade(legacy),
-    rt:setup_harness(ignored, ignored),
+    rt:setup_harness(?MODULE, []),
     verify_upgrade(previous),
-    rt:setup_harness(ignored, ignored),
+    rt:setup_harness(?MODULE, []),
     pass.
 
 %% @doc Verify an upgrade succeeds with all nodes running control from
 %%      the specified `Vsn' to current.
 verify_upgrade(Vsn) ->
-    lager:info("Verify upgrade from ~p to current.", [Vsn]),
+    ?LOG_INFO("Verify upgrade from ~0p to current.", [Vsn]),
 
-    lager:info("Building cluster."),
+    ?LOG_INFO("Building cluster."),
     [Nodes] = rt:build_clusters([{3, Vsn, ?RC_ENABLE_CFG}]),
 
-    lager:info("Verifying all nodes are alive."),
+    ?LOG_INFO("Verifying all nodes are alive."),
     verify_alive(Nodes),
 
-    lager:info("Upgrading each node and verifying Control."),
+    ?LOG_INFO("Upgrading each node and verifying Control."),
     VersionedNodes = [{Vsn, Node} || Node <- Nodes],
     lists:foldl(fun verify_upgrade_fold/2, VersionedNodes, VersionedNodes),
 
-    lager:info("Validate capability convergence."),
+    ?LOG_INFO("Validate capability convergence."),
     validate_capability(VersionedNodes),
 
     ok.
 
 %% @doc Verify upgrade fold function.
 verify_upgrade_fold({FromVsn, Node}, VersionedNodes0) ->
-    lager:info("Upgrading ~p from ~p to current.", [Node, FromVsn]),
+    ?LOG_INFO("Upgrading ~0p from ~0p to current.", [Node, FromVsn]),
 
-    lager:info("Performing upgrade."),
+    ?LOG_INFO("Performing upgrade."),
     rt:upgrade(Node, current),
     rt:wait_for_service(Node, riak_kv),
 
@@ -74,20 +73,20 @@ verify_upgrade_fold({FromVsn, Node}, VersionedNodes0) ->
     %% Wait for Riak Control polling cycle.
     wait_for_control_cycle(Node),
 
-    lager:info("Versioned nodes is: ~p.", [VersionedNodes0]),
+    ?LOG_INFO("Versioned nodes is: ~0p.", [VersionedNodes0]),
     VersionedNodes = lists:keyreplace(Node, 2, VersionedNodes0, {current, Node}),
-    lager:info("Versioned nodes is now: ~p.", [VersionedNodes]),
+    ?LOG_INFO("Versioned nodes is now: ~0p.", [VersionedNodes]),
 
-    lager:info("Verify that all nodes are still alive."),
+    ?LOG_INFO("Verify that all nodes are still alive."),
     verify_alive([VersionedNode || {_, VersionedNode} <- VersionedNodes]),
 
-    lager:info("Verify that control still works on all nodes."),
+    ?LOG_INFO("Verify that control still works on all nodes."),
     verify_control(VersionedNodes),
 
     VersionedNodes.
 
 verify_control({Vsn, Node}, VersionedNodes) ->
-    lager:info("Verifying control on node ~p vsn ~p.", [Node, Vsn]),
+    ?LOG_INFO("Verifying control on node ~0p vsn ~0p.", [Node, Vsn]),
 
     %% Verify node resource.
     ?assertMatch(ok,
@@ -112,8 +111,8 @@ verify_control(VersionedNodes) ->
 %% @doc Verify a particular JSON resource responds.
 verify_resource(Node0, Resource) ->
     Node = rt:http_url(Node0),
-    Output = os:cmd(io_lib:format("curl -s -S ~s~p", [Node, Resource])),
-    lager:info("Verifying node ~p resource ~p.", [Node, Resource]),
+    Output = os:cmd(io_lib:format("curl -s -S ~s~0p", [Node, Resource])),
+    ?LOG_INFO("Verifying node ~0p resource ~0p.", [Node, Resource]),
     mochijson2:decode(Output).
 
 %% @doc Verify that riak_kv is still running on all nodes.
@@ -127,7 +126,7 @@ validate_nodes(ControlNode, VersionedNodes, Status0) ->
     {struct,
         [{<<"nodes">>, ResponseNodes}]} = verify_resource(ControlNode, "/admin/nodes"),
     MixedCluster = mixed_cluster(VersionedNodes),
-    lager:info("Mixed cluster: ~p.", [MixedCluster]),
+    ?LOG_INFO("Mixed cluster: ~0p.", [MixedCluster]),
 
     Results = lists:map(fun({struct, Node}) ->
 
@@ -159,7 +158,7 @@ mixed_cluster(VersionedNodes) ->
             lists:map(fun({Vsn, _}) -> Vsn end, VersionedNodes))) =/= 1.
 
 wait_for_control_cycle(Node) when is_atom(Node) ->
-    lager:info("Waiting for riak_control poll on node ~p.", [Node]),
+    ?LOG_INFO("Waiting for riak_control poll on node ~0p.", [Node]),
 
     {ok, CurrentVsn} = rpc:call(Node,
                                 riak_control_session,
@@ -206,7 +205,7 @@ validate_partitions({ControlVsn, ControlNode}, VersionedNodes) ->
             true;
         _ ->
             MixedCluster = mixed_cluster(VersionedNodes),
-            lager:info("Mixed cluster: ~p.", [MixedCluster]),
+            ?LOG_INFO("Mixed cluster: ~0p.", [MixedCluster]),
 
             Results = lists:map(fun({struct, Partition}) ->
 
@@ -233,7 +232,7 @@ valid_status(true, _, _, <<"valid">>) ->
     true;
 valid_status(MixedCluster, ControlVsn, NodeVsn, Status) ->
     %% Default failure case.
-    lager:info("Invalid status: ~p ~p ~p ~p", [MixedCluster,
+    ?LOG_INFO("Invalid status: ~0p ~0p ~0p ~0p", [MixedCluster,
                                                ControlVsn,
                                                NodeVsn,
                                                Status]),
@@ -248,10 +247,10 @@ validate_capability(VersionedNodes) ->
 
     %% We can test any node here, so just choose the first.
     [{_Vsn, Node}|_] = VersionedNodes,
-    lager:info("Verifying capability through ~p.", [Node]),
+    ?LOG_INFO("Verifying capability through ~0p.", [Node]),
 
     %% Wait the Riak Control converges.
-    lager:info("Waiting for riak_control to converge."),
+    ?LOG_INFO("Waiting for riak_control to converge."),
 
     rt:wait_until(Node, fun(N) ->
                 {ok, _, Status} = rpc:call(N,

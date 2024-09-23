@@ -17,7 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %% Tests the specific corner case where two ensemble peers become
 %% corrupted one after the other. The goal is to provoke the scenario
 %% where one of the peers initially trusts the other and syncs with it,
@@ -31,21 +31,24 @@
 %% Without the check_sync addition, this test could incorectly report
 %% {error, notfound} -- eg. data loss. With the addition, this test
 %% should now always pass.
-
+%%
 -module(ensemble_interleave).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 confirm() ->
     NVal = 5,
     Quorum = NVal div 2 + 1,
     Config = ensemble_util:fast_config(NVal),
-    lager:info("Building cluster and waiting for ensemble to stablize"),
+    ?LOG_INFO("Building cluster and waiting for ensemble to stablize"),
     Nodes = ensemble_util:build_cluster(8, Config, NVal),
     Node = hd(Nodes),
     vnode_util:load(Nodes),
 
-    lager:info("Creating/activating 'strong' bucket type"),
+    ?LOG_INFO("Creating/activating 'strong' bucket type"),
     rt:create_and_activate_bucket_type(Node, <<"strong">>,
                                        [{consistent, true}, {n_val, NVal}]),
     ensemble_util:wait_until_stable(Node, NVal),
@@ -64,7 +67,7 @@ confirm() ->
     Partitioned = [VNode || {_, VNode} <- PartitionedVN],
     [KillFirst,KillSecond|Suspend] = All -- PartitionedVN,
 
-    io:format("PL: ~p~n", [PL]),
+    ?LOG_INFO("PL: ~0p", [PL]),
     PBC = rt:pbc(Node),
     Options = [{timeout, 500}],
 
@@ -72,15 +75,15 @@ confirm() ->
     Part = rt:partition(Nodes -- Partitioned, Partitioned),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Writing ~p consistent keys", [1000]),
+    ?LOG_INFO("Writing ~b consistent keys", [1000]),
     [ok = rt:pbc_write(PBC, Bucket, Key, Key) || Key <- Keys],
 
-    lager:info("Read keys to verify they exist"),
+    ?LOG_INFO("Read keys to verify they exist"),
     [rt:pbc_read(PBC, Bucket, Key, Options) || Key <- Keys],
     rt:heal(Part),
 
     [begin
-         lager:info("Suspending vnode: ~p", [VIdx]),
+         ?LOG_INFO("Suspending vnode: ~0p", [VIdx]),
          vnode_util:suspend_vnode(VNode, VIdx)
      end || {VIdx, VNode} <- Suspend],
 
@@ -91,11 +94,11 @@ confirm() ->
     rpc:multicall(Nodes, riak_kv_entropy_manager, set_mode, [automatic]),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Disabling AAE"),
+    ?LOG_INFO("Disabling AAE"),
     rpc:multicall(Nodes, riak_kv_entropy_manager, disable, []),
     ensemble_util:wait_until_stable(Node, Quorum),
 
-    lager:info("Re-reading keys to verify they exist"),
+    ?LOG_INFO("Re-reading keys to verify they exist"),
     Expect = [ok, {error, timeout}, {error, <<"timeout">>}, {error, <<"failed">>}],
     [rt:pbc_read_check(PBC, Bucket, Key, Expect, Options) || Key <- Keys],
     pass.

@@ -17,12 +17,16 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%% @deprecated snmp is no longer present in Riak 3+
 -module(verify_snmp_repl).
+-deprecated(module).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
 -compile({parse_transform, rt_intercept_pt}).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(FIRST_CLUSTER, "cluster-1").
 -define(OTHER_CLUSTERS, ["cluster-2", "cluster-3"]).
@@ -63,7 +67,7 @@ intercept_riak_snmp_stat_poller(Node) ->
                     RiakTestProcess ! pass
                 catch
                     Exception:Reason ->
-                        lager:error("Failure in riak_snmp_stat_poller_orig:set_rows_orig: ~p~n", [{Exception, Reason}]),
+                        ?LOG_ERROR("Failure in riak_snmp_stat_poller_orig:set_rows_orig: ~0p", [{Exception, Reason}]),
                         RiakTestProcess ! {fail, {Exception, Reason}},
                         error({Exception, Reason})
                 end
@@ -74,15 +78,15 @@ wait_for_snmp_stat_poller() ->
         pass ->
             pass;
         {fail, Reason} ->
-            lager:error("Failure in wait_for_snmp_stat_poller: ~p~n", [Reason]),
+            ?LOG_ERROR("Failure in wait_for_snmp_stat_poller: ~0p", [Reason]),
             error({fail, Reason});
         X ->
-            lager:error("Unknown failure in wait_for_snmp_stat_poller: ~p~n", [X]),
+            ?LOG_ERROR("Unknown failure in wait_for_snmp_stat_poller: ~0p", [X]),
             error(X)
     after
         1000 ->
             Message =  "Timeout waiting for snmp_stat_poller.",
-            lager:error(Message),
+            ?LOG_ERROR(Message),
             error({timeout, Message})
     end.
 

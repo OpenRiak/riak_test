@@ -1,9 +1,32 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(repl_rt_cascading_rtq).
--compile([export_all, nowarn_export_all]).
+-behavior(riak_test).
 
--include_lib("eunit/include/eunit.hrl").
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"rt-cascading-rtq-systest-a">>).
+-define(RING_SIZE, 32).
 
 setup() ->
     rt:set_conf(all, [{"buckets.default.allow_mult", "false"}]),
@@ -37,10 +60,10 @@ rtq_data_buildup_test(ClusterNodes) ->
     {SourceLeader, SinkLeaderA, SinkLeaderB, SourceNodes, _SinkANodes, _SinkBNodes} = ClusterNodes,
 
     %% Enable RT replication from source cluster "SinkA"
-    lager:info("Enabling realtime between ~p and ~p", [SourceLeader, SinkLeaderB]),
+    ?LOG_INFO("Enabling realtime between ~0p and ~0p", [SourceLeader, SinkLeaderB]),
     enable_rt(SourceLeader, SourceNodes, "SinkA"),
     %% Enable RT replication from source cluster "SinkB"
-    lager:info("Enabling realtime between ~p and ~p", [SourceLeader, SinkLeaderA]),
+    ?LOG_INFO("Enabling realtime between ~0p and ~0p", [SourceLeader, SinkLeaderA]),
     enable_rt(SourceLeader, SourceNodes, "SinkB"),
 
     %% Get the baseline byte count for the rtq for each sink cluster
@@ -63,21 +86,21 @@ rtq_bytes(Node) ->
 
 make_clusters() ->
     NodeCount = rt_config:get(num_nodes, 6),
-    lager:info("Deploy ~p nodes", [NodeCount]),
+    ?LOG_INFO("Deploy ~b nodes", [NodeCount]),
     Nodes = deploy_nodes(NodeCount, true),
 
     {SourceNodes, SinkNodes} = lists:split(2, Nodes),
     {SinkANodes, SinkBNodes} = lists:split(2, SinkNodes),
-    lager:info("SinkANodes: ~p", [SinkANodes]),
-    lager:info("SinkBNodes: ~p", [SinkBNodes]),
+    ?LOG_INFO("SinkANodes: ~0p", [SinkANodes]),
+    ?LOG_INFO("SinkBNodes: ~0p", [SinkBNodes]),
 
-    lager:info("Build source cluster"),
+    ?LOG_INFO("Build source cluster"),
     repl_util:make_cluster(SourceNodes),
 
-    lager:info("Build sink cluster A"),
+    ?LOG_INFO("Build sink cluster A"),
     repl_util:make_cluster(SinkANodes),
 
-    lager:info("Build sink cluster B"),
+    ?LOG_INFO("Build sink cluster B"),
     repl_util:make_cluster(SinkBNodes),
 
     SourceFirst = hd(SourceNodes),
@@ -89,26 +112,26 @@ make_clusters() ->
     repl_util:name_cluster(AFirst, "SinkA"),
     repl_util:name_cluster(BFirst, "SinkB"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(SourceNodes),
     rt:wait_until_ring_converged(SinkANodes),
     rt:wait_until_ring_converged(SinkBNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(SourceNodes),
     rt:wait_until_transfers_complete(SinkANodes),
     rt:wait_until_transfers_complete(SinkBNodes),
 
     %% get the leader for the source cluster
-    lager:info("waiting for leader to converge on the source cluster"),
+    ?LOG_INFO("waiting for leader to converge on the source cluster"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(SourceNodes)),
 
     %% get the leader for the first sink cluster
-    lager:info("waiting for leader to converge on sink cluster A"),
+    ?LOG_INFO("waiting for leader to converge on sink cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(SinkANodes)),
 
     %% get the leader for the second cluster
-    lager:info("waiting for leader to converge on cluster B"),
+    ?LOG_INFO("waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(SinkBNodes)),
 
     SourceLeader = repl_util:get_leader(SourceFirst),
@@ -121,20 +144,20 @@ make_clusters() ->
     %% disable_cascading(ALeader, SinkANodes),
     %% disable_cascading(BLeader, SinkBNodes),
 
-    lager:info("Source Leader: ~p SinkALeader: ~p SinkBLeader: ~p", [SourceLeader, ALeader, BLeader]),
+    ?LOG_INFO("Source Leader: ~0p SinkALeader: ~0p SinkBLeader: ~0p", [SourceLeader, ALeader, BLeader]),
     {SourceLeader, ALeader, BLeader, SourceNodes, SinkANodes, SinkBNodes}.
 
-%% @doc Connect two clusters using a given name.
-connect_cluster(Source, Port, Name) ->
-    lager:info("Connecting ~p to ~p for cluster ~p.",
-               [Source, Port, Name]),
-    repl_util:connect_cluster(Source, "127.0.0.1", Port),
-    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
+%% @ doc Connect two clusters using a given name.
+%%connect_cluster(Source, Port, Name) ->
+%%    ?LOG_INFO("Connecting ~0p to ~0p for cluster ~0p.",
+%%               [Source, Port, Name]),
+%%    repl_util:connect_cluster(Source, "127.0.0.1", Port),
+%%    ?assertEqual(ok, repl_util:wait_for_connection(Source, Name)).
 
 %% @doc Connect two clusters for replication using their respective leader nodes.
 connect_clusters(SourceLeader, SinkLeader, SinkName) ->
     SinkPort = repl_util:get_port(SinkLeader),
-    lager:info("connect source cluster to ~p on port ~p", [SinkName, SinkPort]),
+    ?LOG_INFO("connect source cluster to ~0p on port ~0p", [SinkName, SinkPort]),
     repl_util:connect_cluster(SourceLeader, "127.0.0.1", SinkPort),
     ?assertEqual(ok, repl_util:wait_for_connection(SourceLeader, SinkName)).
 
@@ -149,13 +172,18 @@ cluster_conf(_CascadingWrites) ->
        {max_fssource_node, 20},
        {max_fssink_node, 20},
        {rtq_max_bytes, 1048576}
-      ]}
+      ]},
+      {riak_core, [
+        {ring_creation_size,        ?RING_SIZE},
+        {handoff_concurrency,       8},
+        {forced_ownership_handoff,  8},
+        {vnode_inactivity_timeout,  4000},
+        {vnode_management_timer,    2000}
+    ]}
     ].
 
 deploy_nodes(NumNodes, true) ->
-    rt:deploy_nodes(NumNodes, cluster_conf(always), [riak_kv, riak_repl]);
-deploy_nodes(NumNodes, false) ->
-    rt:deploy_nodes(NumNodes, cluster_conf(never), [riak_kv, riak_repl]).
+    rt:deploy_nodes(NumNodes, cluster_conf(always), [riak_kv, riak_repl]).
 
 %% @doc Turn on Realtime replication on the cluster lead by LeaderA.
 %%      The clusters must already have been named and connected.
@@ -166,20 +194,20 @@ enable_rt(SourceLeader, SourceNodes, SinkName) ->
     repl_util:start_realtime(SourceLeader, SinkName),
     rt:wait_until_ring_converged(SourceNodes).
 
-%% @doc Turn off Realtime replication on the cluster lead by LeaderA.
-disable_cascading(Leader, Nodes) ->
-    rpc:call(Leader, riak_repl_console, realtime_cascades, [["never"]]),
-    rt:wait_until_ring_converged(Nodes).
+%% @ doc Turn off Realtime replication on the cluster lead by LeaderA.
+%%disable_cascading(Leader, Nodes) ->
+%%    rpc:call(Leader, riak_repl_console, realtime_cascades, [["never"]]),
+%%    rt:wait_until_ring_converged(Nodes).
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start, Node]),
     ?assertEqual([],
                  repl_util:do_write(Node, Start, End, ?TEST_BUCKET, 1)).
 
 %% @doc Read from cluster a series of keys, asserting a certain number
 %%      of errors.
 read_from_cluster(Node, Start, End, Errors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start, Node]),
+    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start, Node]),
     Res2 = rt:systest_read(Node, Start, End, ?TEST_BUCKET, 1),
     ?assertEqual(Errors, length(Res2)).

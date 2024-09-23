@@ -1,42 +1,57 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2014-2015 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc Verify that location_down messages during replication occur
 %%      and are handled correctly.
-
 -module(repl_location_failures).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-location-failures-systest_a">>).
 -define(NUM_KEYS,    1000).
 
 -define(CONF(Retries), [
-        {riak_core,
-            [
-             {ring_creation_size, 8},
-             {default_bucket_props,
-                 [
-                     {n_val, 1},
-                     {allow_mult, true},
-                     {dvv_enabled, true}
-                 ]}
-            ]
-        },
-        {riak_kv,
-            [
-             %% Specify fast building of AAE trees
-             {anti_entropy, {on, []}},
-             {anti_entropy_build_limit, {100, 1000}},
-             {anti_entropy_concurrency, 100}
-            ]
-        },
-        {riak_repl,
-         [
-          {fullsync_strategy, keylist},
-          {fullsync_on_connect, false},
-          {fullsync_interval, disabled},
-          {max_reserve_retries, Retries}
-         ]}
-        ]).
+    {riak_core, [
+        {ring_creation_size, 8},
+        {default_bucket_props, [
+            {n_val, 1},
+            {allow_mult, true},
+            {dvv_enabled, true}
+        ]}
+    ]},
+    {riak_kv, [
+        %% Specify fast building of AAE trees
+        {anti_entropy, {on, []}},
+        {anti_entropy_build_limit, {100, 1000}},
+        {anti_entropy_concurrency, 100}
+    ]},
+    {riak_repl, [
+        {fullsync_strategy, keylist},
+        {fullsync_on_connect, false},
+        {fullsync_interval, disabled},
+        {max_reserve_retries, Retries}
+    ]}
+]).
 
 confirm() ->
     rt:set_advanced_conf(all, ?CONF(5)),
@@ -46,32 +61,32 @@ confirm() ->
     rt:wait_for_cluster_service(ANodes, riak_repl),
     rt:wait_for_cluster_service(BNodes, riak_repl),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = repl_util:get_leader(AFirst),
     LeaderB = repl_util:get_leader(BFirst),
 
-    lager:info("Finding connection manager ports."),
+    ?LOG_INFO("Finding connection manager ports."),
     BPort = repl_util:get_port(LeaderB),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     repl_util:connect_cluster_by_name(LeaderA, BPort, "B"),
 
     %% Write keys prior to fullsync.
@@ -81,7 +96,7 @@ confirm() ->
     repl_util:read_from_cluster(BFirst, 1, ?NUM_KEYS, ?TEST_BUCKET,
                                 ?NUM_KEYS),
 
-    lager:info("Test fullsync from cluster A leader ~p to cluster B",
+    ?LOG_INFO("Test fullsync from cluster A leader ~0p to cluster B",
                [LeaderA]),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
@@ -91,7 +106,7 @@ confirm() ->
                                 my_indices,
                                 [rt:get_ring(LeaderB)])),
 
-    lager:warning("BIndicies: ~p", [BIndicies]),
+    ?LOG_WARNING("BIndicies: ~0p", [BIndicies]),
 
     repl_util:validate_intercepted_fullsync(LeaderB,
                                             {riak_repl2_fs_node_reserver,

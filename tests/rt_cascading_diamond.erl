@@ -16,6 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% -------------------------------------------------------------------
 %% Topology for this cascading replication test:
 %%                      +-----+
 %%     +--------------->| top |
@@ -37,7 +38,8 @@
 %% API
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% test requires allow_mult=false b/c of rt:systest_read
@@ -108,7 +110,7 @@ diamond_tests(Nodes) ->
             Obj = riakc_obj:new(Bucket, Bin, Bin),
             riakc_pb_socket:put(Client, Obj, [{w,1}]),
             [begin
-                 ?debugFmt("Checking ~p", [N]),
+                 ?LOG_DEBUG("Checking ~0p", [N]),
                  ?assertEqual(Bin, rt_cascading:maybe_eventually_exists(N, Bucket, Bin))
              end || N <- [Bottom, Top, MidLeft]],
 
@@ -124,6 +126,6 @@ diamond_tests(Nodes) ->
 
     ],
     lists:foreach(fun({Name, Eval}) ->
-        lager:info("===== diamond: ~s =====", [Name]),
+        ?LOG_INFO("===== diamond: ~s =====", [Name]),
         Eval()
                   end, Tests).

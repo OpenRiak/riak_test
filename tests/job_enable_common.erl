@@ -17,7 +17,6 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 -module(job_enable_common).
 
 % Public API for use by other tests
@@ -48,9 +47,9 @@
     undefined_bucket/0
 ]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
--include_lib("riakhttpc/include/rhc.hrl").
 -include("job_enable_common.hrl").
 
 -define(DEFAULT_NUM_BUCKETS,    7).
@@ -66,7 +65,7 @@ enabled_string(false) ->
     "disabled".
 
 test_label(Class, Enabled, ClientType) ->
-    io_lib:format("~s ~p ~s", [ClientType, Class, enabled_string(Enabled)]).
+    io_lib:format("~s ~0p ~s", [ClientType, Class, enabled_string(Enabled)]).
 
 bin_bucket(Num) ->
     erlang:list_to_binary(["Bucket_", erlang:integer_to_list(Num)]).
@@ -243,7 +242,7 @@ close_client({pbc, Mod, PBC}) ->
     Mod:stop(PBC).
 
 setup_cluster([Node | _] = Nodes) ->
-    lager:info("Creating a cluster of ~b nodes ...", [erlang:length(Nodes)]),
+    ?LOG_INFO("Creating a cluster of ~b nodes ...", [erlang:length(Nodes)]),
     ?assertEqual(ok, rt:join_cluster(Nodes)),
     load_data(Node),
     ?assertEqual(ok, rt:wait_until_transfers_complete(Nodes)).
@@ -259,13 +258,13 @@ setup_yokozuna(Node) ->
 load_data([Node | _]) ->
     load_data(Node);
 load_data(Node) ->
-    lager:info("Writing known data to node ~p ...", [Node]),
+    ?LOG_INFO("Writing known data to node ~0p ...", [Node]),
     PBConn = rt:pbc(Node),
     load_data(PBConn, populated_bucket(), test_buckets()),
     riakc_pb_socket:stop(PBConn).
 
 test_operation(Node, Class, Enabled, ClientType) ->
-    lager:info("Testing ~s on ~p",
+    ?LOG_INFO("Testing ~s on ~0p",
         [test_label(Class, Enabled, ClientType), Node]),
     test_request(Node, Class, Enabled, ClientType).
 
@@ -301,14 +300,14 @@ test_operation(Node, Class, Enabled, ClientType) ->
 % test unless/until we want to implement it directly.
 test_request(Node, ?TOKEN_LIST_BUCKETS = Class, Enabled, pbc = ClientType) ->
     {_, Mod, _} = Client = open_client(ClientType, Node),
-    lager:warning(
-        "non-streaming list-buckets is not implemented in the ~p client,"
+    ?LOG_WARNING(
+        "non-streaming list-buckets is not implemented in the ~0p client,"
         " skipping the ~s test.",
         [Mod, test_label(Class, Enabled, ClientType)]),
     close_client(Client),
     ok;
 test_request(Node, ?TOKEN_LIST_BUCKETS = Class, Enabled, http = Scheme) ->
-    URL = make_url(Node, Scheme, "/buckets?buckets=true"),
+    URL = make_url(Node, Scheme, ["/buckets?buckets=true"]),
     Result = ibrowse:send_req(URL, [], get, [], [{response_format, binary}]),
     ?assertMatch({ok, _, _, _}, Result),
     {_, Code, _, Body} = Result,
@@ -323,7 +322,7 @@ test_request(Node, ?TOKEN_LIST_BUCKETS = Class, Enabled, http = Scheme) ->
     end;
 
 test_request(Node, ?TOKEN_LIST_BUCKETS_S = Class, false, http = Scheme) ->
-    URL = make_url(Node, Scheme, "/buckets?buckets=stream"),
+    URL = make_url(Node, Scheme, ["/buckets?buckets=stream"]),
     Result = ibrowse:send_req(URL, [], get),
     ?assertMatch({ok, _, _, _}, Result),
     {_, Code, _, Body} = Result,
@@ -344,7 +343,7 @@ test_request(Node, ?TOKEN_LIST_BUCKETS_S = Class, Enabled, ClientType) ->
 
 % protobuf list-keys only does streams, so skip the non-stream test
 test_request(_, ?TOKEN_LIST_KEYS = Class, Enabled, pbc = ClientType) ->
-    lager:info(
+    ?LOG_INFO(
         "non-streaming list-keys over protobufs is not implemented in Riak,"
         " skipping the ~s test.", [test_label(Class, Enabled, ClientType)]),
     ok;
@@ -416,7 +415,7 @@ test_request(Node, ?TOKEN_MAP_REDUCE = Class, Enabled, ClientType) ->
     end;
 
 test_request(_Node, ?TOKEN_MAP_REDUCE_JS = Class, Enabled, ClientType) ->
-    lager:info(
+    ?LOG_INFO(
         "map-reduce javascript discrimination is not implemented in Riak,"
         " skipping the ~s test.", [test_label(Class, Enabled, ClientType)]),
     ok;
@@ -528,7 +527,7 @@ test_request(Node, ?TOKEN_YZ_SEARCH = Class, Enabled, http) ->
     end;
 
 test_request(_Node, ?TOKEN_OLD_SEARCH = Class, Enabled, ClientType) ->
-    lager:warning(
+    ?LOG_WARNING(
         "riak_search job switch test not implemented,"
         " skipping the ~s test.", [test_label(Class, Enabled, ClientType)]),
     ok.
@@ -570,19 +569,16 @@ load_data(PBConn, PopBucket, [Bucket | Buckets]) ->
 load_data(_, _, []) ->
     ok.
 
-make_url(#rhc{ip = IP, port = Port, options = Opts}, Parts) ->
-    case proplists:get_value(is_ssl, Opts) of
-        true ->
-            make_url(https, IP, Port, Parts);
-        _ ->
-            make_url(http, IP, Port, Parts)
-    end;
 make_url(Node, Parts) ->
     make_url(Node, http, Parts).
 
-make_url(Node, Scheme, Parts) ->
-    % seems to be more reliable than calling rt:get_https_conn_info directly
-    #rhc{ip = IP, port = Port} = rt:httpc(Node),
+%% @hidden
+%% Previous implementations of this function noted reliability issues that
+%% may have been due to timing and could benefit from assuring that
+%%  `rt:wait_for_service(Node, riak_kv)'
+%% is invoked before this function.
+make_url(Node, http = Scheme, Parts) ->
+    {ok, {IP, Port}} = rt:get_http_conn_info(Node),
     make_url(Scheme, IP, Port, Parts).
 
 make_url(Scheme, Host, Port, Parts) ->

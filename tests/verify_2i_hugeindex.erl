@@ -17,8 +17,11 @@
 %% -------------------------------------------------------------------
 -module(verify_2i_hugeindex).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -import(secondary_index_tests, [int_to_key/1,
                                 stream_pb/3,
@@ -29,8 +32,8 @@
 -define(Q_OPTS, [{return_terms, true}]).
 -define(BUFFER_SIZE_CONF, [{webmachine, [{recbuf, 12288}]}]).
 
-%% Prior to Riak 2.1 HTTP headers could be of arbitrary size, and hence index 
-%% entries.  In 2.1 a change to mochiweb constarined http headers to be only as
+%% Prior to Riak 2.1 HTTP headers could be of arbitrary size, and hence index
+%% entries.  In 2.1 a change to mochiweb constrained http headers to be only as
 %% big as the receive buffer (default 8KB).
 %%
 %% From 2.9, this constraint still exists, but the receive buffer is now
@@ -92,7 +95,7 @@ decode_http_results([{struct, [Res]} | Rest ], Acc) ->
 %% general 2i utility
 put_an_object(HTTPc, N, IndexSize) ->
     Key = int_to_key(N),
-    Data = list_to_binary(io_lib:format("data~p", [N])),
+    Data = list_to_binary(io_lib:format("data~0p", [N])),
     BinIndex = generate_big_value(IndexSize, ?BAR),
     Indexes = [{"field1_bin", BinIndex},
                {"field2_int", N}
@@ -100,7 +103,7 @@ put_an_object(HTTPc, N, IndexSize) ->
     put_an_object(HTTPc, Key, Data, Indexes).
 
 put_an_object(HTTPc, Key, Data, Indexes) when is_list(Indexes) ->
-    lager:info("Putting object ~p", [Key]),
+    ?LOG_INFO("Putting object ~0p", [Key]),
     MetaData = dict:from_list([{<<"index">>, Indexes}]),
     Robj0 = riakc_obj:new(?BUCKET, Key),
     Robj1 = riakc_obj:update_value(Robj0, Data),
@@ -108,7 +111,7 @@ put_an_object(HTTPc, Key, Data, Indexes) when is_list(Indexes) ->
     rhc:put(HTTPc, Robj2).
 
 generate_big_value(0, BigVal) ->
-    lager:info("Generated big index value of size ~w", [byte_size(BigVal)]),
+    ?LOG_INFO("Generated big index value of size ~b", [byte_size(BigVal)]),
     BigVal;
 generate_big_value(N, <<BigValAcc/binary>>) ->
     M = min(N, 8),

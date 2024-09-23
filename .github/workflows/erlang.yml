@@ -1,0 +1,34 @@
+name: Erlang CI
+
+on:
+  push:
+    branches:
+      - nhse-develop-3.4
+  pull_request:
+    branches:
+      - nhse-develop-3.4
+
+jobs:
+
+  build:
+
+    name: Test on ${{ matrix.os }} with OTP ${{ matrix.otp }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: [24, 26]
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: lukka/get-cmake@latest
+      - uses: actions/checkout@v4
+      - name: Install Erlang/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+      - name: Compile
+        run: make all
+      - name: Run dialyzer
+        run: ./rebar3 as check do dialyzer

@@ -1,7 +1,5 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
-%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -19,11 +17,13 @@
 %% -------------------------------------------------------------------
 %% @doc Verification of Active Anti Entropy during node down - with or without
 %% configuration to run AAE only between primary vnodes.
-
-
 -module(verify_tictacaae_nodedown).
+-behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -85,7 +85,7 @@ verify_aae(Nodes, ExpectSuccess) ->
         false ->
             verify_data(Node1, KV1, aae_failed_to_fix_data)
     end,
-    
+
     rt:start_and_wait(FailNode1),
     verify_data(Node1, KV1, all_correct_data).
 
@@ -113,7 +113,7 @@ write_data(Node, KVs, Opts) ->
 
 % @doc Verifies that the data is eventually restored to the expected set.
 verify_data(Node, KeyValues, Expectation) ->
-    lager:info("Verify all replicas are eventually correct"),
+    ?LOG_INFO("Verify all replicas are eventually correct"),
     PB = rt:pbc(Node),
     CheckFun =
     fun() ->
@@ -125,17 +125,17 @@ verify_data(Node, KeyValues, Expectation) ->
             case Num == NumGood of
                 true -> true;
                 false ->
-                    lager:info("Data not yet correct: ~p mismatches",
+                    ?LOG_INFO("Data not yet correct: ~0p mismatches",
                                [Num-NumGood]),
                     false
             end
     end,
-    
+
     case rt:wait_until(CheckFun, ?RETRY_LOOPS, ?RETRY_PAUSE) of
         ok ->
-            lager:info("Data is now correct. Yay!");
+            ?LOG_INFO("Data is now correct. Yay!");
         {fail, false} ->
-            lager:error("AAE failed to fix data"),
+            ?LOG_ERROR("AAE failed to fix data"),
             ?assertEqual(aae_failed_to_fix_data, Expectation)
     end,
     riakc_pb_socket:stop(PB),
@@ -155,7 +155,7 @@ verify_replicas(Node, B, K, V, N) ->
     Vals = [merge_values(O) || {ok, O} <- Replies],
     Expected = [V || _ <- lists:seq(1, N)],
     Vals == Expected.
-    
+
 % @doc Reads a single replica of a value. This issues a get command directly
 % to the vnode handling the Nth primary partition of the object's preflist.
 get_replica(Node, Bucket, Key, I, N) ->
@@ -174,7 +174,7 @@ get_replica(Node, Bucket, Key, I, N) ->
             Reply
     after
         60000 ->
-            lager:error("Replica ~p get for ~p/~p timed out",
+            ?LOG_ERROR("Replica ~0p get for ~0p/~0p timed out",
                         [I, Bucket, Key]),
             ?assert(false)
     end.

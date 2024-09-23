@@ -21,25 +21,27 @@
 -behavior(riak_test).
 -export([confirm/0]).
 
+-include_lib("kernel/include/logger.hrl").
+
 confirm() ->
-    lager:info("Deploying previous cluster"),
+    ?LOG_INFO("Deploying previous cluster"),
     [Prev, Current] = rt:build_cluster([previous,  current]),
     PrevClient = rt:pbc(Prev),
     CurrentClient = rt:pbc(Current),
     K = <<"key">>,
     B = <<"bucket">>,
     V = <<"value">>,
-    lager:info("Putting object in previous version node"),
+    ?LOG_INFO("Putting object in previous version node"),
     riakc_pb_socket:put(PrevClient, riakc_obj:new(B, K, V)),
-    lager:info("Fetching object from previous version node"),
+    ?LOG_INFO("Fetching object from previous version node"),
     {ok, O} = riakc_pb_socket:get(PrevClient, B, K),
     O2 = riakc_obj:update_value(O, <<"value2">>),
-    lager:info("Putting updated object in current version node"),
+    ?LOG_INFO("Putting updated object in current version node"),
     ok = riakc_pb_socket:put(CurrentClient, O2),
-    lager:info("Fetching again from current version node"),
+    ?LOG_INFO("Fetching again from current version node"),
     {ok, O3} = riakc_pb_socket:get(CurrentClient, B, K),
     O4 = riakc_obj:update_value(O3, <<"value2">>),
-    lager:info("Putting updated object back in previous version node"),
+    ?LOG_INFO("Putting updated object back in previous version node"),
     ok = riakc_pb_socket:put(PrevClient, O4),
-    lager:info("Eso es todo amigos!"),
+    ?LOG_INFO("Eso es todo amigos!"),
     pass.

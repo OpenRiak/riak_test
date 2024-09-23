@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -17,16 +17,17 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
 %%% @copyright (C) 2013, Basho Technologies
 %%% @doc
 %%% riak_test for riak_dt counter convergence over repl
 %%% @end
-
 -module(verify_counter_repl).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"counter-bucket">>).
 -define(KEY, <<"counter-key">>).
@@ -93,7 +94,7 @@ rand_amt() ->
 
 %% Set up bi-directional full sync replication.
 repl_power_activate(ClusterA, ClusterB) ->
-    lager:info("repl power...ACTIVATE!"),
+    ?LOG_INFO("repl power...ACTIVATE!"),
     LeaderA = get_leader(hd(ClusterA)),
     info("got leader A"),
     LeaderB = get_leader(hd(ClusterB)),
@@ -130,4 +131,4 @@ get_mgr_port({_, Node}) ->
     Port.
 
 info(Message) ->
-    lager:info(Message).
+    ?LOG_INFO(Message).

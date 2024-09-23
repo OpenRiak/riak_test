@@ -1,3 +1,22 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2015-2016 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %%
 %% QuickCheck test to verify that the vnode proxy overloads when the
 %% mailbox estimate is in overload and that it recovers from overload
@@ -29,19 +48,25 @@
 %% TODO/Questions:
 %% 1) Is there a better way to do the initialization step?
 %% 2) Remove the riak_kv dependency so it's a pure riak_core test.
-
 -module(proxy_overload_recovery).
 -behaviour(riak_test).
 
--compile({nowarn_deprecated_function, 
-            [{gen_fsm, sync_send_event, 3}]}).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
 
 -ifdef(EQC).
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eqc/include/eqc_statem.hrl").
 -include_lib("eunit/include/eunit.hrl").
--export([confirm/0]).
--compile([export_all, nowarn_export_all]).
+
+-compile([
+    export_all,
+    nowarn_export_all,
+    {nowarn_deprecated_function, [
+        {gen_fsm, sync_send_event, 3}
+    ]}
+]).
 
 confirm() ->
     %% disable AAE to prevent vnode start delay opening AAE leveldb
@@ -54,12 +79,12 @@ confirm() ->
             rt:load_modules_on_nodes([?MODULE], Nodes),
 
             TestingTime = rt_config:get(eqc_testing_time, 120),
-            lager:info("Running vnode proxy overload property for ~p seconds\n",
+            ?LOG_INFO("Running vnode proxy overload property for ~w seconds\n",
                        [TestingTime]),
             ?assertEqual(true, rpc:call(Node1, ?MODULE, rtrun, [TestingTime])),
             pass;
         _ ->
-            lager:warning("EQC was unavailable on this machine - PASSing "
+            ?LOG_WARNING("EQC was unavailable on this machine - PASSing "
                           "the test, but it did not run. Wish we could skip.\n", []),
             pass
     end.
@@ -449,7 +474,7 @@ setup_eqc(Nodes) ->
         add_eqc_apps(Nodes)
     catch
         _:Err ->
-            lager:info("EQC unavailable: ~p\n", [Err]),
+            ?LOG_INFO("EQC unavailable: ~0p", [Err]),
             {error, unavailable}
     end.
 
@@ -482,10 +507,8 @@ wait_for_vnode_change(VPid0, Index) ->
 
 -else.  %% no EQC
 
--export([confirm/0]).
-
 confirm() ->
-    lager:info("EQC not enabled, skipping test"),
+    ?LOG_INFO("EQC not enabled, skipping test"),
     pass.
 
 -endif.

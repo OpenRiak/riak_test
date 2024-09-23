@@ -1,6 +1,7 @@
 %% -------------------------------------------------------------------
 %%
 %% Copyright (c) 2015 Basho Technologies, Inc.
+%% Copyright (c) 2018-2023 Workday, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,7 +21,10 @@
 
 -module(riak_kv_worker_intercepts).
 -compile([export_all, nowarn_export_all]).
+
+-include_lib("kernel/include/logger.hrl").
 -include("intercept.hrl").
+
 -define(M, riak_kv_worker_orig).
 
 %
@@ -44,3 +48,35 @@ handle_work_intercept({fold, FoldFun, FinishFun}, Sender, State) ->
         FinishFun(X)
     end,
     ?M:handle_work_orig({fold, FoldFun, FinishWrapperFun}, Sender, State).
+
+%%
+%% This intercept works in tandem with the rt_kv_worker_proc module,
+%% which will be informed of when work starts and when work ends.
+%% Riak tests can install callbacks into the start and stop points,
+%% to test various conditions.
+%%
+handle_work_handoff_intercept({fold, FoldFun, FinishFun}, Sender, State) ->
+    FoldWrapperFun = fun() ->
+        Ref = erlang:make_ref(),
+        catch global:send(rt_kv_worker_proc, {work_started, {node(), Ref}, self()}),
+        receive
+            {Ref, ok} ->
+                ok
+            after 1000 ->
+                ?LOG_WARNING("Timed out waiting for ok from rt_kv_worker_proc during start"),
+                timeout
+        end,
+        FoldFun()
+    end,
+    FinishWrapperFun = fun(X) ->
+        Ref = erlang:make_ref(),
+        catch global:send(rt_kv_worker_proc, {work_completed, {node(), Ref}, self()}),
+        receive
+            {Ref, ok} -> ok
+        after 1000 ->
+            ?LOG_WARNING("Timed out waiting for ok from rt_kv_worker_proc during complete"),
+            timeout
+        end,
+        FinishFun(X)
+    end,
+    ?M:handle_work_orig({fold, FoldWrapperFun, FinishWrapperFun}, Sender, State).

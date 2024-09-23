@@ -1,11 +1,30 @@
+%% -------------------------------------------------------------------
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 %% @doc
 %% This module implements a riak_test to prove real-time repl
 %% works as expected with automated discovery of peers
-
 -module(nextgenrepl_rtq_peerdiscovery).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"repl-aae-fullsync-systest_a">>).
 -define(A_RING, 16).
@@ -20,10 +39,13 @@
 -define(COMMMON_VAL_INIT, <<"CommonValueToWriteForAllObjects">>).
 -define(COMMMON_VAL_MOD, <<"CommonValueToWriteForAllModifiedObjects">>).
 
+-define(INIT_MIN_DELAY, 30).
 -define(INIT_MAX_DELAY, 60).
+
+-define(STND_MIN_DELAY, 120).
 -define(STND_MAX_DELAY, 3600).
 
--define(REPL_SLEEP, 2048). 
+-define(REPL_SLEEP, 2048).
     % May need to wait for 2 x the 1024ms max sleep time of a snk worker
 -define(WAIT_LOOPS, 12).
 -define(INITIAL_TIMEOUT, 10000).
@@ -60,9 +82,10 @@
           ]}
         ]).
 
--define(SNK_CONFIG(ClusterName, PeerList), 
-        [{riak_kv, 
+-define(SNK_CONFIG(ClusterName, PeerList),
+        [{riak_kv,
             [{replrtq_enablesink, true},
+                {replrtq_prompt_min_seconds, ?INIT_MIN_DELAY},
                 {replrtq_prompt_max_seconds, ?INIT_MAX_DELAY},
                 {replrtq_sinkqueue, ClusterName},
                 {replrtq_sinkpeers, PeerList},
@@ -74,7 +97,7 @@ confirm() ->
     ClusterBSrcQ = "cluster_a:any|cluster_c:any",
     ClusterCSrcQ = "cluster_b:any|cluster_a:any",
 
-    lager:info("Running tests with pb based peer relationships"),
+    ?LOG_INFO("Running tests with pb based peer relationships"),
 
     [ClusterA1, ClusterB1, ClusterC1] =
         rt:deploy_clusters([
@@ -87,15 +110,15 @@ confirm() ->
     rt:clean_cluster(ClusterA1),
     rt:clean_cluster(ClusterB1),
     rt:clean_cluster(ClusterC1),
-    
-    lager:info("Running tests with http based peer relationships"),
+
+    ?LOG_INFO("Running tests with http based peer relationships"),
 
     [ClusterA2, ClusterB2, ClusterC2] =
         rt:deploy_clusters([
             {1, ?CONFIG(?A_RING, ?A_NVAL, ClusterASrcQ)},
             {3, ?CONFIG(?B_RING, ?B_NVAL, ClusterBSrcQ)},
             {2, ?CONFIG(?C_RING, ?C_NVAL, ClusterCSrcQ)}]),
-    
+
     cluster_test(ClusterA2, ClusterB2, ClusterC2, http).
 
 cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
@@ -104,12 +127,12 @@ cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
     rt:join_cluster(ClusterB),
     rt:join_cluster(ClusterC),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
 
-    lager:info("Discover Peer IP/ports and restart with peer config"),
+    ?LOG_INFO("Discover Peer IP/ports and restart with peer config"),
     lists:foreach(compare_peer_info(1, Protocol), ClusterA),
     lists:foreach(compare_peer_info(3, Protocol), ClusterB),
     lists:foreach(compare_peer_info(2, Protocol), ClusterC),
@@ -124,7 +147,7 @@ cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
                 lists:keyfind(Protocol, 1, rt:connection_info(Node)),
             IP ++ ":" ++ integer_to_list(Port) ++ ":" ++ atom_to_list(Protocol)
         end,
-    
+
     PeerA = PeerConfigFun(NodeA),
     PeerB = PeerConfigFun(NodeB),
     PeerC = PeerConfigFun(NodeC),
@@ -132,44 +155,43 @@ cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
     reset_peer_config(ClusterA, cluster_a, PeerB, PeerC),
     reset_peer_config(ClusterB, cluster_b, PeerA, PeerC),
     reset_peer_config(ClusterC, cluster_c, PeerA, PeerB),
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
-    lager:info("Confirm riak_kv is up on all nodes."),
+    ?LOG_INFO("Confirm riak_kv is up on all nodes."),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
                     ClusterA ++ ClusterB ++ ClusterC),
-    lager:info("Wait for initial timeout on nextgenrepl services"),
+    ?LOG_INFO("Wait for initial timeout on nextgenrepl services"),
     timer:sleep(?INITIAL_TIMEOUT),
 
-    lager:info("Ready for test - with ~w client for rtq.", [Protocol]),
+    ?LOG_INFO("Ready for test - with ~w client for rtq.", [Protocol]),
     pass =
         test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC),
     StatsA1 = get_stats(ClusterA),
     StatsB1 = get_stats(ClusterB),
-    lager:info("ClusterA stats ~w", [StatsA1]),
-    lager:info("ClusterB stats ~w", [StatsB1]),
+    ?LOG_INFO("ClusterA stats ~w", [StatsA1]),
+    ?LOG_INFO("ClusterB stats ~w", [StatsB1]),
 
-    lager:info("Stopping a node - to confirm peers will reset"),
+    ?LOG_INFO("Stopping a node - to confirm peers will reset"),
     [NodeC1|_RestC1] = RestC,
     rt:stop_and_wait(NodeC1),
-    timer:sleep(?REPL_SLEEP),
-    lager:info("Every peer in cluster should reset"),
+    ?LOG_INFO("Every peer in cluster should reset"),
     LA = length(ClusterA),
     ?assertMatch(LA, length(reset_cluster_peers(NodeA, cluster_a))),
     LB = length(ClusterB),
     ?assertMatch(LB, length(reset_cluster_peers(NodeB, cluster_b))),
-    lager:info("No peers in affected cluster should reset"),
+    ?LOG_INFO("No peers in affected cluster should reset"),
     ?assertMatch(0, length(reset_cluster_peers(NodeC, cluster_c))),
     rt:start_and_wait(NodeC1),
     rt:wait_until_ring_converged(ClusterC),
     lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, ClusterC),
-    lager:info("Every peer should change on reset after start"),
+    ?LOG_INFO("Every peer should change on reset after start"),
     ?assertMatch(LA, length(reset_cluster_peers(NodeA, cluster_a))),
     ?assertMatch(LB, length(reset_cluster_peers(NodeB, cluster_b))),
 
 
-    lager:info("Confirm peer discovery handles suspended queue"),
+    ?LOG_INFO("Confirm peer discovery handles suspended queue"),
     PidA = get_peerdiscovery_pid(NodeA),
     ok = sink_action(NodeA, {suspend, cluster_a}),
     UA0 = update_discovery(NodeA, cluster_a),
@@ -179,7 +201,7 @@ cluster_test(ClusterA, ClusterB, ClusterC, Protocol) ->
     ?assert(not UA0),
     ?assertMatch(PidA, PidB),
 
-    lager:info("Confirm peer discovery handles disabled sink"),
+    ?LOG_INFO("Confirm peer discovery handles disabled sink"),
     ok = sink_action(NodeA, disable),
     UA1 = update_discovery(NodeA, cluster_a),
     PidC = get_peerdiscovery_pid(NodeA),
@@ -204,7 +226,7 @@ compare_peer_info(ExpectedPeers, Protocol) ->
                     {list_to_binary(IPm), Portm}
                 end,
                 rpc:call(Node, riak_client, membership_request, [Protocol])),
-        {Mod, RiakErlC} = 
+        {Mod, RiakErlC} =
             case Protocol of
                 pb ->
                     {ok, Pid} = riakc_pb_socket:start(IP, Port),
@@ -213,8 +235,8 @@ compare_peer_info(ExpectedPeers, Protocol) ->
                     {rhc, rhc:create(IP, Port, "riak", [])}
             end,
         {ok, MemberList} = Mod:peer_discovery(RiakErlC),
-        lager:info(
-            "Discovered Member list (two ways) ~p ~p",
+        ?LOG_INFO(
+            "Discovered Member list (two ways) ~0p ~0p",
             [MemberList, Protocol]),
         ?assert(lists:member({list_to_binary(IP), Port}, MemberList)),
         ?assertMatch(ExpectedPeers, length(MemberList)),
@@ -241,7 +263,7 @@ reset_cluster_worker_counts(Node, WorkerCount, PerPeerLimit) ->
     rpc:call(Node, riak_client, replrtq_reset_all_workercounts, [WorkerCount, PerPeerLimit]).
 
 reset_cluster_peers(Node, QueueName) ->
-    rpc:call(Node, riak_client, replrtq_reset_all_peers, [QueueName]).    
+    rpc:call(Node, riak_client, replrtq_reset_all_peers, [QueueName]).
 
 test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
 
@@ -249,22 +271,27 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     NodeB = hd(ClusterB),
     NodeC = hd(ClusterC),
 
-    lager:info("Sleep for peer discovery"),
+    ?LOG_INFO("Sleep for peer discovery"),
     timer:sleep((?INIT_MAX_DELAY + 1) * 1000),
-    set_max_delay(ClusterA ++ ClusterB ++ ClusterC, ?STND_MAX_DELAY),
+    set_max_delay(
+        ClusterA ++ ClusterB ++ ClusterC,
+        {?STND_MIN_DELAY, ?STND_MAX_DELAY}
+    ),
+    ?LOG_INFO("Sleep for next scheduled peer discovery"),
+    timer:sleep((?INIT_MAX_DELAY + 1) * 1000),
 
-    lager:info("Test empty clusters don't show any differences"),
+    ?LOG_INFO("Test empty clusters don't show any differences"),
     {http, {IPA, PortA}} = lists:keyfind(http, 1, rt:connection_info(NodeA)),
     {http, {IPB, PortB}} = lists:keyfind(http, 1, rt:connection_info(NodeB)),
     {http, {IPC, PortC}} = lists:keyfind(http, 1, rt:connection_info(NodeC)),
-    lager:info("Cluster A ~s ~w Cluster B ~s ~w Cluster C ~s ~w",
+    ?LOG_INFO("Cluster A ~s ~w Cluster B ~s ~w Cluster C ~s ~w",
                 [IPA, PortA, IPB, PortB, IPC, PortC]),
-    
+
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
-    lager:info("Test 1000 key difference and resolve"),
+    ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B and C do have them.
     write_to_cluster(NodeA, 1, 1000, new_obj),
     timer:sleep(?REPL_SLEEP),
@@ -273,8 +300,8 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
-    
-    lager:info("Test replicating tombstones"),
+
+    ?LOG_INFO("Test replicating tombstones"),
     delete_from_cluster(NodeA, 901, 1000),
     timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
@@ -284,7 +311,7 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
-    lager:info("Test replicating modified objects"),
+    ?LOG_INFO("Test replicating modified objects"),
     write_to_cluster(NodeB, 1, 100, ?COMMMON_VAL_MOD),
     timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_MOD, 0),
@@ -296,9 +323,9 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     true = check_all_insync({NodeA, IPA, PortA},
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
-    
-    lager:info("Test replicating from Cluster C"),
-    lager:info("Test 1000 key difference and resolve"),
+
+    ?LOG_INFO("Test replicating from Cluster C"),
+    ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B and C do have them.
     write_to_cluster(NodeC, 1001, 2000, new_obj),
     timer:sleep(?REPL_SLEEP),
@@ -308,30 +335,30 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
-    lager:info("Check peers stable"),
+    ?LOG_INFO("Check peers stable"),
     ?assertNot(check_peers_stable(NodeA, cluster_a)),
     ?assertNot(check_peers_stable(NodeB, cluster_b)),
     ?assertNot(check_peers_stable(NodeC, cluster_c)),
 
-    lager:info("Node A current peers ~p", [current_peers(NodeA, cluster_a)]),
-    lager:info("Node B current peers ~p", [current_peers(NodeB, cluster_b)]),
-    lager:info("Node C current peers ~p", [current_peers(NodeC, cluster_c)]),
+    ?LOG_INFO("Node A current peers ~0p", [current_peers(NodeA, cluster_a)]),
+    ?LOG_INFO("Node B current peers ~0p", [current_peers(NodeB, cluster_b)]),
+    ?LOG_INFO("Node C current peers ~0p", [current_peers(NodeC, cluster_c)]),
     ?assertMatch({8, 2}, worker_counts(NodeA)),
     ?assertMatch({8, 2}, worker_counts(NodeB)),
     ?assertMatch({8, 2}, worker_counts(NodeC)),
 
-    lager:info("Confirm no peers change on cluster-wide reset"),
+    ?LOG_INFO("Confirm no peers change on cluster-wide reset"),
     ?assertMatch([], reset_cluster_peers(NodeA, cluster_a)),
     ?assertMatch([], reset_cluster_peers(NodeB, cluster_b)),
     ?assertMatch([], reset_cluster_peers(NodeC, cluster_c)),
 
-    lager:info("Confirm all peers change on cluster-wide count reset"),
+    ?LOG_INFO("Confirm all peers change on cluster-wide count reset"),
     ?assertMatch(1, length(reset_cluster_worker_counts(NodeA, 12, 3))),
     ?assertMatch(3, length(reset_cluster_worker_counts(NodeB, 12, 3))),
     ?assertMatch(2, length(reset_cluster_worker_counts(NodeC, 12, 3))),
 
-    lager:info("Test replicating from Cluster B"),
-    lager:info("Test 1000 key difference and resolve"),
+    ?LOG_INFO("Test replicating from Cluster B"),
+    ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster B, verify A and C do have them.
     write_to_cluster(NodeB, 2001, 3000, new_obj),
     timer:sleep(?REPL_SLEEP),
@@ -341,7 +368,7 @@ test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC) ->
                             {NodeB, IPB, PortB},
                             {NodeC, IPC, PortC}),
 
-    lager:info("Confirm modified worker counts"),
+    ?LOG_INFO("Confirm modified worker counts"),
     lists:foreach(
         fun(N) -> ?assertMatch({12, 3}, worker_counts(N)) end,
         ClusterA ++ ClusterB ++ ClusterC),
@@ -378,13 +405,13 @@ fullsync_check({SrcNode, _SrcIP, _SrcPort, SrcNVal},
 
 %% @doc Write a series of keys and ensure they are all written.
 write_to_cluster(Node, Start, End, CommonValBin) ->
-    lager:info("Writing ~p keys to node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start + 1, Node]),
+    ?LOG_WARNING("Note that only utf-8 keys are used"),
     {ok, C} = riak:client_connect(Node),
-    F = 
+    F =
         fun(N, Acc) ->
             Key = list_to_binary(io_lib:format("~8..0B~n", [N])),
-            Obj = 
+            Obj =
                 case CommonValBin of
                     new_obj ->
                         CVB = ?COMMMON_VAL_INIT,
@@ -407,14 +434,14 @@ write_to_cluster(Node, Start, End, CommonValBin) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while writing: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~b errors while writing: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 delete_from_cluster(Node, Start, End) ->
-    lager:info("Deleting ~p keys from node ~p.", [End - Start + 1, Node]),
-    lager:warning("Note that only utf-8 keys are used"),
+    ?LOG_INFO("Deleting ~b keys from node ~0p.", [End - Start + 1, Node]),
+    ?LOG_WARNING("Note that only utf-8 keys are used"),
     {ok, C} = riak:client_connect(Node),
-    F = 
+    F =
         fun(N, Acc) ->
             Key = list_to_binary(io_lib:format("~8..0B~n", [N])),
             try riak_client:delete(?TEST_BUCKET, Key, C) of
@@ -428,7 +455,7 @@ delete_from_cluster(Node, Start, End) ->
             end
         end,
     Errors = lists:foldl(F, [], lists:seq(Start, End)),
-    lager:warning("~p errors while deleting: ~p", [length(Errors), Errors]),
+    ?LOG_WARNING("~b errors while deleting: ~0p", [length(Errors), Errors]),
     ?assertEqual([], Errors).
 
 
@@ -437,10 +464,10 @@ delete_from_cluster(Node, Start, End) ->
 read_from_cluster(Node, Start, End, CommonValBin, Errors) ->
     read_from_cluster(Node, Start, End, CommonValBin, Errors, false).
 
-read_from_cluster(Node, Start, End, CommonValBin, Errors, LogErrors) ->
-    lager:info("Reading ~p keys from node ~p.", [End - Start + 1, Node]),
+read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
+    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
-    F = 
+    F =
         fun(N, Acc) ->
             Key = list_to_binary(io_lib:format("~8..0B~n", [N])),
             case  riak_client:get(?TEST_BUCKET, Key, C) of
@@ -457,36 +484,20 @@ read_from_cluster(Node, Start, End, CommonValBin, Errors, LogErrors) ->
             end
         end,
     ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    case Errors of
-        undefined ->
-            lager:info("Errors Found in read_from_cluster ~w",
-                        [length(ErrorsFound)]);
-        _ ->
-            case LogErrors of
-                true ->
-                    LogFun = 
-                        fun(Error) ->
-                            lager:info("Read error ~w", [Error])
-                        end,
-                    lists:foreach(LogFun, ErrorsFound);
-                false ->
-                    ok
-            end,
-            % case length(ErrorsFound) of
-            %     Errors ->
-            %         ok;
-            %     _ ->
-            %         lists:foreach(fun(E) -> lager:warning("Read error ~w", [E]) end, ErrorsFound)
-            % end,
-            ?assertEqual(Errors, length(ErrorsFound))
-    end.
+    % case length(ErrorsFound) of
+    %     Errors ->
+    %         ok;
+    %     _ ->
+    %         lists:foreach(fun(E) -> ?LOG_WARNING("Read error ~w", [E]) end, ErrorsFound)
+    % end,
+    ?assertEqual(Errors, length(ErrorsFound)).
 
 
 get_stats(Cluster) ->
     Stats = {0, 0, 0, 0, 0, 0},
         % {prefetch, tofetch, nofetch, object, error, empty}
-    lists:foldl(fun(N, {PFAcc, TFAcc, NFAcc, FOAcc, FErAcc, FEmAcc}) -> 
-                        S = verify_riak_stats:get_stats(N),
+    lists:foldl(fun(N, {PFAcc, TFAcc, NFAcc, FOAcc, FErAcc, FEmAcc}) ->
+                        S = rt:get_stats(N),
                         {<<"ngrfetch_prefetch_total">>, PFT} =
                             lists:keyfind(<<"ngrfetch_prefetch_total">>, 1, S),
                         {<<"ngrfetch_tofetch_total">>, TFT} =
@@ -506,14 +517,19 @@ get_stats(Cluster) ->
                     Cluster).
 
 set_max_delay([], S) ->
-    lager:info("Set Max Delay on all clusters to ~w", [S]);
-set_max_delay([Node|Rest], S) ->
+    ?LOG_INFO("Set Max Delay on all clusters to ~w", [S]);
+set_max_delay([Node|Rest], {Min, Max}) ->
     rpc:call(
         Node,
         application,
         set_env,
-        [riak_kv, replrtq_prompt_max_seconds, S]),
-    set_max_delay(Rest, S).
+        [riak_kv, replrtq_prompt_min_seconds, Min]),
+    rpc:call(
+        Node,
+        application,
+        set_env,
+        [riak_kv, replrtq_prompt_max_seconds, Max]),
+    set_max_delay(Rest, {Min, Max}).
 
 check_peers_stable(Node, QueueName) ->
     rpc:call(Node, riak_kv_replrtq_peer, update_discovery, [QueueName]).

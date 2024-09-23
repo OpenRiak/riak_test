@@ -23,7 +23,8 @@
 -export([wait_for_queues_to_drain/2]).
 -import(location, [plan_and_wait/2]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(DEFAULT_RING_SIZE, 16).
 -define(SNK_WORKERS, 4).
@@ -95,7 +96,7 @@ confirm() ->
             {4, ?CFG_REPL("cluster_b:any", 3)},
             {2, ?CFG_REPL("cluster_a:any", 3)}]),
 
-    lager:info("Discover Peer IP/ports and restart with peer config"),
+    ?LOG_INFO("Discover Peer IP/ports and restart with peer config"),
     reset_peer_config(ClusterA, ClusterB),
 
     lists:foreach(
@@ -115,7 +116,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
     {ok, CH} = riak:client_connect(hd(Nodes)),
     {ok, CR} = riak:client_connect(hd(ClusterB)),
 
-    lager:info("Creating bucket types"),
+    ?LOG_INFO("Creating bucket types"),
     rt:create_and_activate_bucket_type(
         hd(Nodes),
         element(1, ?BUCKET), 
@@ -125,11 +126,11 @@ verify_clock_pruning(Nodes, ClusterB) ->
         element(1, ?BUCKET), 
         [{young_vclock, 20}, {old_vclock, 30}, {small_vclock, 10}, {big_vclock, 10}]),
 
-    lager:info("Commencing object load"),
+    ?LOG_INFO("Commencing object load"),
     KeyLoadFun =
         fun(V) ->
             fun(Node, KeyCount) ->
-                lager:info("Loading from key ~w on node ~w", [KeyCount, Node]),
+                ?LOG_INFO("Loading from key ~w on node ~w", [KeyCount, Node]),
                 KVs = 
                     test_data(
                         KeyCount + 1, KeyCount + ?NUM_KEYS_PERNODE, V),
@@ -139,7 +140,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
         end,
 
     lists:foldl(KeyLoadFun(list_to_binary("U1")), 1, Nodes),
-    lager:info("Loaded ~w objects", [?NUM_KEYS_PERNODE * length(Nodes)]),
+    ?LOG_INFO("Loaded ~w objects", [?NUM_KEYS_PERNODE * length(Nodes)]),
     wait_for_queues_to_drain(Nodes, cluster_b),
 
     FetchClocksQuery = {fetch_clocks_range, ?BUCKET, all, all, all},
@@ -151,7 +152,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
         end
     ),
     
-    lager:info("Stopping a node - query results should be unchanged"),
+    ?LOG_INFO("Stopping a node - query results should be unchanged"),
     FiddlingNode = hd(tl(Nodes)),
     RestNodes = Nodes -- [FiddlingNode],
     rt:stop_and_wait(FiddlingNode),
@@ -163,14 +164,14 @@ verify_clock_pruning(Nodes, ClusterB) ->
     {ok, KCL3} = riak_client:aae_fold(FetchClocksQuery, CH),
     ?assertMatch(true, lists:sort(KCL2) == lists:sort(KCL3)),
 
-    lager:info("**************************"),
-    lager:info("Testing clock pruning"),
-    lager:info("Bucket type has a lower than standard big_clock/small_clock"),
-    lager:info("This should mean that clocks will reach pruning limit"),
-    lager:info("Given enough updates and cluster changes"),
-    lager:info("**************************"),
+    ?LOG_INFO("**************************"),
+    ?LOG_INFO("Testing clock pruning"),
+    ?LOG_INFO("Bucket type has a lower than standard big_clock/small_clock"),
+    ?LOG_INFO("This should mean that clocks will reach pruning limit"),
+    ?LOG_INFO("Given enough updates and cluster changes"),
+    ?LOG_INFO("**************************"),
 
-    lager:info("Update keys 4 times"),
+    ?LOG_INFO("Update keys 4 times"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U2")), 1, RestNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U3")), 1, RestNodes),
@@ -178,28 +179,28 @@ verify_clock_pruning(Nodes, ClusterB) ->
     lists:foldl(KeyLoadFun(list_to_binary("U5")), 1, RestNodes),
     wait_for_queues_to_drain(RestNodes, cluster_b),
 
-    lager:info("Leave node ~w", [FiddlingNode]),
+    ?LOG_INFO("Leave node ~w", [FiddlingNode]),
     
     ok = rt:staged_leave(FiddlingNode),
     rt:wait_until_ring_converged(Nodes),
     ok = plan_and_wait(hd(RestNodes), RestNodes),
     rt:wait_until_unpingable(FiddlingNode),
 
-    lager:info("Update keys 3 times"),
+    ?LOG_INFO("Update keys 3 times"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U6")), 1, RestNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U7")), 1, RestNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U8")), 1, RestNodes),
     wait_for_queues_to_drain(RestNodes, cluster_b),
     
-    lager:info("Rejoin Node ~w", [FiddlingNode]),
+    ?LOG_INFO("Rejoin Node ~w", [FiddlingNode]),
     rt:start(FiddlingNode),
     rt:wait_until_ready(FiddlingNode),
     rt:wait_until_pingable(FiddlingNode),
     rt:staged_join(FiddlingNode, hd(Nodes)),
     plan_and_wait(hd(Nodes), Nodes),
 
-    lager:info("Update keys 3 times"),
+    ?LOG_INFO("Update keys 3 times"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U9")), 1, RestNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U10")), 1, RestNodes),
@@ -211,21 +212,21 @@ verify_clock_pruning(Nodes, ClusterB) ->
     EndNode = lists:last(Nodes),
     FrontNodes = Nodes -- [EndNode],
 
-    lager:info("Leave node ~w", [EndNode]),
+    ?LOG_INFO("Leave node ~w", [EndNode]),
     
     ok = rt:staged_leave(EndNode),
     rt:wait_until_ring_converged(Nodes),
     ok = plan_and_wait(hd(Nodes), FrontNodes),
     rt:wait_until_unpingable(EndNode),
 
-    lager:info("Update keys 3 times"),
+    ?LOG_INFO("Update keys 3 times"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U12")), 1, FrontNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U13")), 1, FrontNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U14")), 1, FrontNodes),
     wait_for_queues_to_drain(FrontNodes, cluster_b),
     
-    lager:info("Rejoin Node ~w", [EndNode]),
+    ?LOG_INFO("Rejoin Node ~w", [EndNode]),
     rt:start(EndNode),
     rt:wait_until_ready(EndNode),
     rt:wait_until_pingable(EndNode),
@@ -234,7 +235,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
 
     lists:foreach(fun(N) -> reset_sink(cluster_b, N) end, ClusterB),
 
-    lager:info("Update keys 3 times"),
+    ?LOG_INFO("Update keys 3 times"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U15")), 1, FrontNodes),
     lists:foldl(KeyLoadFun(list_to_binary("U16")), 1, FrontNodes),
@@ -246,11 +247,11 @@ verify_clock_pruning(Nodes, ClusterB) ->
     ?assert(element(2, lists:keyfind(10, 1, CL2D)) > 0),
     ?assert(element(1, lists:last(CL2D)) == 10),
     BigClocksNow = element(2, lists:keyfind(8, 1, CL2D)),
-    lager:info("there are prunable clocks - but none bigger"),
+    ?LOG_INFO("there are prunable clocks - but none bigger"),
 
-    lager:info("Confirm match of clock lengths between active and passive"),
+    ?LOG_INFO("Confirm match of clock lengths between active and passive"),
     ?assert(compare_clock_lengths(CH, CR, 5)),
-    lager:info("Change small_clock pruning limit on bucket properties"),
+    ?LOG_INFO("Change small_clock pruning limit on bucket properties"),
     ok =
         rpc:call(
             hd(Nodes),
@@ -270,7 +271,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
                 PB = rt:pbc(Node),
                 {ok, BProps} = riakc_pb_socket:get_bucket(PB, ?BUCKET),
                 SmallClock = proplists:get_value(small_vclock, BProps),
-                lager:info("Small clock is Set to ~w", [SmallClock]),
+                ?LOG_INFO("Small clock is Set to ~w", [SmallClock]),
                 V == SmallClock
             end
         end,
@@ -278,10 +279,10 @@ verify_clock_pruning(Nodes, ClusterB) ->
         fun(N) -> rt:wait_until(CheckSmallClockChange(N, 8)) end,
         Nodes ++ ClusterB),
 
-    lager:info("Touch all prunable clocks"),
+    ?LOG_INFO("Touch all prunable clocks"),
     TouchFun =
         fun({B, K, _C}) ->
-            lager:info("Touching ~s", [K]),
+            ?LOG_INFO("Touching ~s", [K]),
             {ok, Obj} = riak_client:get(B, K, CH),
             ok = riak_client:put(Obj, CH)
         end,
@@ -324,29 +325,29 @@ verify_clock_pruning(Nodes, ClusterB) ->
     {ok, KCLB} =
         riak_client:aae_fold({fetch_clocks_range, ?BUCKET, all, all, all}, CR),
     lists:foreach(
-        fun({_B, K, _C}) -> lager:info("Missing Key ~s", [K]) end,
+        fun({_B, K, _C}) -> ?LOG_INFO("Missing Key ~s", [K]) end,
         lists:sort(lists:subtract(KCLA, KCLB))),
 
-    lager:info("Confirm match of clock lengths between active and passive"),
+    ?LOG_INFO("Confirm match of clock lengths between active and passive"),
     ?assert(compare_clock_lengths(CH, CR, 5)),
 
-    lager:info("Update keys 3 times on passive cluster"),
+    ?LOG_INFO("Update keys 3 times on passive cluster"),
 
     lists:foldl(KeyLoadFun(list_to_binary("U18")), 1, ClusterB),
     lists:foldl(KeyLoadFun(list_to_binary("U19")), 1, ClusterB),
     lists:foldl(KeyLoadFun(list_to_binary("U20")), 1, ClusterB),
     wait_for_queues_to_drain(ClusterB, cluster_a),
 
-    lager:info("Confirm match of clock lengths between active and passive"),
+    ?LOG_INFO("Confirm match of clock lengths between active and passive"),
     ?assert(compare_clock_lengths(CH, CR, 5)),
 
-    lager:info("Full-sync setup - and show no deltas"),
+    ?LOG_INFO("Full-sync setup - and show no deltas"),
     ok = setup_fullsync_peer(Nodes, hd(ClusterB)),
     R = rpc:call(hd(Nodes), riak_client, ttaaefs_fullsync, [all_check, 60]),
-    lager:info("Full sync A -> B ~p", [R]),
+    ?LOG_INFO("Full sync A -> B ~p", [R]),
     ?assertMatch({root_compare, 0}, R),
 
-    lager:info("Temporary change to small_clock pruning limit"),
+    ?LOG_INFO("Temporary change to small_clock pruning limit"),
     ok =
         rpc:call(
             hd(Nodes),
@@ -357,11 +358,11 @@ verify_clock_pruning(Nodes, ClusterB) ->
         fun(N) -> rt:wait_until(CheckSmallClockChange(N, 9)) end,
         Nodes),
 
-    lager:info("Update keys once"),
+    ?LOG_INFO("Update keys once"),
     lists:foldl(KeyLoadFun(list_to_binary("U21")), 1, Nodes),
     wait_for_queues_to_drain(Nodes, cluster_b),
 
-    lager:info("Revert temporary change to small_clock pruning limit"),
+    ?LOG_INFO("Revert temporary change to small_clock pruning limit"),
     ok =
         rpc:call(
             hd(Nodes),
@@ -375,17 +376,17 @@ verify_clock_pruning(Nodes, ClusterB) ->
     CL3D = return_clock_lengths(CH),
     _ = return_clock_lengths(CR),
     BigClocks = element(2, lists:keyfind(9, 1, CL3D)),
-    lager:info("Big clocks on Cluster A ~w", [BigClocks]),
+    ?LOG_INFO("Big clocks on Cluster A ~w", [BigClocks]),
 
     return_clock_lengths(CH, CR, 10),
 
-    lager:info("No deltas between clusters"),
+    ?LOG_INFO("No deltas between clusters"),
     NoDeltaFun =
         fun() ->
             ACR3 =
                 rpc:call(
                     hd(Nodes), riak_client, ttaaefs_fullsync, [all_check, 60]),
-            lager:info("Full sync A -> B ~p", [ACR3]),
+            ?LOG_INFO("Full sync A -> B ~p", [ACR3]),
             {root_compare, 0} == ACR3
         end,
     rt:wait_until(NoDeltaFun),
@@ -393,7 +394,7 @@ verify_clock_pruning(Nodes, ClusterB) ->
     KeyLoadN1Fun =
         fun(V) ->
             fun(Node, KeyCount) ->
-                lager:info("Loading from key ~w on node ~w", [KeyCount, Node]),
+                ?LOG_INFO("Loading from key ~w on node ~w", [KeyCount, Node]),
                 KVs = 
                     test_data(
                         KeyCount + 1, KeyCount + ?NUM_KEYS_PERNODE, V),
@@ -401,10 +402,10 @@ verify_clock_pruning(Nodes, ClusterB) ->
                 KeyCount + ?NUM_KEYS_PERNODE
             end
         end,
-    lager:info("Update keys once - with n_val of 1"),
+    ?LOG_INFO("Update keys once - with n_val of 1"),
     lists:foldl(KeyLoadN1Fun(list_to_binary("U22")), 1, Nodes),
 
-    lager:info("Read repair all keys twice"),
+    ?LOG_INFO("Read repair all keys twice"),
     ExpectedKeys = length(Nodes) * ?NUM_KEYS_PERNODE,
     {ok,{[], ExpectedKeys, all, _BS0}} =
         riak_client:aae_fold({repair_keys_range, ?BUCKET, all, all, all}, CH),
@@ -417,16 +418,16 @@ verify_clock_pruning(Nodes, ClusterB) ->
     _ = return_clock_lengths(CH),
     _ = return_clock_lengths(CR),
 
-    lager:info("Full-sync should show deltas"),
+    ?LOG_INFO("Full-sync should show deltas"),
     ACR2 = rpc:call(hd(Nodes), riak_client, ttaaefs_fullsync, [all_check, 60]),
-    lager:info("Full sync A -> B ~p", [ACR2]),
+    ?LOG_INFO("Full sync A -> B ~p", [ACR2]),
 
     wait_for_queues_to_drain(Nodes, cluster_b),
 
     _ = return_clock_lengths(CH),
     _ = return_clock_lengths(CR),
 
-    lager:info("Full-sync should show no deltas"),
+    ?LOG_INFO("Full-sync should show no deltas"),
     rt:wait_until(NoDeltaFun)
 
     .
@@ -449,7 +450,7 @@ return_clock_lengths(RiakClient) ->
                     ClockLengthFun(?BUCKET))
             )
         ),
-    lager:info("Client ~w sees clock lengths: ~w", [RiakClient, ClockLengths]),
+    ?LOG_INFO("Client ~w sees clock lengths: ~w", [RiakClient, ClockLengths]),
     ClockLengths.
 
 compare_clock_lengths(CL, CR, 0) ->
@@ -459,19 +460,19 @@ compare_clock_lengths(CL, CR, 0) ->
     {ok, RawKCR} =
         riak_client:aae_fold(
             {fetch_clocks_range, ?BUCKET, all, all, all}, CR),
-    lager:info("Differences A to B:"),
+    ?LOG_INFO("Differences A to B:"),
     lists:foreach(
-        fun({_B, K, C}) -> lager:info("K ~s C ~w", [K, C]) end,
+        fun({_B, K, C}) -> ?LOG_INFO("K ~s C ~w", [K, C]) end,
         lists:sort(lists:subtract(RawKCL, RawKCR))
     ),
-    lager:info("Differences B to A:"),
+    ?LOG_INFO("Differences B to A:"),
     lists:foreach(
-        fun({_B, K, C}) -> lager:info("K ~s C ~w", [K, C]) end,
+        fun({_B, K, C}) -> ?LOG_INFO("K ~s C ~w", [K, C]) end,
         lists:sort(lists:subtract(RawKCR, RawKCL))
     ),
     false;
 compare_clock_lengths(CL, CR, N) ->
-    lager:info("Confirm match of clock lengths between active and passive"),
+    ?LOG_INFO("Confirm match of clock lengths between active and passive"),
     KCL = return_clock_lengths(CL),
     KCR = return_clock_lengths(CR),
     case KCL of
@@ -534,7 +535,7 @@ setup_fullsync_peer(ClusterA, NodeB) ->
     lists:foreach(
         fun(N) -> rt:set_advanced_conf(N, ClusterACfg) end, ClusterA),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ClusterA),
     lists:foreach(
         fun(N) -> rt:wait_for_service(N, riak_kv) end, ClusterA).
@@ -553,7 +554,7 @@ return_clock_lengths(CH, CR, N) ->
     return_clock_lengths(CH, CR, N - 1).
 
 wait_for_queues_to_drain([], QueueName) ->
-    lager:info("Queue ~w drained on nodes", [QueueName]);
+    ?LOG_INFO("Queue ~w drained on nodes", [QueueName]);
 wait_for_queues_to_drain([N|Rest], QueueName) ->
     rt:wait_until(
         fun() ->
@@ -578,7 +579,7 @@ get_read_stats(Node, N) ->
         [] ->
             true;
         NonEmptyQueues ->
-            lager:info(
+            ?LOG_INFO(
                 "Non-empty queues ~w on Node ~w",
                 [NonEmptyQueues, Node]),
             timer:sleep(10000),

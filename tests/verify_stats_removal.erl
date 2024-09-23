@@ -17,7 +17,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
-
+%%
 %% @doc
 %% Testing a fix for an issue where, once vnode-level stats were created, they were not removed
 %% even when the vnode was handed off. Not a big deal, unless you have 1024 vnodes, in which case
@@ -28,10 +28,13 @@
 %%
 -module(verify_stats_removal).
 -behavior(riak_test).
--export([confirm/0, get_stats_remote/1]).
--include_lib("eunit/include/eunit.hrl").
 
+-export([confirm/0]).
 
+%% spawned by name
+-export([get_stats_remote/1]).
+
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     Nodes = rt:deploy_nodes(2),
@@ -54,7 +57,7 @@ confirm() ->
     pass.
 
 get_stats_count_for_non_running_vnodes(Node1) ->
-    spawn_link(Node1, verify_stats_removal, get_stats_remote, [self()]),
+    spawn_link(Node1, ?MODULE, get_stats_remote, [self()]),
     receive
         {stats, NumStats} ->
             NumStats;

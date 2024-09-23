@@ -1,5 +1,7 @@
 %% -------------------------------------------------------------------
 %%
+%% Copyright (c) 2018-2023 Workday, Inc.
+%%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
 %% except in compliance with the License.  You may obtain
@@ -15,45 +17,12 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+-module(riak_repl2_fscoordinator_serv_intercepts).
 
--module(lager).
+-compile([export_all, nowarn_export_all]).
+-include("intercept.hrl").
+-define(M, riak_repl2_fscoordinator_serv_orig).
 
--export(
-    [debug/1, debug/2,
-        info/1, info/2,
-        notice/1, notice/2,
-        warning/1, warning/2,
-        error/1, error/2]).
-
-debug(Msg) ->
-    debug(Msg, []).
-
-debug(Msg, Args) ->
-    logger:debug(Msg, Args).
-
-info(Msg) ->
-    info(Msg, []).
-
-info(Msg, Args) ->
-    logger:info(Msg, Args).
-
-notice(Msg) ->
-    notice(Msg, []).
-
-notice(Msg, Args) ->
-    logger:notice(Msg, Args).
-
-warning(Msg) ->
-    warning(Msg, []).
-
-warning(Msg, Args) ->
-    logger:warning(Msg, Args).
-
-error(Msg) ->
-    log_error(Msg, []).
-
-error(Msg, Args) ->
-    log_error(Msg, Args).
-
-log_error(Msg, Args) ->
-    logger:error(Msg, Args).
+handle_protocol_msg_error(Msg, _) ->
+    ?I_INFO("Intentionally crashing on ~p on node ~p", [Msg, node()]),
+    erlang:error(intentional_intercept_error).

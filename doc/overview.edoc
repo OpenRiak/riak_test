@@ -12,49 +12,49 @@ preferred mode of operation as it is easy to setup and can easily test
 a work-in-progress development tree during implementation and
 code/automation review.
 
-The following is an example of a riak_test test:
+The following is an example of a test implementing the
+{@link riak_test. riak_test behavior}:
 
-<pre class="erlang">
 ```
 -module(verify_build_cluster).
--compile([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
 
--import(rt, [deploy_nodes/1,
-             owners_according_to/1,
-             join/2,
-             wait_until_nodes_ready/1,
-             wait_until_no_pending_changes/1]).
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     %% Deploy a set of new nodes
-    lager:info("Deploying 3 nodes"),
+    ?LOG_INFO("Deploying 3 nodes"),
     Nodes = rt:deploy_nodes(3),
 
     %% Ensure each node owns 100% of it's own ring
-    lager:info("Ensure each nodes 100% of it's own ring"),
-    [?assertEqual([Node], owners_according_to(Node)) || Node <- Nodes],
+    ?LOG_INFO("Ensure each nodes 100% of it's own ring"),
+    [?assertEqual([Node], rt:owners_according_to(Node)) || Node <- Nodes],
 
     %% Join nodes
-    lager:info("Join nodes together"),
-    [Node1|OtherNodes] = Nodes,
-    [join(Node, Node1) || Node <- OtherNodes],
+    ?LOG_INFO("Join nodes together"),
+    [Node1 | OtherNodes] = Nodes,
+    [rt:join(Node, Node1) || Node <- OtherNodes],
 
-    lager:info("Wait until all nodes are ready and there are no pending changes"),
-    ?assertEqual(ok, wait_until_nodes_ready(Nodes)),
-    ?assertEqual(ok, wait_until_no_pending_changes(Nodes)),
+    ?LOG_INFO("Wait until all nodes are ready and there are no pending changes"),
+    ?assertMatch(ok, rt:wait_until_nodes_ready(Nodes)),
+    ?assertMatch(ok, rt:wait_until_no_pending_changes(Nodes)),
 
     %% Ensure each node owns a portion of the ring
-    lager:info("Ensure each node owns a portion of the ring"),
-    [?assertEqual(Nodes, owners_according_to(Node)) || Node <- Nodes],
-    lager:info("verify_build_cluster: PASS"),
+    ?LOG_INFO("Ensure each node owns a portion of the ring"),
+    [?assertEqual(Nodes, rt:owners_according_to(Node)) || Node <- Nodes],
+
     pass.
 '''
-</pre>
+<b>Note</b> the inclusion of `"stdlib/include/assert.hrl"' instead of the
+formerly common `"eunit/include/eunit.hrl"'. This is strongly recommended to
+avoid undesirable side effects of the `eunit.hrl' file - test modules <i>ARE
+NOT</i> eunit tests.
 
 Running the test in devrel mode gives the following output:
 
-<pre class="erlang">
 ```
 08:56:50.474 [info] Resetting nodes to fresh state
 08:56:50.474 [debug] Running: git --git-dir="~/rt/riak/.git" --work-tree="~/rt/riak/" reset HEAD --hard
@@ -93,15 +93,13 @@ Running the test in devrel mode gives the following output:
 08:56:58.646 [debug] [join] 'dev3@127.0.0.1' to ('dev1@127.0.0.1'): ok
 08:56:58.646 [info] Wait until all nodes are ready and there are no pending changes
 08:57:07.245 [info] Ensure each node owns a portion of the ring
-08:57:07.249 [info] verify_build_cluster: PASS
-08:57:07.249 [notice] verify_build_cluster Test Run Complete
+08:57:07.249 [notice] verify_build_cluster Test Run Complete pass
 '''
-</pre>
 
 As shown, the tests look similar to standard eunit tests and are
 straightforward Erlang. The {@link rt} module provides the basic
 commands to control Riak nodes, and abstracts everything away from
-the underlying harness: devrel. The `rt' module
+the underlying harness. The `rt' module
 also provides a set of useful existing built-in operations. It is
 expected that the `rt' module will be extended over time with more
 reusable functions.
@@ -163,47 +161,54 @@ primitives including starting and stopping Riak nodes:
 <pre class="erlang">
 ```
 -module(verify_claimant).
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
+
 confirm() ->
-    Nodes = build_cluster(3),
+    Nodes = rt:build_cluster(3),
     [Node1, Node2, _Node3] = Nodes,
 
     %% Ensure all nodes believe node1 is the claimant
-    lager:info("Ensure all nodes believe ~p is the claimant", [Node1]),
-    [?assertEqual(Node1, claimant_according_to(Node)) || Node <- Nodes],
+    ?LOG_INFO("Ensure all nodes believe ~w is the claimant", [Node1]),
+    [?assertEqual(Node1, rt:claimant_according_to(Node)) || Node <- Nodes],
 
     %% Stop node1
-    lager:info("Stop ~p", [Node1]),
-    stop(Node1),
-    ?assertEqual(ok, wait_until_unpingable(Node1)),
+    ?LOG_INFO("Stop ~w", [Node1]),
+    rt:stop(Node1),
+    ?assertEqual(ok, rt:wait_until_unpingable(Node1)),
 
     %% Ensure all nodes still believe node1 is the claimant
-    lager:info("Ensure all nodes still believe ~p is the claimant", [Node1]),
+    ?LOG_INFO("Ensure all nodes still believe ~w is the claimant", [Node1]),
     Remaining = Nodes -- [Node1],
-    [?assertEqual(Node1, claimant_according_to(Node)) || Node <- Remaining],
+    [?assertEqual(Node1, rt:claimant_according_to(Node)) || Node <- Remaining],
 
     %% Mark node1 as down and wait for ring convergence
-    lager:info("Mark ~p as down", [Node1]),
-    down(Node2, Node1),
-    ?assertEqual(ok, wait_until_ring_converged(Remaining)),
-    [?assertEqual(down, status_of_according_to(Node1, Node)) || Node <- Remaining],
+    ?LOG_INFO("Mark ~w as down", [Node1]),
+    rt:down(Node2, Node1),
+    ?assertEqual(ok, rt:wait_until_ring_converged(Remaining)),
+    [?assertEqual(down, rt:status_of_according_to(Node1, Node)) || Node <- Remaining],
 
     %% Ensure all nodes now believe node2 to be the claimant
-    lager:info("Ensure all nodes now believe ~p is the claimant", [Node2]),
-    [?assertEqual(Node2, claimant_according_to(Node)) || Node <- Remaining],
+    ?LOG_INFO("Ensure all nodes now believe ~w is the claimant", [Node2]),
+    [?assertEqual(Node2, rt:claimant_according_to(Node)) || Node <- Remaining],
 
     %% Restart node1 and wait for ring convergence
-    lager:info("Restart ~p and wait for ring convergence", [Node1]),
-    start(Node1),
-    ?assertEqual(ok, wait_until_nodes_ready([Node1])),
-    ?assertEqual(ok, wait_until_ring_converged(Nodes)),
+    ?LOG_INFO("Restart ~w and wait for ring convergence", [Node1]),
+    rt:start(Node1),
+    ?assertEqual(ok, rt:wait_until_nodes_ready([Node1])),
+    ?assertEqual(ok, rt:wait_until_ring_converged(Nodes)),
 
     %% Ensure node has rejoined and is no longer down
-    lager:info("Ensure ~p has rejoined and is no longer down", [Node1]),
-    [?assertEqual(valid, status_of_according_to(Node1, Node)) || Node <- Nodes],
+    ?LOG_INFO("Ensure ~w has rejoined and is no longer down", [Node1]),
+    [?assertEqual(valid, rt:status_of_according_to(Node1, Node)) || Node <- Nodes],
 
     %% Ensure all nodes still believe node2 is the claimant
-    lager:info("Ensure all nodes still believe ~p is the claimant", [Node2]),
-    [?assertEqual(Node2, claimant_according_to(Node)) || Node <- Nodes],
+    ?LOG_INFO("Ensure all nodes still believe ~w is the claimant", [Node2]),
+    [?assertEqual(Node2, rt:claimant_according_to(Node)) || Node <- Nodes],
     pass.
 '''
 </pre>
@@ -245,3 +250,4 @@ test per module and that the module contains a same named zero arity
 function that implements the test. For example, the above calls
 `verify_build_cluster:confirm()'.
 
+@todo Much of this documentation is out of date and should be revised.

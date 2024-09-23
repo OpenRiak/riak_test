@@ -17,28 +17,31 @@
 %%% node_confirms value that cannot be met will be rejected.
 %%%
 %%% @end
-
 -module(verify_put_opt_node_confirms).
 -behavior(riak_test).
--compile([export_all, nowarn_export_all]).
+
 -export([confirm/0]).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"bucket">>).
 -define(KEY, <<"key">>).
--define(RING_SIZE, 8).
+-define(RING_SIZE, 32).
 
 confirm() ->
     Conf = [
             {riak_kv, [{anti_entropy, {off, []}}]},
-            {riak_core, [{default_bucket_props, [{allow_mult, true},
-                                                 {dvv_enabled, true},
-                                                 {ring_creation_size, ?RING_SIZE},
-                                                 {vnode_management_timer, 1000},
-                                                 {handoff_concurrency, 100},
-                                                 {vnode_inactivity_timeout, 1000}]}]},
-            {bitcask, [{sync_strategy, o_sync}, {io_mode, nif}]}],
+            {riak_core,
+                [{default_bucket_props,
+                        [{allow_mult, true}, {dvv_enabled, true}]},
+                    {ring_creation_size, ?RING_SIZE},
+                    {vnode_inactivity_timeout, 12000},
+                    {forced_ownership_handoff, 8},
+                    {handoff_concurrency, 8}
+                ]},
+            {bitcask, [{sync_strategy, o_sync}, {io_mode, nif}]}
+        ],
 
     [Node1|_] = rt:build_cluster(5, Conf),
 
@@ -54,21 +57,21 @@ confirm() ->
                                                      <<"old_counter">>
                                                     ]),
 
-    lager:info("Got preflist"),
-    lager:info("Preflist ~p~n", [PL]),
+    ?LOG_INFO("Got preflist"),
+    ?LOG_INFO("Preflist ~0p", [PL]),
     [FirstNode | OtherPrimaries] = [Node || {{_Idx, Node}, Type} <- PL,
                                             Type == primary],
-    lager:info("Other Primaries ~p~n", [OtherPrimaries]),
+    ?LOG_INFO("Other Primaries ~0p", [OtherPrimaries]),
 
     [rt:stop_and_wait(N) || N <- OtherPrimaries],
-    lager:info("Killed 2 primaries"),
+    ?LOG_INFO("Killed 2 primaries"),
     %% Wait for prelist to change to 1 primary, 2 fallbacks
     wait_for_new_preflist(FirstNode, hd(BucketTypes), 1, 2),
 
     HttpClient = rt:httpc(FirstNode),
     PBClient = rt:pbc(FirstNode),
 
-    lager:info("Attempting to write key"),
+    ?LOG_INFO("Attempting to write key"),
 
     %% Write key and confirm error pw=2 unsatisfied
     write_http(HttpClient, BucketTypes, {error, "503", <<"PW-value unsatisfied: 1/2\n">>}, [{pw, 2}]),
@@ -76,7 +79,7 @@ confirm() ->
 
     %% Now write test for pw=0, node_confirms=2. Should pass, as three physical nodes available
     %% Write key
-    lager:info("Attempting to write key"),
+    ?LOG_INFO("Attempting to write key"),
     %% write key and confirm success
     write_http(HttpClient, BucketTypes, ok, [{node_confirms, 2}]),
     write_pb(PBClient, BucketTypes, ok, [{node_confirms, 2}]),
@@ -84,7 +87,7 @@ confirm() ->
     %% Negative tests
 
     %% Write key
-    lager:info("Attempting to write key"),
+    ?LOG_INFO("Attempting to write key"),
     %% Write key and confirm error invalid pw/node_confirms
     write_http(HttpClient, BucketTypes,
                {error, "400", <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3\n">>},
@@ -94,16 +97,16 @@ confirm() ->
 
     %% Now stop another node and write test for pw=0, node_confirms=3. Should fail, as only two physical nodes available
     PL2 = rt:get_preflist(FirstNode, ?BUCKET, ?KEY),
-    lager:info("Got preflist"),
-    lager:info("Preflist ~p~n", [PL2]),
+    ?LOG_INFO("Got preflist"),
+    ?LOG_INFO("Preflist ~0p", [PL2]),
 
     Others = [Node || {{_Idx, Node}, _Type} <- PL2, Node /= FirstNode],
     rt:stop_and_wait(lists:last(Others)),
     wait_for_new_preflist(FirstNode, hd(BucketTypes), PL2),
     PL3 = rt:get_preflist(FirstNode, ?BUCKET, ?KEY),
-    lager:info("Preflist ~p~n", [PL3]),
+    ?LOG_INFO("Preflist ~0p", [PL3]),
 
-    lager:info("Attempting to write key"),
+    ?LOG_INFO("Attempting to write key"),
     %% Write key and confirm error node_confirms=3 unsatisfied
     write_http(HttpClient, BucketTypes, {error, "503", <<"node_confirms-value unsatisfied: 2/3\n">>},
                [{node_confirms, 3}]),
@@ -129,7 +132,7 @@ partition_compare(OldPL, NewPL) ->
 wait_for_new_preflist(FirstNode, BT, Primaries, Fallbacks) ->
     rt:wait_until(fun() ->
                           NewPL = rt:get_preflist(FirstNode, BT, ?KEY),
-                          lager:info("new pl ~p", [NewPL]),
+                          ?LOG_INFO("new pl ~0p", [NewPL]),
                           primary_and_fallback_counts(NewPL) == {Primaries, Fallbacks}
     end).
 
@@ -142,7 +145,7 @@ wait_for_new_preflist(FirstNode, BT, OldPL) ->
 write_http(_Client, [], _, _) ->
     ok;
 write_http(Client, [BT | Rest], Expected, Options) ->
-    lager:info("http checking ~p", [BT]),
+    ?LOG_INFO("http checking ~0p", [BT]),
     write_http2(Client, BT, Expected,  Options),
     write_http(Client, Rest, Expected, Options).
 
@@ -172,7 +175,7 @@ get_http_dt_expected({error, _Code, Msg}) ->
 write_pb(_Client, [], _Expected, _Options) ->
     ok;
 write_pb(Client, [BT | Rest], Expected, Options) ->
-    lager:info("pbc checking ~p", [BT]),
+    ?LOG_INFO("pbc checking ~0p", [BT]),
     Res = write_pb2(Client, BT, Options),
     assert_match(Expected, Res),
     write_pb(Client, Rest, Expected, Options).
@@ -184,7 +187,7 @@ write_pb2(Client, {<<"sets">>, _B}=BT, Options) ->
 write_pb2(Client, <<"old_counter", _Rest/binary>>=B, Options) ->
     riakc_pb_socket:counter_incr(Client, B, ?KEY, 1, Options);
 write_pb2(Client, ?BUCKET, Options) ->
-    rt:pbc_write(Client, ?BUCKET, ?KEY, <<"12345">>, <<"bin">>,Options).
+    rt:pbc_write(Client, ?BUCKET, ?KEY, <<"12345">>, "bin", Options).
 
 assert_match({error, Code, Msg}, Res) ->
     ?assertMatch({error, {ok, Code, _, Msg}}, Res);
@@ -198,8 +201,9 @@ assert_match(Other, Res) ->
 %% counters, and riak_objects for node_confirms we can cut and paste
 %% the same test or we can do it all at once, but we need a common
 %% preflist for that to work. TODO maybe cap the number of trials?
--spec find_common_preflist(node(), [{binary(), binary()}]) ->
-                                  {[{binary(), binary()}], riak_core_apl:preflist_ann()}.
+-spec find_common_preflist(
+    node(), [{binary(), binary()}|binary()]) ->
+        {[{binary(), binary()}|binary()], riak_core_apl:preflist_ann()}.
 find_common_preflist(Node, [Hd|BTs]) when is_list(BTs) ->
     find_common_preflist(Node, BTs, preflist(Node, Hd), [Hd]).
 

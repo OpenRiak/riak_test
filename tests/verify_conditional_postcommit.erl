@@ -18,8 +18,15 @@
 %%
 %% -------------------------------------------------------------------
 -module(verify_conditional_postcommit).
--export([confirm/0, conditional_hook/3, postcommit/1]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+%% invoked on the Riak node
+-export([conditional_hook/3, postcommit/1]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     Config = [{riak_core, [{vnode_management_timer, 1000},
@@ -28,11 +35,11 @@ confirm() ->
     Node = hd(Nodes),
     ok = rt:load_modules_on_nodes([?MODULE], Nodes),
 
-    lager:info("Creating bucket types 'type1' and 'type2'"),
+    ?LOG_INFO("Creating bucket types 'type1' and 'type2'"),
     rt:create_and_activate_bucket_type(Node, <<"type1">>, [{magic, false}]),
     rt:create_and_activate_bucket_type(Node, <<"type2">>, [{magic, true}]),
 
-    lager:info("Installing conditional hook"),
+    ?LOG_INFO("Installing conditional hook"),
     CondHook = {?MODULE, conditional_hook},
     ok = rpc:call(Node, riak_kv_hooks, add_conditional_postcommit, [CondHook]),
 
@@ -41,15 +48,15 @@ confirm() ->
     Keys = [<<N:64/integer>> || N <- lists:seq(1,1000)],
     PBC = rt:pbc(Node),
 
-    lager:info("Writing keys as 'type1' and verifying hook is not triggered"),
-    write_keys(Node, PBC, Bucket1, Keys, false), 
+    ?LOG_INFO("Writing keys as 'type1' and verifying hook is not triggered"),
+    write_keys(Node, PBC, Bucket1, Keys, false),
 
-    lager:info("Writing keys as 'type2' and verifying hook is triggered"),
+    ?LOG_INFO("Writing keys as 'type2' and verifying hook is triggered"),
     write_keys(Node, PBC, Bucket2, Keys, true),
 
-    lager:info("Removing conditional hook"),
+    ?LOG_INFO("Removing conditional hook"),
     ok = rpc:call(Node, riak_kv_hooks, del_conditional_postcommit, [CondHook]),
-    lager:info("Re-writing keys as 'type2' and verifying hook is not triggered"),
+    ?LOG_INFO("Re-writing keys as 'type2' and verifying hook is not triggered"),
     write_keys(Node, PBC, Bucket2, Keys, false),
     pass.
 

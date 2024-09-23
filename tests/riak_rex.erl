@@ -1,13 +1,29 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2014 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
 %%
 %% -------------------------------------------------------------------
 -module(riak_rex).
 -behaviour(riak_test).
+
 -export([confirm/0]).
--compile([export_all, nowarn_export_all]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% @doc riak_test entry point
 confirm() ->
@@ -26,7 +42,13 @@ rex_test(Node) ->
     % - as in it doesn't crash
     kill_rex(Node),
     NotPid = riak_core_util:safe_rpc(Node, erlang, whereis, [rex]),
-    rex_failure(NotPid),
+    case rt:otp_release() of
+        AtLeast23 when AtLeast23 >= 23 ->
+            %% As of OTP 23 killing rex no longer crashes the rpc call
+            ?assertMatch(undefined, NotPid);
+        _Pre23 ->
+            ?assertMatch({badrpc, _}, NotPid)
+    end,
     % restart rex
     supervisor:restart_child({kernel_sup, Node}, rex),
     RexPid2 = riak_core_util:safe_rpc(Node, erlang, whereis, [rex]),
@@ -34,17 +56,14 @@ rex_test(Node) ->
 
 
 deploy_node(NumNodes, current) ->
-    rt:deploy_nodes(NumNodes, conf());
-deploy_node(_, mixed) ->
-    Conf = conf(),
-    rt:deploy_nodes([{current, Conf}, {previous, Conf}]).
+    rt:deploy_nodes(NumNodes, conf()).
 
 deploy_node(Type) ->
     NumNodes = rt_config:get(num_nodes, 1),
 
-    lager:info("Deploy ~p node", [NumNodes]),
+    ?LOG_INFO("Deploy ~b node", [NumNodes]),
     Node = deploy_node(NumNodes, Type),
-    lager:info("Node: ~p", [Node]),
+    ?LOG_INFO("Node: ~0p", [Node]),
     hd(Node).
 
 kill_rex(Node) ->
@@ -58,16 +77,3 @@ conf() ->
       ]
      }
     ].
-
-
--if(?OTP_RELEASE > 22).
-
-rex_failure(undefined) ->
-    ok.
-
--else.
-
-rex_failure({badrpc, _Error}) ->
-    ok.
-
--endif.

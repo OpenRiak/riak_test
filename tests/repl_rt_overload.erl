@@ -6,7 +6,9 @@
 -module(repl_rt_overload).
 -behaviour(riak_test).
 -export([confirm/0, check_size/1, slow_trim_q/1]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(RTSINK_MAX_WORKERS, 1).
 -define(RTSINK_MAX_PENDING, 1).
@@ -21,7 +23,7 @@
 %% This test makes use of the riak_repl2_rtq_intecept.erl in order to slow
 %% the trim_q call on the first iteration (causing the mailbox blacklog),
 %% then clear that condition and allow traffic to recover.
-%% 
+%%
 
 %% @doc riak_test entry point
 confirm() ->
@@ -30,15 +32,15 @@ confirm() ->
 
     %% load intercepts. See ../intercepts/riak_repl_rt_intercepts.erl
     load_intercepts(LeaderB),
-    
+
     %% Enable RT replication from cluster "A" to cluster "B"
-    lager:info("Enabling realtime between ~p and ~p", [LeaderA, LeaderB]),
+    ?LOG_INFO("Enabling realtime between ~0p and ~0p", [LeaderA, LeaderB]),
     enable_rt(LeaderA, ANodes),
 
     %% Verify RT repl of objects
     verify_rt(LeaderA, LeaderB),
 
-    lager:info("Slowing trim_q calls on leader A"),
+    ?LOG_INFO("Slowing trim_q calls on leader A"),
     slow_trim_q(LeaderA),
 
     check_rtq_msg_q(LeaderA),
@@ -68,12 +70,12 @@ verify_rt(LeaderA, LeaderB) ->
     Last = 200,
 
     %% Write some objects to the source cluster (A),
-    lager:info("Writing ~p keys to ~p, which should RT repl to ~p",
+    ?LOG_INFO("Writing ~b keys to ~0p, which should RT repl to ~0p",
                [Last-First+1, LeaderA, LeaderB]),
     ?assertEqual([], repl_util:do_write(LeaderA, First, Last, TestBucket, 2)),
 
     %% verify data is replicated to B
-    lager:info("Reading ~p keys written from ~p", [Last-First+1, LeaderB]),
+    ?LOG_INFO("Reading ~b keys written from ~0p", [Last-First+1, LeaderB]),
     ?assertEqual(0, repl_util:wait_for_reads(LeaderB, First, Last, TestBucket, 2)).
 
 verify_overload_writes(LeaderA, LeaderB) ->
@@ -84,19 +86,19 @@ verify_overload_writes(LeaderA, LeaderB) ->
     Last = 100000,
 
     %% Write some objects to the source cluster (A),
-    lager:info("Writing ~p keys to ~p, to ~p",
-               [Last-First+1, LeaderA, LeaderB]), 
+    ?LOG_INFO("Writing ~b keys to ~0p, to ~0p",
+               [Last-First+1, LeaderA, LeaderB]),
     ?assertEqual([], repl_util:do_write(LeaderA, First, Last, TestBucket, 2)),
 
-    lager:info("Reading ~p keys from ~p", [Last-First+1, LeaderB]),
+    ?LOG_INFO("Reading ~b keys from ~0p", [Last-First+1, LeaderB]),
     NumReads = rt:systest_read(LeaderB, First, Last, TestBucket, 2),
 
-    lager:info("systest_read saw ~p errors", [length(NumReads)]),
+    ?LOG_INFO("systest_read saw ~b errors", [length(NumReads)]),
 
     Status = rpc:call(LeaderA, riak_repl2_rtq, status, []),
     {_, OverloadDrops} = lists:keyfind(overload_drops, 1, Status),
 
-    lager:info("overload_drops: ~p", [OverloadDrops]),
+    ?LOG_INFO("overload_drops: ~w", [OverloadDrops]),
 
     % If there are overload_drops, overload has done its job
     ?assert(OverloadDrops > 0).
@@ -105,7 +107,7 @@ verify_overload_writes(LeaderA, LeaderB) ->
 connect_clusters(LeaderA, LeaderB) ->
     {ok, {_IP, Port}} = rpc:call(LeaderB, application, get_env,
                                  [riak_core, cluster_mgr]),
-    lager:info("connect cluster A:~p to B on port ~p", [LeaderA, Port]),
+    ?LOG_INFO("connect cluster A:~0p to B on port ~0p", [LeaderA, Port]),
     repl_util:connect_cluster(LeaderA, "127.0.0.1", Port),
     ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, "B")).
 
@@ -115,7 +117,7 @@ make_connected_clusters() ->
     NumNodes = rt_config:get(num_nodes, 2),
     ClusterASize = rt_config:get(cluster_a_size, 1),
 
-    lager:info("Deploy ~p nodes", [NumNodes]),
+    ?LOG_INFO("Deploy ~b nodes", [NumNodes]),
     Conf = [
             {riak_repl,
              [
@@ -130,22 +132,22 @@ make_connected_clusters() ->
 
     Nodes = rt:deploy_nodes(NumNodes, Conf, [riak_kv, riak_repl]),
     {ANodes, BNodes} = lists:split(ClusterASize, Nodes),
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Build cluster A"),
+    ?LOG_INFO("Build cluster A"),
     repl_util:make_cluster(ANodes),
 
-    lager:info("Build cluster B"),
+    ?LOG_INFO("Build cluster B"),
     repl_util:make_cluster(BNodes),
 
     %% get the leader for the first cluster
-    lager:info("waiting for leader to converge on cluster A"),
+    ?LOG_INFO("waiting for leader to converge on cluster A"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(ANodes)),
     AFirst = hd(ANodes),
 
     %% get the leader for the second cluster
-    lager:info("waiting for leader to converge on cluster B"),
+    ?LOG_INFO("waiting for leader to converge on cluster B"),
     ?assertEqual(ok, repl_util:wait_until_leader_converge(BNodes)),
     BFirst = hd(BNodes),
 
@@ -168,12 +170,12 @@ load_intercepts(Node) ->
 %% @doc Slow down handle_info (write calls)
 % slow_write_calls(Node) ->
 %     %% disable forwarding of the heartbeat function call
-%   lager:info("Slowing down sink do_write calls on ~p", [Node]),
+%   ?LOG_INFO("Slowing down sink do_write calls on ~0p", [Node]),
 %    rt_intercept:add(Node, {riak_repl2_rtsink_conn,
 %                            [{{handle_info, 2}, slow_handle_info}]}).
 
 slow_trim_q(Node) ->
-    lager:info("Slowing down trim_q calls on ~p", [Node]),
+    ?LOG_INFO("Slowing down trim_q calls on ~0p", [Node]),
     rt_intercept:add(Node, {riak_repl2_rtq,
                             [{{trim_q, 1}, slow_trim_q}]}).
 
@@ -184,7 +186,7 @@ check_rtq_msg_q(Node) ->
 check_size(Node) ->
     Pid = rpc:call(Node, erlang, whereis, [riak_repl2_rtq]),
     Len = rpc:call(Node, erlang, process_info, [Pid, message_queue_len]),
-    io:format("mailbox size of riak_repl2_rtq: ~p", [Len]),
+    ?LOG_INFO("mailbox size of riak_repl2_rtq: ~w", [Len]),
 
     timer:sleep(2000),
     check_size(Node).

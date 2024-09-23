@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Basho Technologies, Inc.
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -35,11 +35,18 @@
 %%
 %% Also, a sanity check is done to make sure AAE repairs go away eventually
 %% if there is no activity.  That was an actual early AAE bug.
-
 -module(verify_aae).
--export([confirm/0, verify_aae/1]).
--export([test_single_partition_loss/3, test_less_than_n_writes/2]).
--include_lib("eunit/include/eunit.hrl").
+-behavior(riak_test).
+
+-export([confirm/0]).
+
+%% shared
+-export([
+    test_less_than_n_writes/2
+]).
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 % I would hope this would come from the testing framework some day
 % to use the test in small and large scenarios.
@@ -91,8 +98,8 @@ verify_aae(Nodes) ->
     Node1 = hd(Nodes),
 
     % Verify that AAE eventually upgrades to version 0(or already has)
-    wait_until_hashtree_upgrade(Nodes), 
-    
+    wait_until_hashtree_upgrade(Nodes),
+
     % Recovery without tree rebuilds
 
     % Test recovery from to few replicas written
@@ -103,7 +110,7 @@ verify_aae(Nodes) ->
     KV2 = [{K, <<V/binary, "a">>} || {K, V} <- KV1],
     test_less_than_n_mods(Node1, KV2),
 
-    lager:info("Run similar tests now with tree rebuilds enabled"),
+    ?LOG_INFO("Run similar tests now with tree rebuilds enabled"),
     start_tree_rebuilds(Nodes),
 
     % Test recovery from too few replicas written
@@ -114,7 +121,7 @@ verify_aae(Nodes) ->
     KV4 = [{K, <<V/binary, "a">>} || {K, V} <- KV3],
     test_less_than_n_mods(Node1, KV4),
 
-    lager:info("Writing 1000 objects"),
+    ?LOG_INFO("Writing 1000 objects"),
     KV5 = test_data(2001, 3000),
     write_data(Node1, KV5),
 
@@ -131,7 +138,7 @@ verify_aae(Nodes) ->
     % Make sure AAE repairs die down.
     wait_until_no_aae_repairs(Nodes),
 
-    lager:info("Finished verifying AAE magic"),
+    ?LOG_INFO("Finished verifying AAE magic"),
     ok.
 
 start_tree_rebuilds(Nodes) ->
@@ -183,7 +190,7 @@ write_data(Node, KVs, Opts) ->
 
 % @doc Verifies that the data is eventually restored to the expected set.
 verify_data(Node, KeyValues) ->
-    lager:info("Verify all replicas are eventually correct"),
+    ?LOG_INFO("Verify all replicas are eventually correct"),
     PB = rt:pbc(Node),
     CheckFun =
     fun() ->
@@ -194,8 +201,8 @@ verify_data(Node, KeyValues) ->
             Num = length(KeyValues),
             case Num == NumGood of
                 true -> true;
-                false ->
-                    lager:info("Data not yet correct: ~p mismatches",
+                _ ->
+                    ?LOG_INFO("Data not yet correct: ~w mismatches",
                                [Num-NumGood]),
                     false
             end
@@ -203,12 +210,12 @@ verify_data(Node, KeyValues) ->
     MaxTime = rt_config:get(rt_max_wait_time),
     Delay = 2000, % every two seconds until max time.
     Retry = MaxTime div Delay,
-    ok = 
+    ok =
         case rt:wait_until(CheckFun, Retry, Delay) of
             ok ->
-                lager:info("Data is now correct. Yay!");
-            fail ->
-                lager:error("AAE failed to fix data"),
+                ?LOG_INFO("Data is now correct. Yay!");
+            _ ->
+                ?LOG_ERROR("AAE failed to fix data"),
                 aae_failed_to_fix_data
         end,
     riakc_pb_socket:stop(PB),
@@ -232,45 +239,45 @@ verify_replicas(Node, B, K, V, N) ->
 
 test_single_partition_loss(Node, Partition, KeyValues)
   when is_atom(Node), is_integer(Partition) ->
-    lager:info("Verify recovery from the loss of partition ~p", [Partition]),
+    ?LOG_INFO("Verify recovery from the loss of partition ~0p", [Partition]),
     wipe_out_partition(Node, Partition),
     restart_vnode(Node, riak_kv, Partition),
     verify_data(Node, KeyValues).
 
 test_aae_partition_loss(Node, Partition, KeyValues)
   when is_atom(Node), is_integer(Partition) ->
-    lager:info("Verify recovery from the loss of AAE data for partition ~p", [Partition]),
+    ?LOG_INFO("Verify recovery from the loss of AAE data for partition ~0p", [Partition]),
     wipe_out_aae_data(Node, Partition),
     restart_vnode(Node, riak_kv, Partition),
     verify_data(Node, KeyValues).
 
 test_total_partition_loss(Node, Partition, KeyValues)
   when is_atom(Node), is_integer(Partition) ->
-    lager:info("Verify recovery from the loss of AAE and KV data for partition ~p", [Partition]),
+    ?LOG_INFO("Verify recovery from the loss of AAE and KV data for partition ~0p", [Partition]),
     wipe_out_partition(Node, Partition),
     wipe_out_aae_data(Node, Partition),
     restart_vnode(Node, riak_kv, Partition),
     verify_data(Node, KeyValues).
 
 test_less_than_n_writes(Node, KeyValues) ->
-    lager:info("Writing ~p objects with N=1, AAE should ensure they end up"
-               " with ~p replicas", [length(KeyValues), ?N_VAL]),
+    ?LOG_INFO("Writing ~b objects with N=1, AAE should ensure they end up"
+               " with ~b replicas", [length(KeyValues), ?N_VAL]),
     write_data(Node, KeyValues, [{n_val, 1}]),
     verify_data(Node, KeyValues).
 
 test_less_than_n_mods(Node, KeyValues) ->
-    lager:info("Modifying only one replica for ~p objects. AAE should ensure"
+    ?LOG_INFO("Modifying only one replica for ~b objects. AAE should ensure"
                " all replicas end up modified", [length(KeyValues)]),
     write_data(Node, KeyValues, [{n_val, 1}]),
     verify_data(Node, KeyValues).
 
 wipe_out_partition(Node, Partition) ->
-    lager:info("Wiping out partition ~p in node ~p", [Partition, Node]),
+    ?LOG_INFO("Wiping out partition ~0p in node ~0p", [Partition, Node]),
     rt:clean_data_dir(Node, dir_for_partition(Partition)),
     ok.
 
 wipe_out_aae_data(Node, Partition) ->
-    lager:info("Wiping out AAE data for partition ~p in node ~p", [Partition, Node]),
+    ?LOG_INFO("Wiping out AAE data for partition ~0p in node ~0p", [Partition, Node]),
     rt:clean_data_dir(Node, "anti_entropy/"++integer_to_list(Partition)),
     ok.
 
@@ -289,18 +296,21 @@ restart_vnode(Node, Service, Partition) ->
                          [Partition, VNodeName]),
     ?assert(rpc:call(Node, erlang, exit, [Pid, kill_for_test])),
     Mon = monitor(process, Pid),
-    receive
-        {'DOWN', Mon, _, _, _} ->
-            ok
-    after
-        rt_config:get(rt_max_wait_time) ->
-            lager:error("VNode for partition ~p did not die, the bastard",
-                        [Partition]),
-            ?assertEqual(vnode_killed, {failed_to_kill_vnode, Partition})
-    end,
+    ?assertMatch(
+        ok,
+        receive
+            {'DOWN', Mon, _, _, _} ->
+                ok
+        after
+            rt_config:get(rt_max_wait_time) ->
+                ?LOG_ERROR("VNode for partition ~0p did not die, the bastard",
+                            [Partition]),
+                {failed_to_kill_vnode, Partition}
+        end
+    ),
     {ok, NewPid} = rpc:call(Node, riak_core_vnode_manager, get_vnode_pid,
                             [Partition, VNodeName]),
-    lager:info("Vnode for partition ~p restarted as ~p",
+    ?LOG_INFO("Vnode for partition ~0p restarted as ~0p",
                [Partition, NewPid]).
 
 dir_for_partition(Partition) ->
@@ -312,12 +322,12 @@ dir_for_partition(Partition) ->
 % @doc True if the AAE stats report zero data repairs for last exchange
 % across the board.
 wait_until_no_aae_repairs(Nodes) ->
-    lager:info("Verifying AAE repairs go away without activity"),
+    ?LOG_INFO("Verifying AAE repairs go away without activity"),
     rt:wait_until(fun() -> no_aae_repairs(Nodes) end).
 
 no_aae_repairs(Nodes) when is_list(Nodes) ->
     MaxCount = max_aae_repairs(Nodes),
-    lager:info("Max AAE repair count across the board is ~p", [MaxCount]),
+    ?LOG_INFO("Max AAE repair count across the board is ~w", [MaxCount]),
     MaxCount == 0.
 
 max_aae_repairs(Nodes) when is_list(Nodes) ->
@@ -330,7 +340,7 @@ max_aae_repairs(Node) when is_atom(Node) ->
     MaxCount.
 
 wait_until_hashtree_upgrade(Nodes) ->
-    lager:info("Verifying AAE hashtrees eventually all upgrade to version 0"),
+    ?LOG_INFO("Verifying AAE hashtrees eventually all upgrade to version 0"),
     rt:wait_until(fun() -> all_hashtrees_upgraded(Nodes) end).
 
 all_hashtrees_upgraded(Nodes) when is_list(Nodes) ->
@@ -350,4 +360,4 @@ all_hashtrees_upgraded(Node) when is_atom(Node) ->
         _ ->
             false
      end.
-    
+

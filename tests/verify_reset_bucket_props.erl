@@ -19,8 +19,11 @@
 %% -------------------------------------------------------------------
 -module(verify_reset_bucket_props).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(BUCKET, <<"test_bucket">>).
 
@@ -34,7 +37,7 @@ confirm() ->
     DefaultProps = get_current_bucket_props(Nodes, ?BUCKET),
 
     update_props(DefaultProps, Node1, Nodes),
-    lager:info("Resetting bucket properties for bucket ~p on node ~p via rpc",
+    ?LOG_INFO("Resetting bucket properties for bucket ~0p on node ~0p via rpc",
                [?BUCKET, Node2]),
     rpc:call(Node2, riak_core_bucket, reset_bucket, [?BUCKET]),
     rt:wait_until_ring_converged(Nodes),
@@ -44,7 +47,7 @@ confirm() ->
 
     update_props(DefaultProps, Node1, Nodes),
     C = rt:pbc(Node3),
-    lager:info("Resetting bucket properties for bucket ~p on node ~p via pbc",
+    ?LOG_INFO("Resetting bucket properties for bucket ~0p on node ~0p via pbc",
                [?BUCKET, Node3]),
     ok = riakc_pb_socket:reset_bucket(C, ?BUCKET),
     rt:wait_until_ring_converged(Nodes),
@@ -54,7 +57,7 @@ confirm() ->
 
 update_props(DefaultProps, Node, Nodes) ->
     Updates = [{n_val, 1}],
-    lager:info("Setting bucket properties ~p for bucket ~p on node ~p",
+    ?LOG_INFO("Setting bucket properties ~0p for bucket ~0p on node ~0p",
                [?BUCKET, Updates, Node]),
     rpc:call(Node, riak_core_bucket, set_bucket, [?BUCKET, Updates]),
     rt:wait_until_ring_converged(Nodes),

@@ -1,7 +1,29 @@
+%% -------------------------------------------------------------------
+%%
+%% Copyright (c) 2013-2016 Basho Technologies, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% -------------------------------------------------------------------
 -module(replication_object_reformat).
 -behavior(riak_test).
+
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(TEST_BUCKET, <<"object-reformat">>).
 -define(NUM_KEYS,    1000).
@@ -44,13 +66,13 @@
         ]).
 
 confirm() ->
-    lager:info("Verifying v0 source to v1 sink, realtime enabled."),
+    ?LOG_INFO("Verifying v0 source to v1 sink, realtime enabled."),
     verify_replication(v0, v1, 1, ?NUM_KEYS, true),
-    lager:info("Verifying v0 source to v1 sink, realtime disabled."),
+    ?LOG_INFO("Verifying v0 source to v1 sink, realtime disabled."),
     verify_replication(v0, v1, 1, ?NUM_KEYS, false),
-    lager:info("Verifying v1 source to v0 sink, realtime enabled."),
+    ?LOG_INFO("Verifying v1 source to v0 sink, realtime enabled."),
     verify_replication(v1, v0, 1, ?NUM_KEYS, true),
-    lager:info("Verifying v1 source to v0 sink, realtime disabled."),
+    ?LOG_INFO("Verifying v1 source to v0 sink, realtime disabled."),
     verify_replication(v1, v0, 1, ?NUM_KEYS, false),
     pass.
 
@@ -64,7 +86,7 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Get leader of A cluster."),
+    ?LOG_INFO("Get leader of A cluster."),
     LeaderA = repl_util:get_leader(AFirst),
 
     %% Before starting writes, initiate a rolling downgrade.
@@ -73,7 +95,7 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
     case Realtime of
         true ->
             spawn(fun() ->
-                          lager:info("Running kv_reformat to downgrade to v0 on ~p",
+                          ?LOG_INFO("Running kv_reformat to downgrade to v0 on ~0p",
                                      [BFirst]),
                           {_, _, Error1} = rpc:call(BFirst,
                                                     riak_kv_reformat,
@@ -81,18 +103,18 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
                                                     [v0, [{kill_handoffs, false}]]),
                           ?assertEqual(0, Error1),
 
-                          lager:info("Waiting for all nodes to see the v0 capability."),
+                          ?LOG_INFO("Waiting for all nodes to see the v0 capability."),
                           [rt:wait_until_capability(N, {riak_kv, object_format}, v0, v0)
                            || N <- BNodes],
 
-                          lager:info("Allowing downgrade and writes to occurr concurrently."),
+                          ?LOG_INFO("Allowing downgrade and writes to occurr concurrently."),
                           Me ! continue,
 
-                          lager:info("Downgrading node ~p to previous.",
+                          ?LOG_INFO("Downgrading node ~0p to previous.",
                                      [BFirst]),
                           rt:upgrade(BFirst, previous),
 
-                          lager:info("Waiting for riak_kv to start on node ~p.",
+                          ?LOG_INFO("Waiting for riak_kv to start on node ~0p.",
                                      [BFirst]),
                           rt:wait_for_service(BFirst, [riak_kv])
                   end),
@@ -111,19 +133,19 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
             ok
     end,
 
-    lager:info("Write keys, assert they are not available yet."),
+    ?LOG_INFO("Write keys, assert they are not available yet."),
     repl_util:write_to_cluster(AFirst, Start, End, ?TEST_BUCKET, ?N),
 
     case Realtime of
         false ->
-            lager:info("Verify we can not read the keys on the sink."),
+            ?LOG_INFO("Verify we can not read the keys on the sink."),
             repl_util:read_from_cluster(
                 BFirst, Start, End, ?TEST_BUCKET, ?NUM_KEYS, ?N);
         _ ->
             ok
     end,
 
-    lager:info("Verify we can read the keys on the source."),
+    ?LOG_INFO("Verify we can read the keys on the source."),
     repl_util:read_from_cluster(AFirst, Start, End, ?TEST_BUCKET, 0, ?N),
 
     %% Wait until the sink cluster is in a steady state before
@@ -135,7 +157,7 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
     repl_util:validate_completed_fullsync(
         LeaderA, BFirst, "B", Start, End, ?TEST_BUCKET),
 
-    lager:info("Verify we can read the keys on the sink."),
+    ?LOG_INFO("Verify we can read the keys on the sink."),
     repl_util:read_from_cluster(BFirst, Start, End, ?TEST_BUCKET, 0, ?N),
 
     %% Verify if we downgrade sink, after replication has complete, we
@@ -143,7 +165,7 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
     %%
     case {Realtime, BVersion} of
         {false, v1} ->
-            lager:info("Running kv_reformat to downgrade to v0 on ~p",
+            ?LOG_INFO("Running kv_reformat to downgrade to v0 on ~0p",
                        [BFirst]),
             {_, _, Error} = rpc:call(BFirst,
                                      riak_kv_reformat,
@@ -151,19 +173,19 @@ verify_replication(AVersion, BVersion, Start, End, Realtime) ->
                                      [v0, [{kill_handoffs, false}]]),
             ?assertEqual(0, Error),
 
-            lager:info("Waiting for all nodes to see the v0 capability."),
+            ?LOG_INFO("Waiting for all nodes to see the v0 capability."),
             [rt:wait_until_capability(N, {riak_kv, object_format}, v0, v0)
              || N <- BNodes],
 
-            lager:info("Downgrading node ~p to previous.",
+            ?LOG_INFO("Downgrading node ~0p to previous.",
                        [BFirst]),
             rt:upgrade(BFirst, previous),
 
-            lager:info("Waiting for riak_kv to start on node ~p.",
+            ?LOG_INFO("Waiting for riak_kv to start on node ~0p.",
                        [BFirst]),
             rt:wait_for_service(BFirst, riak_kv),
 
-            lager:info("Verify we can read from node ~p after downgrade.",
+            ?LOG_INFO("Verify we can read from node ~0p after downgrade.",
                        [BFirst]),
             repl_util:read_from_cluster(
                 BFirst, Start, End, ?TEST_BUCKET, 0, ?N),
@@ -185,16 +207,16 @@ configure_clusters(AVersion, BVersion, Realtime) ->
     rt:wait_for_cluster_service(ANodes, riak_repl),
     rt:wait_for_cluster_service(BNodes, riak_repl),
 
-    lager:info("ANodes: ~p", [ANodes]),
-    lager:info("BNodes: ~p", [BNodes]),
+    ?LOG_INFO("ANodes: ~0p", [ANodes]),
+    ?LOG_INFO("BNodes: ~0p", [BNodes]),
 
-    lager:info("Updating app config to force ~p on source cluster.",
+    ?LOG_INFO("Updating app config to force ~0p on source cluster.",
                [AVersion]),
     [rt:update_app_config(N, [{riak_kv,
                                [{object_format, AVersion}]}])
      || N <- ANodes],
 
-    lager:info("Updating app config to force ~p on sink cluster.",
+    ?LOG_INFO("Updating app config to force ~0p on sink cluster.",
                [BVersion]),
     [rt:update_app_config(N, [{riak_kv,
                                [{object_format, BVersion}]}])
@@ -203,35 +225,35 @@ configure_clusters(AVersion, BVersion, Realtime) ->
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
 
-    lager:info("Naming clusters."),
+    ?LOG_INFO("Naming clusters."),
     repl_util:name_cluster(AFirst, "A"),
     repl_util:name_cluster(BFirst, "B"),
 
-    lager:info("Waiting for convergence."),
+    ?LOG_INFO("Waiting for convergence."),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
-    lager:info("Waiting for transfers to complete."),
+    ?LOG_INFO("Waiting for transfers to complete."),
     rt:wait_until_transfers_complete(ANodes),
     rt:wait_until_transfers_complete(BNodes),
 
-    lager:info("Get leaders."),
+    ?LOG_INFO("Get leaders."),
     LeaderA = repl_util:get_leader(AFirst),
 
-    lager:info("Connecting cluster A to B"),
+    ?LOG_INFO("Connecting cluster A to B"),
     {ok, {BIP, BPort}} = rpc:call(BFirst, application, get_env, [riak_core, cluster_mgr]),
 
     repl_util:connect_cluster(LeaderA, BIP, BPort),
     ?assertEqual(ok, repl_util:wait_for_connection(LeaderA, "B")),
 
-    lager:info("Enabling fullsync from A to B"),
+    ?LOG_INFO("Enabling fullsync from A to B"),
     repl_util:enable_fullsync(LeaderA, "B"),
     rt:wait_until_ring_converged(ANodes),
     rt:wait_until_ring_converged(BNodes),
 
     case Realtime of
         true ->
-            lager:info("Enabling realtime from A to B"),
+            ?LOG_INFO("Enabling realtime from A to B"),
             repl_util:enable_realtime(LeaderA, "B"),
             rt:wait_until_ring_converged(ANodes),
             rt:wait_until_ring_converged(BNodes);
@@ -239,15 +261,15 @@ configure_clusters(AVersion, BVersion, Realtime) ->
             ok
     end,
 
-    lager:info("Wait for capability on source cluster."),
+    ?LOG_INFO("Wait for capability on source cluster."),
     [rt:wait_until_capability(N, {riak_kv, object_format}, AVersion, v0)
      || N <- ANodes],
 
-    lager:info("Wait for capability on sink cluster."),
+    ?LOG_INFO("Wait for capability on sink cluster."),
     [rt:wait_until_capability(N, {riak_kv, object_format}, BVersion, v0)
      || N <- BNodes],
 
-    lager:info("Ensuring connection from cluster A to B"),
+    ?LOG_INFO("Ensuring connection from cluster A to B"),
     repl_util:connect_cluster_by_name(LeaderA, BPort, "B"),
 
     Nodes.
