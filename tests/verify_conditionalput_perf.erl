@@ -17,7 +17,8 @@
 %% -------------------------------------------------------------------
 -module(verify_conditionalput_perf).
 -export([confirm/0, spawn_profile_fun/1]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
 
 -define(DEFAULT_RING_SIZE, 16).
 -define(TEST_LOOPS, 32).
@@ -78,12 +79,12 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
-    lager:info("----------------"),
-    lager:info(
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO(
         "Testing with ~w condition on PUTs - parallel clients ~s client ~w",
         [Type, Bucket, ClientMod]
     ),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
 
     Keys = lists:map(fun(I) -> to_key(I) end, lists:seq(1, Loops)),
 
@@ -106,11 +107,11 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod) ->
     Expected =
         ((ClientsPerNode * NCount) * (ClientsPerNode * NCount + 1)) div 2,
     {FinalValues, Timings} = lists:unzip(Results),
-    lager:info(
+    ?LOG_INFO(
         "Average time per result ~w ms",
         [lists:sum(Timings) div length(Timings)]
     ),
-    lager:info(
+    ?LOG_INFO(
         "Maximum time per result ~w ms",
         [lists:max(Timings)]
     ),
@@ -144,8 +145,8 @@ test_concurrent_conditional_changes(Bucket, Key, Clients, ClientMod) ->
     {ok, FinalObj} = ClientMod:get(C1, Bucket, Key, [{r, 3}, {pr, 2}]),
     <<FinalV:32/integer>> = riakc_obj:get_value(FinalObj),
 
-    lager:info("Test took ~w ms", [EndTime - StartTime]),
-    lager:info("Test had final value of ~w", [FinalV]),
+    ?LOG_INFO("Test took ~w ms", [EndTime - StartTime]),
+    ?LOG_INFO("Test had final value of ~w", [FinalV]),
     
     {FinalV, EndTime - StartTime}.
 

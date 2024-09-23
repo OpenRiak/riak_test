@@ -17,7 +17,9 @@
 %% -------------------------------------------------------------------
 -module(verify_conditionalput_strong).
 -export([confirm/0]).
--include_lib("eunit/include/eunit.hrl").
+
+-include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(TEST_LOOPS, 32).
@@ -59,10 +61,10 @@ confirm() ->
         ),
     build_wait_loop(Nodes1),
 
-    lager:info("----------------"),
-    lager:info("Testing with conditional check at API only"),
-    lager:info("... no consensus will be achieved with concurrent PUTs"),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO("Testing with conditional check at API only"),
+    ?LOG_INFO("... no consensus will be achieved with concurrent PUTs"),
+    ?LOG_INFO("----------------"),
 
     false =
         hd(
@@ -86,10 +88,10 @@ confirm() ->
         ),
 
     reset_conditional_cpm(Nodes1, prefer_token),
-    lager:info("----------------"),
-    lager:info("Testing with stronger conditional put - but head_only"),
-    lager:info("Testing without failure, as no consensus used"),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO("Testing with stronger conditional put - but head_only"),
+    ?LOG_INFO("Testing without failure, as no consensus used"),
+    ?LOG_INFO("----------------"),
 
     R1 =
         test_conditional(
@@ -128,10 +130,10 @@ confirm() ->
     [N3|RestNodes3] = Nodes3,
     Me = self(),
 
-    lager:info("----------------"),
-    lager:info("Testing with stronger conditional put and consensus"),
-    lager:info("Testing concurrent to failure and cluster change"),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO("Testing with stronger conditional put and consensus"),
+    ?LOG_INFO("Testing concurrent to failure and cluster change"),
+    ?LOG_INFO("----------------"),
 
     R3 =
         test_conditional(
@@ -267,9 +269,9 @@ confirm() ->
     ?assert(hd(R12)),
 
     reset_conditional_trm([N3] ++ RestNodes3, basic_consensus),
-    lager:info("----------------"),
-    lager:info("Testing with reduced stronger_conditional_nval"),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO("Testing with reduced stronger_conditional_nval"),
+    ?LOG_INFO("----------------"),
 
     spawn_kill(N3, Me),
     R13 =
@@ -299,12 +301,12 @@ confirm() ->
     rt:wait_until_pingable(N3),
     ?assert(hd(R14)),
 
-    lager:info("----------------"),
-    lager:info("Results summary"),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO("Results summary"),
+    ?LOG_INFO("----------------"),
     lists:foreach(
         fun(R) ->
-            lager:info(
+            ?LOG_INFO(
                 "Result ~w for test ~p ~p average time ~w max time ~w",
                 R
             )
@@ -343,12 +345,12 @@ test_nonematch(Nodes, Bucket, ClientMod) ->
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
-    lager:info("----------------"),
-    lager:info(
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO(
         "Testing none_match condition on PUTs - parallel clients ~s client ~w",
         [Bucket, ClientMod]
     ),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
 
     StartTime = os:system_time(millisecond),
 
@@ -379,7 +381,7 @@ test_nonematch(Nodes, Bucket, ClientMod) ->
 
     close_clients(Clients, ClientMod),
 
-    lager:info("Test took ~w ms", [EndTime - StartTime]),
+    ?LOG_INFO("Test took ~w ms", [EndTime - StartTime]),
 
     true.
 
@@ -398,12 +400,12 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario, Multi) ->
 
     Clients = get_clients(ClientsPerNode, Nodes, ClientMod),
     
-    lager:info("----------------"),
-    lager:info(
+    ?LOG_INFO("----------------"),
+    ?LOG_INFO(
         "Testing with ~w condition on PUTs - parallel clients ~s client ~w",
         [Type, Bucket, ClientMod]
     ),
-    lager:info("----------------"),
+    ?LOG_INFO("----------------"),
 
     Keys =
         case Multi of
@@ -445,11 +447,11 @@ test_conditional(Type, Nodes, Bucket, Loops, ClientMod, KillScenario, Multi) ->
     {FinalValues, Timings} = lists:unzip(Results),
     MeanTimings = lists:sum(Timings) div length(Timings),
     MaxTimings = lists:max(Timings),
-    lager:info(
+    ?LOG_INFO(
         "Average time per result ~w ms",
         [MeanTimings]
     ),
-    lager:info(
+    ?LOG_INFO(
         "Maximum time per result ~w ms",
         [MaxTimings]
     ),
@@ -526,8 +528,8 @@ test_concurrent_conditional_changes(
             )
         ),
     
-    lager:info("Test took ~w ms", [EndTime - StartTime]),
-    lager:info("Test had final value of ~w", [FinalValue]),
+    ?LOG_INFO("Test took ~w ms", [EndTime - StartTime]),
+    ?LOG_INFO("Test had final value of ~w", [FinalValue]),
     
     {FinalValue, EndTime - StartTime}.
 
@@ -546,7 +548,7 @@ try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
             {ok, FetchedObj} ->
                 {ok, FetchedObj};
             R ->
-                lager:info("Request error ~p from client ~p", [R, C]),
+                ?LOG_INFO("Request error ~p from client ~p", [R, C]),
                 R
         end,
     <<V:32/integer>> = 
@@ -554,7 +556,7 @@ try_conditional_put(ClientMod, C, I, B, K, KillScenario) ->
             riakc_obj:get_value(Obj)
         catch
             exit:siblings ->
-                lager:info("Siblings on ~p ~p ~p", [C, B, K]),
+                ?LOG_INFO("Siblings on ~p ~p ~p", [C, B, K]),
                 <<>>
         end,
 
@@ -621,7 +623,7 @@ spawn_leave(Node, Rest, P) ->
             rt:plan_and_commit(Node),
             rt:wait_until_ring_converged([Node|Rest]),
             lists:foreach(fun(N) -> rt:wait_until_ready(N) end, Rest),
-            lager:info("Sleeping claimant_tick before checking transfer progress"),
+            ?LOG_INFO("Sleeping claimant_tick before checking transfer progress"),
             timer:sleep(?CLAIMANT_TICK),
             ok = rt:wait_until_transfers_complete(Rest),
             lists:foreach(
@@ -643,7 +645,7 @@ spawn_join(Node, Rest, P) ->
             rt:plan_and_commit(Node),
             rt:wait_until_ring_converged([Node|Rest]),
             lists:foreach(fun(N) -> rt:wait_until_ready(N) end, Rest),
-            lager:info("Sleeping claimant_tick before checking transfer progress"),
+            ?LOG_INFO("Sleeping claimant_tick before checking transfer progress"),
             timer:sleep(?CLAIMANT_TICK),
             ok = rt:wait_until_transfers_complete(Rest),
             lists:foreach(
@@ -661,7 +663,7 @@ spawn_kill(Node, P) ->
 
 
 change_complete(P) ->
-    lager:info("Spawned node change complete"),
+    ?LOG_INFO("Spawned node change complete"),
     P ! node_change_complete.
 
 random_sleep() ->
@@ -705,10 +707,10 @@ build_wait_loop(Nodes) ->
 wait_until_node_handoffs_complete([]) ->
     ok;
 wait_until_node_handoffs_complete([Node0|Rest]) ->
-    lager:info("Wait until Node's transfers complete ~p", [Node0]),
+    ?LOG_INFO("Wait until Node's transfers complete ~p", [Node0]),
     F = fun(Node) ->
                 Handoffs = rpc:call(Node, riak_core_handoff_manager, status, [{direction, outbound}]),
-                lager:info("Handoffs: ~p", [Handoffs]),
+                ?LOG_INFO("Handoffs: ~p", [Handoffs]),
                 Handoffs =:= []
         end,
     ?assertEqual(ok, rt:wait_until(Node0, F)),

@@ -220,13 +220,7 @@ test_api_consistency(Client, ClientMod, Bucket, Version) ->
         ClientMod:get(Client, Bucket, ?UPDATE_KEY),
     true = riakc_obj:get_value(ObjC) == <<"valueB">>,
 
-    ok =
-        case Version of
-            current ->
-                extra_http_notmodified_test(ClientMod, Client, Bucket, ObjC);
-            _ ->
-                ok
-        end,
+    ok = extra_http_notmodified_test(ClientMod, Client, Bucket, ObjC),
 
     ET = os:system_time(millisecond),
     ?LOG_INFO(

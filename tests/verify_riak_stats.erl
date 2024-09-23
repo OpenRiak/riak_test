@@ -449,7 +449,8 @@ all_stats(_Node) ->
     ++ pool_stats()
     ++ tictacaae_stats()
     ++ organisation_stats()
-    ++ ttaaefs_stats().
+    ++ ttaaefs_stats()
+    ++ token_stats().
 
 common_stats() ->
     [
@@ -864,8 +865,6 @@ common_stats() ->
         <<"sys_thread_pool_size">>,
         <<"sys_threads_enabled">>,
         <<"sys_wordsize">>,
-        <<"tictacaae_queue_microsec__max">>,
-        <<"tictacaae_queue_microsec_mean">>,
         <<"tools_version">>,
         <<"vnode_counter_update">>,
         <<"vnode_counter_update_time_100">>,
@@ -944,11 +943,7 @@ common_stats() ->
         <<"write_once_puts_total">>,
         <<"xmerl_version">>,
         <<"zstd_version">>
-    ]
-    ++ pool_stats()
-    ++ tictacaae_stats()
-    ++ ttaaefs_stats()
-    ++ token_stats().
+    ].
 
 
 pool_stats() ->
@@ -1105,8 +1100,7 @@ workday_stats() ->
 
 nhse_stats() ->
     [
-        <<"leveldb_read_block_error">>,
-        <<"tools_version">>
+        <<"leveldb_read_block_error">>
     ].
 
 bet365_stats() -> [].
