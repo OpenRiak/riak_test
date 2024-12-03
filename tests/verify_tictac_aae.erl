@@ -86,7 +86,10 @@
            {tictacaae_stepinitialtick, false},
            {log_readrepair, true},
            {tictacaae_enablekeyrange, true},
-           {tictacaae_rebuild_blocktime, BlockTimeout}
+           {tictacaae_rebuild_blocktime, BlockTimeout},
+           {tictacaae_loglevel, warning},
+           {tictacaae_backendloglevel, warning},
+           {tictacaae_backendcompression, zstd}
           ]},
          {riak_core,
           [
