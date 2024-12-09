@@ -861,6 +861,7 @@ common_stats() ->
         <<"sys_wordsize">>,
         <<"tictacaae_queue_microsec__max">>,
         <<"tictacaae_queue_microsec_mean">>,
+        <<"tools_version">>,
         <<"vnode_counter_update">>,
         <<"vnode_counter_update_time_100">>,
         <<"vnode_counter_update_time_95">>,
