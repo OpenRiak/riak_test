@@ -8,72 +8,43 @@ You need to decide on destinations for the following:
 
 - A runtime for Riak instances running tests (e.g. "~/rt/riak")
 
-- A destination to install yokozuna tests should you wish to run yokozuna tests (e.g. "\~/test_sw/yokozuna") and basho_bench (e.g. "\~/test_sw/basho_bench")
-
-- A destination in which to build riak releases to be tested (e.g. "~/test_build/riak")
+- A destination in which to build riak releases to be tested (e.g. "~/test_build/current/riak" and "~test_build/previous/riak")
 
 - A location for the riak_test software itself, where the tests will be built and test scripts will be run and logs will be stored (e.g. "~/riak_test")
 
 There will also need to be a test configuration file (".riak_test.config"), which must be in the root of the home directory of the user running tests.
 
+## Prerequisites
+
+Erlang must be installed na running on the machine.  A simple way of achieving this is via [kerl](https://github.com/kerl/kerl).  All parts should be built and the tests run using the same Erlang version: riak_test, current riak and previous riak.
+
 ## Clone Repos
 
-Clone riak into your build area i.e.:
+Clone riak into your build area, and switch to the tag or branch you wish to test i.e.:
 
-```
-cd ~/test_build
+```bash
+cd ~/test_build/current
 git clone https://github.com/basho/riak
+cd riak
+git checkout riak-3.2.3
 ```
 
-Clone riak_test into your test software location, checkout the test branch you intend to use, and make riak_test i.e.:
-
+```bash
+cd ~/test_build/previous
+git clone https://github.com/basho/riak
+cd riak
+git checkout riak-3.2.1
 ```
+
+Clone riak_test into your test software location, checkout the test branch you intend to use, and `make all` i.e.:
+
+```bash
 cd ~
 git clone https://github.com/basho/riak_test
 cd riak_test
-git checkout develop-2.9
+git checkout openriak-3.2
 make all
 ```
-
-Clone yokozuna into your test software location, checkout the test branch you intend to use, and make test i.e.:
-
-```
-cd ~/test_sw
-git clone https://github.com/basho/yokozuna
-cd yokozuna
-git checkout develop-2.9
-make all
-make test
-```
-
-Also within yokozuna make the yokozuna bench test scripts (which are called within some of the yokozuna tests)
-
-```
-cd ~/test_sw/yokozuna/misc/bench
-../../rebar get-deps
-../../rebar compile
-```
-
-Clone basho_bench into your test software location, checkout the test branch you intend to use, and make i.e.:
-
-```
-cd ~/test_sw
-git clone https://github.com/basho/basho_bench
-cd basho_bench
-git checkout develop-2.9
-make all
-```
-
-## Setup Test Runtime
-
-Initialise git in the test runtime environment i.e.:
-
-```
-cd ~/riak_test
-./bin/rtdev-setup-releases.sh
-```
-
-This script will make `~/rt/riak` the path to setup releases.  If this is to be overridden, then it ca be do so by override [$RT_DEST_DIR](../bin/rtdev-setup-releases.sh#L11)
 
 ## Setup initial test Configuration
 
@@ -81,67 +52,71 @@ Create a `~/.riak_test.config` file with the following sample configuration:
 
 ```
 {default, [
+
     {rt_max_wait_time, 600000},
     {rt_retry_delay, 1000},
     {rt_harness, rtdev},
     {rt_scratch_dir, "/tmp/riak_test_scratch"},
-    {spam_dir, "~/riak_test/search-corpus/spam.0"},
-    {platform, "osx-64"}
+    {spam_dir, "/Users/sgtwilko/dbtest/OpenRiak/riak_test/search-corpus/spam.0"},
+    {platform, "osx-64"},
+    {conn_fail_time, 60000},
+    {organisation, nhse},
+    {deps, ["./_build/default/lib/"]}
+
 ]}.
 
 {rtdev, [
+
     {rt_project, "riak"},
-    {basho_bench, "~/test_sw/basho_bench"},
-    {yz_dir, "~/test_sw/yokozuna"},
-    {test_paths, ["~/test_sw/yokozuna/riak_test/ebin"]},
-    {rtdev_path, [{root,     "~/rt/riak"},
-                  {current,  "~/rt/riak/current"},
-                  {previous, "~/rt/riak/previous"},
-                  {legacy, "~/rt/riak/riak-2.0.5"},
-                  {"2.0.5", "~/rt/riak/riak-2.0.5"}
-                 ]}
+    {rt_default_config, [{riak_kv, [{handoff_deletes, true}]}]},
+    {test_paths, ["_build/test/lib/riak_test/tests"]},
+    {
+        rtdev_path, 
+        [
+            {root,     "/Users/sgtwilko/rt/riak"},
+            {current,  "/Users/sgtwilko/rt/riak/current"},
+            {previous, "/Users/sgtwilko/rt/riak/previous"}
+        ]
+    }
 ]}.
 ```
 
-The `spam_dir` will need to point at the location of the riak_test software.  At that location there will be a tarred/zipped file containing test data, which you will need to untar/unzip to populate the spam directory.
+The `spam_dir` will need to point at the location of the riak_test software.  At that location there will be a tarred/zipped file containing test data, which you will need to untar/unzip to populate the spam directory.  This is only relevant to a single test - `partition_repair`.  Some tests may also require a version of OpenSSL to be available within the PATH.
 
 The platform shout be set to `osx-64` or `linux`.
 
-When testing yokozuna using the `group.sh` script, the yokozuna riak_tests are not copied as part of the initialisation of the script and so need to be found through setting the path in `test_paths`.  There are three yokozuna tests that require a specific reference to the "2.0.5" build, hence the last line in the `rtdev_path` list.
+There are issues with using relative references for some paths, so use fully-qualified file paths were possible.
+
+## Setup Test Runtime
+
+Initialise git in the test runtime environment i.e.:
+
+```bash
+cd ~/riak_test
+./bin/rtdev-setup-releases.sh
+```
+
+This script will make `~/rt/riak` the path to setup releases, so make sure this is the same path used in the `.riak_test.config` file.  If this is to be overridden, then it can be do so by override [$RT_DEST_DIR](../bin/rtdev-setup-releases.sh#L11).  The test folders are reset back to default each time using git (and this is what the setup script will initiate).
 
 ## Build each Test version
 
-Within the test_build are, it is necessary to build each release and copy them over to the run time environment.  
+Within the test_build are, it is necessary to build each release and copy them over to the run time environment using the install script.  
 
-```
-# to make develop-2.9 'current'
+Assuming each riak folder is currently set to the correct release or branch:
 
-git checkout develop-2.9
+```bash
+cd ~/test_build/current
 make devclean; make devrel
 ~/riak_test/bin/rtdev-install.sh current
 
-# to make Riak 2.2.6 'previous'
-git checkout riak-2.2.6
+cd ~/test_build/previous
 make devclean; make devrel
 ~/riak_test/bin/rtdev-install.sh previous
-
-# to make Riak 2.0.5 'legacy'
-git checkout riak-2.0.5
-make devclean; make devrel
-~/riak_test/bin/rtdev-install.sh legacy
 ```
 
-Each time you change a branch for testing, re-run the `make devclean; make devrel` and the `rtdev-install.sh` script.
+Each time you change a branch for testing, re-run the `make devclean; make devrel` and the `rtdev-install.sh` script to update the current or previous test destination as appropriate.  When changing to a tag, the tag will be made with the correct `rebar.lock` file, however this will not necessarily be the case with a branch.  If looking to make such a release, always remove the `rebar.lock` file from the root of the riak folder first.
 
-If you intend to test cluster upgrade tests that include replication, then you will need to use the enterprise release of Riak for nay release prior to `2.2.5`.
-
-## Install JDK
-
-To test yokozuna, it will be necessary to install a JDK.  The install instructions on Yokozuna github recommend "Java 1.6 or later, Oracle 7u25 is recommended".  Tests should run successfully if the retired [Java 7 is used](https://java.com/en/download/faq/java_7.xml), but please be aware of the security implications of running this software.
-
-## Redbug support
-
-tba - further work required to get redbug tests working.
+The make process no longer does a full copy of the riak installation, using symbolic links in places.  So it is important not to modify these riak folders even after running the install script - as tests may be impacted.
 
 ## Run Tests
 
@@ -151,7 +126,7 @@ There are two primary ways of running tests:
 
 There are pre-defined groups of tests under the `groups` folder in `riak_test`, or you could define your own.  The group is a list of test names, and the test script will run each of these tests in alphabetical order.
 
-```
+```bash
 # To run the 'kv_all' group with the bitcask backend
 cd ~/riak_test
 ./group.sh -g kv_all -c rtdev -b bitcask
@@ -163,14 +138,40 @@ cd ~/riak_test
 
 The `-c` reference must refer to a stanza in your `~/.riak_test.config`.
 
+Test groups will ignore failures, and continue with other tests in the group.  At the end of all tests, a report of pass/fail by test is printed to screen, and to a log file.
+
+The following test groups and backends are tested as part of a release:
+
+```
+kv_all (leveled)
+nextgenrepl (leveled)
+core_all (leveled)
+datatypes_all (leveled)
+repl_all (leveled)
+2i_all (leveled)
+ensemble (leveled)
+admin_all (leveled)
+mapred_all (leveled)
+pipe_all (leveled)
+rtc_all (leveled)
+kv_all (bitcask)
+nextgenrepl (bitcask)
+bitcask_only (bitcask)
+smoke (eleveldb)
+eleveldb_only (eleveldb)
+```
+
+Test groups `kv_all`, `nextgenrepl`, `repl_all` and `smoke` will each take multiple hours to run.  Most of the remaining test groups will run within an hour.
+
+The `smoke` test group is intended to give good general coverage of test scenarios.  The `vape` group is a lightweight version of the `smoke` group.  Note that a 2i capable backend is required for both `smoke` and `vape`.
+
 ### Run an individual test
 
 Tests can be run individually, with an additional facility that failing tests will be paused at the point they fail, if they fail.  This allows you to inspect the state of the cluster (within `~/rtdev/riak`) at the failure point.
 
-```
+```bash
 # e.g. run verify_crdt_capability with leveled backend
 ./riak_test -c rtdev -t verify_crdt_capability -b leveled
-
-# e.g. run an individual yokozuna test
-./riak_test -c rtdev -t ~/riak_test_deps/yokozuna/riak_test/ebin/yz_security
 ```
+
+Individual tests will abort on failure, but leave the riak instances running so that you can attach to them via riak_console and examine the state at the point of the failure.
