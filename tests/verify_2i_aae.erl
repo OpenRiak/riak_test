@@ -190,6 +190,7 @@ run_2i_repair(Node1) ->
     receive
         {'DOWN', Mon, _, _, Status} ->
             lager:info("Status: ~p", [Status]),
+            timer:sleep(1000),
             Status 
     after
         MaxWaitTime ->
@@ -207,6 +208,7 @@ to_key(N) ->
 
 put_obj(PBC, Bucket, N, IN, Index) ->
     K = to_key(N),
+    timer:sleep(1),
     Obj =
     case riakc_pb_socket:get(PBC, Bucket, K) of
         {ok, ExistingObj} ->
@@ -221,6 +223,7 @@ put_obj(PBC, Bucket, N, IN, Index) ->
 
 del_obj(PBC, Bucket, N) ->
     K = to_key(N),
+    timer:sleep(1),
     case riakc_pb_socket:get(PBC, Bucket, K) of
         {ok, ExistingObj} ->
             ?assertMatch(ok, riakc_pb_socket:delete_obj(PBC, ExistingObj));
@@ -239,5 +242,8 @@ assert_range_query(Pid, Bucket, Expected0, Index, StartValue, EndValue) ->
                      lists:sort(Keys)
              end,
     Expected = lists:sort(Expected0),
-    ?assertEqual({Bucket, Expected}, {Bucket, Actual}),
+    MissingKeys = Expected -- Actual,
+    AdditionalKeys = Actual -- Expected,
+    ?assertEqual({Bucket, []}, {Bucket, MissingKeys}),
+    ?assertEqual({Bucket, []}, {Bucket, AdditionalKeys}),
     lager:info("Yay! ~b (actual) == ~b (expected)", [length(Actual), length(Expected)]).
