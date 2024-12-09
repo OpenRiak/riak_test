@@ -1,18 +1,18 @@
 # Simple Setup Process
 
-This intended as a simplified setup set-by-step guide (in comparison to the [README](../README.md)).
+This intended as a simplified setup step-by-step guide to running `riak_test` tests on a fresh machine.
 
 ## Decide Paths
 
 You need to decide on destinations for the following:
 
-- A runtime for Riak instances running tests (e.g. "~/rt/riak")
+- A runtime for Riak instances running tests (e.g. `~/rt/riak`)
 
-- A destination in which to build riak releases to be tested (e.g. "~/test_build/current/riak" and "~test_build/previous/riak")
+- A destination in which to build riak releases to be tested (e.g. `~/test_build/current/riak` and `~test_build/previous/riak`)
 
-- A location for the riak_test software itself, where the tests will be built and test scripts will be run and logs will be stored (e.g. "~/riak_test")
+- A location for the riak_test software itself, where the tests will be built and test scripts will be run and logs will be stored (e.g. `~/riak_test`)
 
-There will also need to be a test configuration file (".riak_test.config"), which must be in the root of the home directory of the user running tests.
+There will also need to be a test configuration file (`.riak_test.config`), which must be in the root of the home directory of the user running tests.
 
 ## Prerequisites
 
@@ -96,7 +96,7 @@ cd ~/riak_test
 ./bin/rtdev-setup-releases.sh
 ```
 
-This script will make `~/rt/riak` the path to setup releases, so make sure this is the same path used in the `.riak_test.config` file.  If this is to be overridden, then it can be do so by override [$RT_DEST_DIR](../bin/rtdev-setup-releases.sh#L11).  The test folders are reset back to default each time using git (and this is what the setup script will initiate).
+This script will make `~/rt/riak` the path to setup releases, so make sure this is the same path used in the `.riak_test.config` file.  If another path is used, then the path used by the script can be overridden by changing [$RT_DEST_DIR](../bin/rtdev-setup-releases.sh#L11).  The test folders are reset back to default each time using git (and this is what the setup script will initiate).
 
 ## Build each Test version
 
