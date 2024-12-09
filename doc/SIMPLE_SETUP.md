@@ -114,13 +114,13 @@ make devclean; make devrel
 ~/riak_test/bin/rtdev-install.sh previous
 ```
 
-Each time you change a branch for testing, re-run the `make devclean; make devrel` and the `rtdev-install.sh` script to update the current or previous test destination as appropriate.  When changing to a tag, the tag will be made with the correct `rebar.lock` file, however this will not necessarily be the case with a branch.  If looking to make such a release, always remove the `rebar.lock` file from the root of the riak folder first.
+Each time you change a branch for testing, re-run the `make devclean; make devrel` and the `rtdev-install.sh` script to update the current or previous test destination as appropriate.  When changing to a tag, the tag will be made with the correct `rebar.lock` file, however this will not necessarily be the case with a branch.  If looking to test a branch rather than a tag, always remove the `rebar.lock` file from the root of the riak folder before running `make devclean; make devrel`.
 
-The make process no longer does a full copy of the riak installation, using symbolic links in places.  So it is important not to modify these riak folders even after running the install script - as tests may be impacted.
+The riak `make devrel` process does not make a full copy of the riak installation, using symbolic links instead.  So it is important not to modify these riak folders even after running the install script - as tests may be impacted.
 
 ## Run Tests
 
-There are two primary ways of running tests:
+There are two primary ways of running tests: as a group; or an running a single test in isolation.
 
 ### Run a test 'group'
 
@@ -174,4 +174,8 @@ Tests can be run individually, with an additional facility that failing tests wi
 ./riak_test -c rtdev -t verify_crdt_capability -b leveled
 ```
 
-Individual tests will abort on failure, but leave the riak instances running so that you can attach to them via riak_console and examine the state at the point of the failure.
+Individual tests will abort on failure, but leave the riak instances running so that you can attach to them via `riak remote_console` and examine the state at the point of the failure.  The logs for each node will be available in the `~/rt/riak/current/dev/dev{n}/riak/log` path. 
+
+When updating a test, run `make all` before re-running the test.
+
+In future versions (`openriak-3.4` and beyond), riak_test changes should also be verified using `./rebar3 as check do xref, dialyzer`.  Validation is not currently supported in `openriak-3.2`.
