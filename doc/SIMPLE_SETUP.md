@@ -165,6 +165,8 @@ Test groups `kv_all`, `nextgenrepl`, `repl_all` and `smoke` will each take multi
 
 The `smoke` test group is intended to give good general coverage of test scenarios.  The `vape` group is a lightweight version of the `smoke` group.  Note that a 2i capable backend is required for both `smoke` and `vape`.
 
+The tests contained in each group are listed within the group file in the groups folder for riak_test (e.g. `groups/kv_all` for the kv_all tests).  Tests are run in alphabetic order (ignoring the order tests are listed in the group).
+
 ### Run an individual test
 
 Tests can be run individually, with an additional facility that failing tests will be paused at the point they fail, if they fail.  This allows you to inspect the state of the cluster (within `~/rtdev/riak`) at the failure point.
@@ -177,5 +179,7 @@ Tests can be run individually, with an additional facility that failing tests wi
 Individual tests will abort on failure, but leave the riak instances running so that you can attach to them via `riak remote_console` and examine the state at the point of the failure.  The logs for each node will be available in the `~/rt/riak/current/dev/dev{n}/riak/log` path. 
 
 When updating a test, run `make all` before re-running the test.
+
+Each test is an individual file within the `tests` folder.  Only tests that are within a group included in the release set confirmed to pass.  For failing tests, including intermittent failures, then please troubleshoot and raise an issue on [OpenRiak riak_test github](https://github.com/OpenRiak/riak_test/issues).
 
 In future versions (`openriak-3.4` and beyond), riak_test changes should also be verified using `./rebar3 as check do xref, dialyzer`.  Validation is not currently supported in `openriak-3.2`.
