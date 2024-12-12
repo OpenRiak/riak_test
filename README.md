@@ -53,7 +53,7 @@ previous versions of Riak. Together, we'll get your test environment
 up and running. Scripts to help in this process are located in the
 `bin` directory of this project.
 
-Alternatively, [use this link for a simplified set of instructions to get started quickly](../doc/SIMPLE_SETUP.MD).
+Alternatively, [use this link for a simplified set of instructions to get started quickly](../doc/SIMPLE_SETUP.md).
 
 ### rtdev-all.sh
 
