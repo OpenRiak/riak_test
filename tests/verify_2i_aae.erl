@@ -25,18 +25,33 @@
 
 %% Make it multi-backend compatible.
 -define(BUCKETS, [<<"eleveldb1">>, <<"memory1">>]).
--define(NUM_ITEMS, 1000).
--define(NUM_DELETES, 100).
+-define(NUM_ITEMS, 5000).
+-define(NUM_DELETES, 500).
 -define(SCAN_BATCH_SIZE, 100).
+-define(RING_SIZE, 16).
 -define(N_VAL, 3).
 
 confirm() ->
-    [Node1] = rt:build_cluster(1,
-                               [{riak_kv,
-                                 [{anti_entropy, {off, []}},
-                                  {anti_entropy_build_limit, {100, 500}},
-                                  {anti_entropy_concurrency, 100},
-                                  {anti_entropy_tick, 200}]}]),
+    [Node1] =
+        rt:build_cluster(
+            1,
+            [
+                {
+                    riak_kv,
+                    [
+                        {anti_entropy, {off, []}},
+                        {anti_entropy_build_limit, {100, 500}},
+                        {anti_entropy_concurrency, 100},
+                        {anti_entropy_tick, 200}
+                    ]
+                },
+                {
+                    riak_core,
+                    [
+                        {ring_creation_size, ?RING_SIZE}
+                    ]
+                }
+                ]),
     rt_intercept:load_code(Node1),
     rt_intercept:add(Node1,
                      {riak_object,
@@ -175,6 +190,7 @@ run_2i_repair(Node1) ->
     receive
         {'DOWN', Mon, _, _, Status} ->
             lager:info("Status: ~p", [Status]),
+            timer:sleep(1000),
             Status 
     after
         MaxWaitTime ->
@@ -183,14 +199,16 @@ run_2i_repair(Node1) ->
     end.
 
 set_skip_index_specs(Node, Val) ->
-    ok = rpc:call(Node, application, set_env,
-                  [riak_kv, skip_index_specs, Val]).
+    ok = 
+        rpc:call(Node, application, set_env, [riak_kv, skip_index_specs, Val]),
+    timer:sleep(1000).
 
 to_key(N) ->
     list_to_binary(integer_to_list(N)).
 
 put_obj(PBC, Bucket, N, IN, Index) ->
     K = to_key(N),
+    timer:sleep(1),
     Obj =
     case riakc_pb_socket:get(PBC, Bucket, K) of
         {ok, ExistingObj} ->
@@ -205,6 +223,7 @@ put_obj(PBC, Bucket, N, IN, Index) ->
 
 del_obj(PBC, Bucket, N) ->
     K = to_key(N),
+    timer:sleep(1),
     case riakc_pb_socket:get(PBC, Bucket, K) of
         {ok, ExistingObj} ->
             ?assertMatch(ok, riakc_pb_socket:delete_obj(PBC, ExistingObj));
@@ -223,5 +242,8 @@ assert_range_query(Pid, Bucket, Expected0, Index, StartValue, EndValue) ->
                      lists:sort(Keys)
              end,
     Expected = lists:sort(Expected0),
-    ?assertEqual({Bucket, Expected}, {Bucket, Actual}),
+    MissingKeys = Expected -- Actual,
+    AdditionalKeys = Actual -- Expected,
+    ?assertEqual({Bucket, []}, {Bucket, MissingKeys}),
+    ?assertEqual({Bucket, []}, {Bucket, AdditionalKeys}),
     lager:info("Yay! ~b (actual) == ~b (expected)", [length(Actual), length(Expected)]).
