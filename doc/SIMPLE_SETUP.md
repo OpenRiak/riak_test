@@ -16,7 +16,7 @@ There will also need to be a test configuration file (`.riak_test.config`), whic
 
 ## Prerequisites
 
-Erlang must be installed na running on the machine.  A simple way of achieving this is via [kerl](https://github.com/kerl/kerl).  All parts should be built and the tests run using the same Erlang version: riak_test, current riak and previous riak.
+Erlang must be installed and running on the machine.  A simple way of achieving this is via [kerl](https://github.com/kerl/kerl).  All parts should be built and the tests run using the same Erlang version: riak_test, current riak and previous riak.
 
 ## Clone Repos
 
@@ -120,7 +120,7 @@ The riak `make devrel` process does not make a full copy of the riak installatio
 
 ## Run Tests
 
-There are two primary ways of running tests: as a group; or an running a single test in isolation.
+There are two primary ways of running tests: as a group; or running a single test in isolation.
 
 ### Run a test 'group'
 
@@ -180,6 +180,6 @@ Individual tests will abort on failure, but leave the riak instances running so 
 
 When updating a test, run `make all` before re-running the test.
 
-Each test is an individual file within the `tests` folder.  Only tests that are within a group included in the release set confirmed to pass.  For failing tests, including intermittent failures, then please troubleshoot and raise an issue on [OpenRiak riak_test github](https://github.com/OpenRiak/riak_test/issues).
+Each test is an individual file within the `tests` folder.  Only tests that are within a group included in the release set are confirmed to pass, other tests may have undetected failures unrelated to any recent riak changes.  For failing tests, including intermittent failures, then please troubleshoot and raise an issue on [OpenRiak riak_test github](https://github.com/OpenRiak/riak_test/issues).
 
 In future versions (`openriak-3.4` and beyond), riak_test changes should also be verified using `./rebar3 as check do xref, dialyzer`.  Validation is not currently supported in `openriak-3.2`.
