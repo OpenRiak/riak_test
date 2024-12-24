@@ -34,7 +34,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(N_VAL, 3).
--define(CLAIMANT_TICK, 5000).
+-define(TEST_TICK, 4000). % standard tick time for all
 
 -define(RACK_A, "rack_a").
 -define(RACK_B, "rack_b").
@@ -61,12 +61,14 @@ run_test(RingSize, ClaimAlgorithm) ->
         {riak_core, [
             {ring_creation_size,        RingSize},
             {choose_claim_fun,          ClaimAlgorithm},
-            {claimant_tick,             ?CLAIMANT_TICK},
+            {claimant_tick,             ?TEST_TICK},
             {default_bucket_props,      [{allow_mult, true}, {dvv_enabled, true}]},
             {handoff_concurrency,       max(8, RingSize div 16)},
             {forced_ownership_handoff,  max(8, RingSize div 16)},
-            {vnode_inactivity_timeout,  4000},
-            {vnode_management_timer,    2000}
+            {vnode_inactivity_timeout,  ?TEST_TICK},
+            {vnode_management_timer,    ?TEST_TICK},
+            {gossip_limit,              {100, ?TEST_TICK}},
+            {vnode_parallel_start,      max(16, RingSize div 16)}
         ]}
     ],
 
@@ -107,8 +109,13 @@ run_test(RingSize, ClaimAlgorithm, AllNodes) ->
     assert_no_ownership_change(Ring1, Ring2, ClaimAlgorithm, false),
 
     % Two Nodes same location
-    setup_location(Nodes, #{Node1 => ?RACK_B,
-                            Node2 => ?RACK_B}),
+    setup_location(
+      Nodes, 
+      #{
+        Node1 => ?RACK_B,
+        Node2 => ?RACK_B
+      }
+    ),
     assert_ring_satisfy_n_val(rt:get_ring(Node1)),
 
     % Two Nodes different Locations
@@ -118,39 +125,64 @@ run_test(RingSize, ClaimAlgorithm, AllNodes) ->
     assert_ring_satisfy_n_val(Ring3),
 
     % Change one of node location and expect no transfers
-    setup_location(Nodes, #{Node1 => ?RACK_C,
-                            Node2 => ?RACK_B}),
+    setup_location(
+      Nodes,
+      #{
+        Node1 => ?RACK_C,
+        Node2 => ?RACK_B
+      }
+    ),
     Ring4 = rt:get_ring(Node1),
     assert_ring_satisfy_n_val(Ring4),
     assert_no_ownership_change(Ring4, Ring3, ClaimAlgorithm, true),
 
     % Change both nodes locations and expect no transfers
-    setup_location(Nodes, #{Node1 => ?RACK_B,
-                            Node2 => ?RACK_D}),
+    setup_location(
+      Nodes, 
+      #{
+        Node1 => ?RACK_B,
+        Node2 => ?RACK_D
+      }
+    ),
     assert_ring_satisfy_n_val(rt:get_ring(Node1)),
 
     % Three Nodes with different Locations
-    setup_location(Nodes, #{Node1 => ?RACK_C,
-                            Node2 => ?RACK_D,
-                            Node3 => ?RACK_A}),
+    setup_location(
+      Nodes,
+      #{
+        Node1 => ?RACK_C,
+        Node2 => ?RACK_D,
+        Node3 => ?RACK_A
+      }
+    ),
     Ring5 = rt:get_ring(Node1),
     assert_ring_satisfy_n_val(Ring5),
     assert_no_location_violation(Ring5),
 
     % For Nodes with different Locations
-    setup_location(Nodes, #{Node1 => ?RACK_C,
-                            Node2 => ?RACK_D,
-                            Node3 => ?RACK_A,
-                            Node4 => ?RACK_B}),
+    setup_location(
+      Nodes,
+      #{
+        Node1 => ?RACK_C,
+        Node2 => ?RACK_D,
+        Node3 => ?RACK_A,
+        Node4 => ?RACK_B
+      }
+    ),
     Ring6 = rt:get_ring(Node1),
     assert_ring_satisfy_n_val(Ring6),
     assert_no_location_violation(Ring6),
 
     % Change all nodes locations and expect no transfers
-    setup_location(Nodes, #{Node1 => ?RACK_A,
-                            Node2 => ?RACK_B,
-                            Node3 => ?RACK_C,
-                            Node4 => ?RACK_D}),
+    setup_location(
+      Nodes,
+      #{
+        Node1 => ?RACK_A,
+        Node2 => ?RACK_B,
+        Node3 => ?RACK_C,
+        Node4 => ?RACK_D
+      }
+    ),
 
     Ring7 = rt:get_ring(Node1),
     assert_ring_satisfy_n_val(Ring7),
@@ -159,12 +191,16 @@ run_test(RingSize, ClaimAlgorithm, AllNodes) ->
 
     rt:staged_join(Node5, Node1),
 
-    setup_location(AllNodes, #{Node1 => ?RACK_A,
-                               Node2 => ?RACK_B,
-                               Node3 => ?RACK_C,
-                               Node4 => ?RACK_B,
-                               Node5 => ?RACK_A
-    }),
+    setup_location(
+      AllNodes,
+      #{
+        Node1 => ?RACK_A,
+        Node2 => ?RACK_B,
+        Node3 => ?RACK_C,
+        Node4 => ?RACK_B,
+        Node5 => ?RACK_A
+      }
+    ),
     Ring8 = rt:get_ring(Node1),
     assert_ring_satisfy_n_val(Ring8),
 
@@ -173,26 +209,34 @@ run_test(RingSize, ClaimAlgorithm, AllNodes) ->
 
         rt:staged_join(Node6, Node1),
 
-        setup_location(AllNodes, #{Node1 => ?RACK_A,
-                                  Node2 => ?RACK_A,
-                                  Node3 => ?RACK_B,
-                                  Node4 => ?RACK_B,
-                                  Node5 => ?RACK_C,
-                                  Node6 => ?RACK_C
-                                  }),
+        setup_location(
+          AllNodes,
+          #{
+            Node1 => ?RACK_A,
+            Node2 => ?RACK_A,
+            Node3 => ?RACK_B,
+            Node4 => ?RACK_B,
+            Node5 => ?RACK_C,
+            Node6 => ?RACK_C
+          }
+        ),
         Ring9 = rt:get_ring(Node1),
 
         assert_ring_satisfy_n_val(Ring9),
         % Because of tail violations need to increase n_val to satisfy diversity of locations
         assert_no_location_violation(Ring9, 4, 3),
 
-        setup_location(AllNodes, #{Node1 => ?RACK_A,
-                                  Node2 => ?RACK_B,
-                                  Node3 => ?RACK_C,
-                                  Node4 => ?RACK_C,
-                                  Node5 => ?RACK_B,
-                                  Node6 => ?RACK_A
-        }),
+        setup_location(
+          AllNodes,
+          #{
+            Node1 => ?RACK_A,
+            Node2 => ?RACK_B,
+            Node3 => ?RACK_C,
+            Node4 => ?RACK_C,
+            Node5 => ?RACK_B,
+            Node6 => ?RACK_A
+          }
+        ),
         Ring10 = rt:get_ring(Node1),
         assert_ring_satisfy_n_val(Ring10),
         % Because of tail violations need to increase n_val to satisfy diversity of locations
@@ -204,8 +248,10 @@ run_test(RingSize, ClaimAlgorithm, AllNodes) ->
           "for unsolveable tail violations", [N])
     end,
 
-    ?LOG_INFO("Test verify location settings with ring size ~b: Passed",
-                [RingSize]),
+    ?LOG_INFO(
+      "Test verify location settings with ring size ~b: Passed",
+      [RingSize]
+    ),
 
     rt:clean_cluster(AllNodes),
 
@@ -233,14 +279,20 @@ plan_and_wait(Claimant, Nodes) ->
     rt:plan_and_commit(Claimant),
     rt:wait_until_ring_converged(Nodes),
     lists:foreach(fun rt:wait_until_ready/1, Nodes),
-    ?LOG_INFO("Sleeping claimant_tick before checking transfer progress"),
-    timer:sleep(?CLAIMANT_TICK),
+    ?LOG_INFO("Sleeping tick before checking transfer progress"),
+    timer:sleep(?TEST_TICK),
     ok = rt:wait_until_transfers_complete(Nodes),
     lists:foreach(fun rt:wait_until_node_handoffs_complete/1, Nodes),
     ?LOG_INFO(
-      "Sleeping claimant_tick  + 1s before confirming transfers complete"),
-    timer:sleep(?CLAIMANT_TICK + 1000),
-    ok = rt:wait_until_transfers_complete(Nodes).
+      "Sleeping tick before confirming transfers complete"),
+    timer:sleep(?TEST_TICK),
+    ok = rt:wait_until_transfers_complete(Nodes),
+    lists:foreach(fun rt:wait_until_node_handoffs_complete/1, Nodes),
+    ?LOG_INFO(
+      "Sleeping tick again before confirming transfers complete"),
+    timer:sleep(?TEST_TICK),
+    ok = rt:wait_until_transfers_complete(Nodes),
+    lists:foreach(fun rt:wait_until_node_handoffs_complete/1, Nodes).
 
 assert_ring_satisfy_n_val(Ring) ->
   ?LOG_INFO("Ensure that every preflists satisfy n_val"),

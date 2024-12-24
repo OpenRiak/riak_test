@@ -31,7 +31,7 @@
     setup_location/2
 ]).
 
--define(CLAIMANT_TICK, 5000).
+-define(TEST_TICK, 5000).
 
 -define(RACK_A, "rack_a").
 -define(RACK_B, "rack_b").
@@ -52,17 +52,20 @@ run_test(RingSize, ClaimAlgorithm, LNV, ActualL) ->
         {riak_kv, [{anti_entropy, {off, []}}]},
         {riak_core,
             [
-              {ring_creation_size, RingSize},
-              {claimant_tick, ?CLAIMANT_TICK},
-              {handoff_concurrency,       max(8, RingSize div 16)},
-              {forced_ownership_handoff,  max(8, RingSize div 16)},
-              {vnode_inactivity_timeout,  4000},
-              {vnode_management_timer,    2000},
-              {choose_claim_fun, ClaimAlgorithm},
-              {target_location_n_val, 3},
-              {full_rebalance_onleave, true},
-              {default_bucket_props,
-                [{allow_mult, true}, {dvv_enabled, true}]}
+                {ring_creation_size,        RingSize},
+                {choose_claim_fun,          ClaimAlgorithm},
+                {claimant_tick,             ?TEST_TICK},
+                {default_bucket_props,      [{allow_mult, true}, {dvv_enabled, true}]},
+                {handoff_concurrency,       max(8, RingSize div 16)},
+                {forced_ownership_handoff,  max(8, RingSize div 16)},
+                {vnode_inactivity_timeout,  ?TEST_TICK},
+                {vnode_management_timer,    ?TEST_TICK},
+                {gossip_limit,              {100, ?TEST_TICK}},
+                {vnode_parallel_start,      max(16, RingSize div 16)},
+                {target_location_n_val, 3},
+                {full_rebalance_onleave, true},
+                {default_bucket_props,
+                    [{allow_mult, true}, {dvv_enabled, true}]}
               ]}
             ],
 
