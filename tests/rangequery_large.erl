@@ -19,20 +19,24 @@
 -behavior(riak_test).
 
 -export([confirm/0]).
+-export([spawn_profile_fun/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(RING_SIZE, 32).
+-define(RING_SIZE, 64).
 -define(DEFAULT_BUCKET_PROPS, [{allow_mult, true}, {dvv_enabled, true}]).
 -define(BTYPE, <<"Type1">>).
 -define(BNAME, <<"Bucket1">>).
 -define(POC_IDX, <<"pcdob_bin">>).
 -define(NAME_IDX, <<"fngndob_bin">>).
 -define(GP_IDX, <<"shagpdob_bin">>).
--define(KEYCOUNT_FACTOR, 8).
+-define(KEYCOUNT_FACTOR, 4).
 -define(KEYCOUNT, ?KEYCOUNT_FACTOR * 65536).
 
+-record(index_results_v1,
+    {keys, terms, continuation}
+).
 
 -define(CONFIG(RingSize),
     [
@@ -59,7 +63,7 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(3, ?CONFIG(?RING_SIZE)),
+    Nodes = rt:build_cluster(6, ?CONFIG(?RING_SIZE)),
     ?LOG_INFO(
         "Loading ~w items of data with ~w index terms",
         [?KEYCOUNT, ?KEYCOUNT * 6]
@@ -76,14 +80,21 @@ query_tests(HdNode) ->
     HTTPC = rt:httpc(HdNode),
     % Find all Smiths
     NumberofSmiths = 5 * (?KEYCOUNT div 64),
-    query_test(
-        HTTPC,
-        ?NAME_IDX,
-        {<<"Smith|">>, <<"Smith~">>},
-        undefined,
-        NumberofSmiths,
-        NumberofSmiths,
-        NumberofSmiths
+    % spawn_profile_fun(HdNode),
+    lists:foreach(
+        fun(_I) ->
+            secondary_index_comparison(HTTPC),
+            query_test(
+                HTTPC,
+                ?NAME_IDX,
+                {<<"Smith|">>, <<"Smith~">>},
+                undefined,
+                NumberofSmiths,
+                NumberofSmiths,
+                NumberofSmiths
+            )
+        end,
+        lists:seq(1, 4)
     ),
     NumberofMos = 2 * (?KEYCOUNT div 64),
     query_test(
@@ -165,10 +176,21 @@ query_tests(HdNode) ->
         NumberofLS1_1_90s,
         (((NumberofLS1_1 div 11) * 32) div 64) * 10,
         ?KEYCOUNT div 4
-    )
+    ).
 
-    .
-
+secondary_index_comparison(HTTPC) ->
+    {TC4, {ok, #index_results_v1{keys=TwoIKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:get_index(
+                    HTTPC, {?BTYPE, ?BNAME}, ?NAME_IDX, {<<"Smith|">>, <<"Smith~">>}
+                )
+            end
+        ),
+    ?LOG_INFO(
+        "2i query took ~w ms to find ~w results",
+        [TC4 div 1000, length(TwoIKeys)]
+    ).
 
 query_test(
         HTTPC, Idx, Range, Regex, ExpCount, ExpMatches, ScanCount) ->
@@ -179,14 +201,20 @@ query_test(
                 rhc:range_query(HTTPC, B, Idx, Range, Regex, keys, [])
             end
         ),
-    {TC2, {ok, {match_count, MC}}} =
+    {TC2, {ok, {raw_keys, RawKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(HTTPC, B, Idx, Range, Regex, raw_keys, [])
+            end
+        ),
+    {TC3, {ok, {match_count, MC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
                     HTTPC, B, Idx, Range, Regex, match_count, [])
             end
         ),
-    {TC3, {ok, {key_count, KC}}} =
+    {TC4, {ok, {key_count, KC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
@@ -194,11 +222,19 @@ query_test(
             end
         ),
     ?assertMatch(ExpCount, length(Keys)), 
+    ?assertMatch(ExpMatches, length(RawKeys)),
     ?assertMatch(ExpMatches, MC), 
     ?assertMatch(ExpCount, KC),
     ?LOG_INFO(
-        "Timings for finding ~w keys scanning ~w terms in ~w ~w ~w",
-        [ExpCount, ScanCount, TC1 div 1000, TC2 div 1000, TC3 div 1000]
+        "Timings for finding ~w keys scanning ~w terms in ~w ~w ~w ~w",
+        [
+            ExpCount,
+            ScanCount,
+            TC1 div 1000,
+            TC2 div 1000,
+            TC3 div 1000,
+            TC4 div 1000
+        ]
     ).
 
 
@@ -329,3 +365,15 @@ to_dob(N) ->
     DOB = (N div 65536) rem 16,
     list_to_binary(io_lib:format("~4..0B~2..0B~2..0B", [YOB, MOB, DOB])).
     
+spawn_profile_fun(Node) ->
+    spawn(
+        fun() ->
+            lists:foreach(
+                fun(_I) ->
+                    erpc:call(Node, riak_kv_util, profile_riak, [50]),
+                    timer:sleep(10)
+                end,
+                lists:seq(1, 10)
+            )
+        end
+    ).
