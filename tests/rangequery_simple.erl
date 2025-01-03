@@ -23,7 +23,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(RING_SIZE, 32).
+-define(RING_SIZE, 16).
 -define(DEFAULT_BUCKET_PROPS, [{allow_mult, true}, {dvv_enabled, true}]).
 -define(BTYPE, <<"Type1">>).
 -define(BNAME, <<"Bucket1">>).
@@ -61,7 +61,7 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(3, ?CONFIG(?RING_SIZE)),
+    Nodes = rt:build_cluster(1, ?CONFIG(?RING_SIZE)),
     ok = setup_data(Nodes),
     ok = test_client_query(Nodes, http),
     ok = test_client_invalid_query(Nodes, http),
@@ -77,7 +77,10 @@ test_client_query(Nodes, http) ->
     test_basic_matchcount(HTTPC, {?BTYPE, ?BNAME}),
     test_basic_matchcount(HTTPC, ?BNAME),
     test_basic_regex(HTTPC, {?BTYPE, ?BNAME}),
-    test_basic_regex(HTTPC, ?BNAME).
+    test_basic_regex(HTTPC, ?BNAME),
+    test_basic_range_returning_terms(HTTPC, {?BTYPE, ?BNAME}),
+    test_basic_range_returning_terms(HTTPC, ?BNAME),
+    test_basic_filter_query(HTTPC, {?BTYPE, ?BNAME}).
 
 test_client_invalid_query(Nodes, http) ->
     ?LOG_INFO("Test error responses for http"),
@@ -170,6 +173,55 @@ test_basic_range(Client, Bucket) ->
         {ok, {keys, [?KEY2]}},
         rhc:range_query(
             Client, Bucket, ?INDEX1, {<<"E">>, <<"F">>}
+        )
+    ).
+
+test_basic_range_returning_terms(Client, Bucket) ->
+    ?LOG_INFO(
+        "Test basic range returning terms with ~0p ~0p",
+        [Client, Bucket]
+    ),
+    ?assertMatch(
+        {
+            ok,
+            {
+                term_with_keys,
+                [
+                    {struct, [{?IDXV2, ?KEY1}]},
+                    {struct, [{?IDXV3, ?KEY2}]},
+                    {struct, [{?IDXV1, ?KEY1}]}
+                ]
+            }
+        },
+        rhc:range_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            undefined,
+            term_with_keys,
+            []
+        )
+    ),
+    ?assertMatch(
+        {
+            ok,
+            {
+                term_with_keys,
+                [
+                    {struct, [{?IDXV3, ?KEY2}]},
+                    {struct, [{?IDXV1, ?KEY1}]}
+                ]
+            }
+        },
+        rhc:range_query(
+            Client,
+            Bucket,
+            ?INDEX2,
+            {<<"A">>, <<"Q">>},
+            undefined,
+            term_with_keys,
+            []
         )
     ).
 
@@ -371,6 +423,85 @@ test_basic_regex(Client, Bucket) ->
             []
         )
     ).
+
+test_basic_filter_query(Client, Bucket) ->
+    ?LOG_INFO("Test basic filter query with ~0p ~0p", [Client, Bucket]),
+    ?assertMatch(
+        {ok, {keys, [?KEY1, ?KEY2]}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            keys,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {keys, [?KEY1, ?KEY2]}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX2,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob IN (:yob1, :yob2)">>,
+            keys,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {keys, [?KEY2]}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX2,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob">>,
+            keys,
+            undefined,
+            #{<<"yob">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {key_count, 2}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            key_count,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {match_count, 3}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            match_count,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ).
+
 
 setup_data(Nodes) ->
     PBPid = rt:pbc(hd(Nodes)),

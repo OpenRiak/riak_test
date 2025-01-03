@@ -24,7 +24,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(RING_SIZE, 64).
+-define(RING_SIZE, 32).
 -define(DEFAULT_BUCKET_PROPS, [{allow_mult, true}, {dvv_enabled, true}]).
 -define(BTYPE, <<"Type1">>).
 -define(BNAME, <<"Bucket1">>).
@@ -63,7 +63,7 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(6, ?CONFIG(?RING_SIZE)),
+    Nodes = rt:build_cluster(4, ?CONFIG(?RING_SIZE)),
     ?LOG_INFO(
         "Loading ~w items of data with ~w index terms",
         [?KEYCOUNT, ?KEYCOUNT * 6]
@@ -83,8 +83,14 @@ query_tests(HdNode) ->
     % spawn_profile_fun(HdNode),
     lists:foreach(
         fun(_I) ->
-            secondary_index_comparison(HTTPC),
-            query_test(
+            secondary_index_comparison(
+                HTTPC,
+                {?BTYPE, ?BNAME},
+                ?NAME_IDX,
+                {<<"Smith|">>, <<"Smith~">>},
+                undefined
+            ),
+            rangequery_test(
                 HTTPC,
                 ?NAME_IDX,
                 {<<"Smith|">>, <<"Smith~">>},
@@ -97,7 +103,7 @@ query_tests(HdNode) ->
         lists:seq(1, 4)
     ),
     NumberofMos = 2 * (?KEYCOUNT div 64),
-    query_test(
+    rangequery_test(
         HTTPC,
         ?NAME_IDX,
         {<<"Mo">>, <<"Mo~">>},
@@ -108,7 +114,14 @@ query_tests(HdNode) ->
     ),
     % Find all Mo* born in 1980 - covers Moore and Morris
     Numberof1980Mos = (2 * (?KEYCOUNT div 64)) div 64,
-    query_test(
+    secondary_index_comparison(
+        HTTPC,
+        {?BTYPE, ?BNAME},
+        ?NAME_IDX,
+        {<<"Mo">>, <<"Mo~">>},
+        <<"[A-Z][a-z]*\\|1980.*">>
+    ),
+    rangequery_test(
         HTTPC,
         ?NAME_IDX,
         {<<"Mo">>, <<"Mo~">>},
@@ -117,8 +130,19 @@ query_tests(HdNode) ->
         Numberof1980Mos,
         2 * (?KEYCOUNT div 64)
     ),
+    filterquery_test(
+        HTTPC,
+        ?NAME_IDX,
+        {<<"Mo">>, <<"Mo~">>},
+        <<"delim($term, \"|\", ($fn, $dob))">>,
+        <<"$dob BETWEEN \"1980\" AND \"1981\"">>,
+        undefined,
+        Numberof1980Mos,
+        Numberof1980Mos,
+        2 * (?KEYCOUNT div 64)
+    ),
     % As before but different way of expressing regex
-    query_test(
+    rangequery_test(
         HTTPC,
         ?NAME_IDX,
         {<<"Mo">>, <<"Mo~">>},
@@ -128,7 +152,7 @@ query_tests(HdNode) ->
         2 * (?KEYCOUNT div 64)
     ),
     Numberof80sMs = ((4 * (?KEYCOUNT div 64)) div 64) * 10,
-    query_test(
+    rangequery_test(
         HTTPC,
         ?NAME_IDX,
         {<<"M">>, <<"M~">>},
@@ -138,7 +162,7 @@ query_tests(HdNode) ->
         4 * (?KEYCOUNT div 64)
     ),
     % As before but different way of expressing regex
-    query_test(
+    rangequery_test(
         HTTPC,
         ?NAME_IDX,
         {<<"M">>, <<"M~">>},
@@ -148,7 +172,14 @@ query_tests(HdNode) ->
         4 * (?KEYCOUNT div 64)
     ),
     NumberofLS1_endsA = ?KEYCOUNT div 8,
-    query_test(
+    secondary_index_comparison(
+        HTTPC,
+        {?BTYPE, ?BNAME},
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>
+    ),
+    rangequery_test(
         HTTPC,
         ?POC_IDX,
         {<<"LS1_">>, <<"LS1_~">>},
@@ -157,8 +188,19 @@ query_tests(HdNode) ->
         NumberofLS1_endsA, % all the matches are different keys
         ?KEYCOUNT % There are four index entries per key
     ),
+    filterquery_test(
+        HTTPC,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"delim($term, \"|\", ($pc, $dob))">>,
+        <<"begins_with($pc, \"LS1_\") AND ends_with($pc, \"A\")">>,
+        undefined,
+        NumberofLS1_endsA,
+        NumberofLS1_endsA, % all the matches are different keys
+        ?KEYCOUNT % There are four index entries per key
+    ),
     NumberofLS1_1 = ((?KEYCOUNT div 4) div 32) * 11,
-    query_test(
+    rangequery_test(
         HTTPC,
         ?POC_IDX,
         {<<"LS1_1">>, <<"LS1_1~">>},
@@ -168,7 +210,14 @@ query_tests(HdNode) ->
         ?KEYCOUNT div 4
     ),
     NumberofLS1_1_90s = (NumberofLS1_1 div 64) * 10,
-    query_test(
+    secondary_index_comparison(
+        HTTPC,
+        {?BTYPE, ?BNAME},
+        ?POC_IDX,
+        {<<"LS1_1">>, <<"LS1_1~">>},
+        <<"LS1_1[A-Z]{2}\\|199">>
+    ),
+    rangequery_test(
         HTTPC,
         ?POC_IDX,
         {<<"LS1_1">>, <<"LS1_1~">>},
@@ -176,23 +225,134 @@ query_tests(HdNode) ->
         NumberofLS1_1_90s,
         (((NumberofLS1_1 div 11) * 32) div 64) * 10,
         ?KEYCOUNT div 4
+    ),
+    filterquery_test(
+        HTTPC,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"delim($term, \"|\", ($pc, $dob))">>,
+        <<"begins_with($pc, \"LS1_1\") AND begins_with($dob, \"199\")">>,
+        undefined,
+        NumberofLS1_1_90s,
+        (((NumberofLS1_1 div 11) * 32) div 64) * 10,
+        ?KEYCOUNT div 4
+    ),
+    filterquery_test(
+        HTTPC,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"delim($term, \"|\", ($pc, $dob))">>,
+        <<"($pc BETWEEN \"LS1_1\" AND \"LS1_1\~\") AND ($dob BETWEEN \"199\" AND \"200\")">>,
+        undefined,
+        NumberofLS1_1_90s,
+        (((NumberofLS1_1 div 11) * 32) div 64) * 10,
+        ?KEYCOUNT div 4
     ).
 
-secondary_index_comparison(HTTPC) ->
+secondary_index_comparison(
+        HTTPC, Bucket, Idx, Range, TermRegex) ->
+    Options =
+        case TermRegex of
+            undefined ->
+                [];
+            TermRegex when is_binary(TermRegex) ->
+                [{term_regex, TermRegex}]
+        end,
     {TC4, {ok, #index_results_v1{keys=TwoIKeys}}} =
         timer:tc(
             fun() ->
                 rhc:get_index(
-                    HTTPC, {?BTYPE, ?BNAME}, ?NAME_IDX, {<<"Smith|">>, <<"Smith~">>}
+                    HTTPC, Bucket, Idx, Range, Options)
+            end
+        ),
+    {TC5, {ok, #index_results_v1{terms=TwoITerms}}} =
+        timer:tc(
+            fun() ->
+                rhc:get_index(
+                    HTTPC, Bucket, Idx, Range, [{return_terms, true}|Options])
+            end
+        ),
+    ?assert(length(TwoIKeys) == length(TwoITerms)),
+    ?LOG_INFO("2i query with term_regex=~s: ", [TermRegex]),
+    ?LOG_INFO("Timings to find ~w results in ~w (raw_keys) ~w (return_terms)",
+        [length(TwoIKeys), TC4 div 1000, TC5 div 1000]
+    ).
+
+filterquery_test(
+        HTTPC, Idx, Range,
+        EvalExpr, FiltrExpr, Subs,
+        ExpCnt, ExpMatches, ScanCnt) ->
+    B = {?BTYPE, ?BNAME},
+    {TC1, {ok, {keys, Keys}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, keys,
+                    undefined, Subs, []
                 )
             end
         ),
+    {TC2, {ok, {raw_keys, RawKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, raw_keys,
+                    undefined, Subs, []
+                )
+            end
+        ),
+    {TC3, {ok, {match_count, MC}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, match_count,
+                    undefined, Subs, []
+                )
+            end
+        ),
+    {TC4, {ok, {key_count, KC}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, key_count,
+                    undefined, Subs, []
+                )
+            end
+        ),
+    {TC5, {ok, {term_with_keys, TermsKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, term_with_keys,
+                    undefined, Subs, []
+                )
+            end
+        ),
+    ?assertMatch(ExpCnt, length(Keys)), 
+    ?assertMatch(Keys, lists:usort(Keys)), % keys are returned sorted
+    ?assertMatch(ExpMatches, length(RawKeys)),
+    ?assertMatch(ExpMatches, MC), 
+    ?assertMatch(ExpCnt, KC),
+    ?assertMatch(ExpMatches, length(TermsKeys)),
+    ?assertMatch(TermsKeys, lists:usort(TermsKeys)),
+    ?LOG_INFO("Filter expression query - ~s: ", [FiltrExpr]),
     ?LOG_INFO(
-        "2i query took ~w ms to find ~w results",
-        [TC4 div 1000, length(TwoIKeys)]
+        "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
+        "~w (keys) ~w (raw_keys) "
+        "~w (match_count) ~w (key_count) ~w (term_with_keys)",
+        [
+            ExpCnt,
+            ScanCnt,
+            ExpMatches,
+            TC1 div 1000,
+            TC2 div 1000,
+            TC3 div 1000,
+            TC4 div 1000,
+            TC5 div 1000
+        ]
     ).
 
-query_test(
+rangequery_test(
         HTTPC, Idx, Range, Regex, ExpCount, ExpMatches, ScanCount) ->
     B = {?BTYPE, ?BNAME},
     {TC1, {ok, {keys, Keys}}} =
@@ -221,19 +381,34 @@ query_test(
                     HTTPC, B, Idx, Range, Regex, key_count, [])
             end
         ),
+    {TC5, {ok, {term_with_keys, TermsKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC, B, Idx, Range, Regex, term_with_keys, [])
+            end
+        ),
     ?assertMatch(ExpCount, length(Keys)), 
+    ?assertMatch(Keys, lists:usort(Keys)), % keys are returned sorted
     ?assertMatch(ExpMatches, length(RawKeys)),
     ?assertMatch(ExpMatches, MC), 
     ?assertMatch(ExpCount, KC),
+    ?assertMatch(ExpMatches, length(TermsKeys)),
+    ?assertMatch(TermsKeys, lists:usort(TermsKeys)),
+    ?LOG_INFO("Regular expression query - ~0p: ", [Regex]),
     ?LOG_INFO(
-        "Timings for finding ~w keys scanning ~w terms in ~w ~w ~w ~w",
+        "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
+        "~w (keys) ~w (raw_keys) "
+        "~w (match_count) ~w (key_count) ~w (term_with_keys)",
         [
             ExpCount,
             ScanCount,
+            ExpMatches,
             TC1 div 1000,
             TC2 div 1000,
             TC3 div 1000,
-            TC4 div 1000
+            TC4 div 1000,
+            TC5 div 1000
         ]
     ).
 
@@ -291,7 +466,7 @@ generate_name_indices(N) ->
     % Each record has one and only one family name
     FN = to_familyname(N),
     GN1 = to_givenname(N),
-    GN2 = to_givenname(N + 1),
+    GN2 = to_givenname(N + 65),
     DOB = to_dob(N),
     [
         {
