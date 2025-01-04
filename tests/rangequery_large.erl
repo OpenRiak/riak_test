@@ -301,7 +301,16 @@ filterquery_test(
                 )
             end
         ),
-    {TC3, {ok, {raw_count, MC}}} =
+    {TC3, {ok, {raw_terms, RawTerms}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, raw_terms,
+                    undefined, Subs, []
+                )
+            end
+        ),
+    {TC4, {ok, {raw_count, MC}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
@@ -310,7 +319,7 @@ filterquery_test(
                 )
             end
         ),
-    {TC4, {ok, {count, KC}}} =
+    {TC5, {ok, {count, KC}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
@@ -319,7 +328,7 @@ filterquery_test(
                 )
             end
         ),
-    {TC5, {ok, {terms, TermsKeys}}} =
+    {TC6, {ok, {terms, Terms}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
@@ -333,12 +342,15 @@ filterquery_test(
     ?assertMatch(ExpMatches, length(RawKeys)),
     ?assertMatch(ExpMatches, MC), 
     ?assertMatch(ExpCnt, KC),
-    ?assertMatch(ExpMatches, length(TermsKeys)),
-    ?assertMatch(TermsKeys, lists:usort(TermsKeys)),
+    ?assertMatch(ExpMatches, length(Terms)),
+    ?assertMatch(ExpMatches, length(RawTerms)),
+    ?assertMatch(Terms, lists:usort(Terms)),
+    ?assertMatch(Terms, lists:usort(RawTerms)),
     ?LOG_INFO("Filter expression query - ~s: ", [FiltrExpr]),
     ?LOG_INFO(
         "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
-        "~w (keys) ~w (raw_keys) ~w (raw_count) ~w (count) ~w (terms)",
+        "~w (keys) ~w (raw_keys) ~w (raw_terms) "
+        "~w (raw_count) ~w (count) ~w (terms)",
         [
             ExpCnt,
             ScanCnt,
@@ -347,7 +359,8 @@ filterquery_test(
             TC2 div 1000,
             TC3 div 1000,
             TC4 div 1000,
-            TC5 div 1000
+            TC5 div 1000,
+            TC6 div 1000
         ]
     ).
 
@@ -366,38 +379,47 @@ rangequery_test(
                 rhc:range_query(HTTPC, B, Idx, Range, Regex, raw_keys, [])
             end
         ),
-    {TC3, {ok, {raw_count, MC}}} =
+    {TC3, {ok, {raw_terms, RawTerms}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(HTTPC, B, Idx, Range, Regex, raw_terms, [])
+            end
+        ),
+    {TC4, {ok, {raw_count, MC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
                     HTTPC, B, Idx, Range, Regex, raw_count, [])
             end
         ),
-    {TC4, {ok, {count, KC}}} =
+    {TC5, {ok, {count, KC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
                     HTTPC, B, Idx, Range, Regex, count, [])
             end
         ),
-    {TC5, {ok, {terms, TermsKeys}}} =
+    {TC6, {ok, {terms, Terms}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
                     HTTPC, B, Idx, Range, Regex, terms, [])
             end
         ),
+    
     ?assertMatch(ExpCount, length(Keys)), 
     ?assertMatch(Keys, lists:usort(Keys)), % keys are returned sorted
     ?assertMatch(ExpMatches, length(RawKeys)),
     ?assertMatch(ExpMatches, MC), 
     ?assertMatch(ExpCount, KC),
-    ?assertMatch(ExpMatches, length(TermsKeys)),
-    ?assertMatch(TermsKeys, lists:usort(TermsKeys)),
+    ?assertMatch(ExpMatches, length(Terms)),
+    ?assertMatch(ExpMatches, length(RawTerms)),
+    ?assertMatch(Terms, lists:usort(Terms)),
     ?LOG_INFO("Regular expression query - ~0p: ", [Regex]),
     ?LOG_INFO(
         "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
-        "~w (keys) ~w (raw_keys) ~w (raw_count) ~w (count) ~w (terms)",
+        "~w (keys) ~w (raw_keys) ~w (raw_terms) "
+        "~w (raw_count) ~w (count) ~w (terms)",
         [
             ExpCount,
             ScanCount,
@@ -406,7 +428,8 @@ rangequery_test(
             TC2 div 1000,
             TC3 div 1000,
             TC4 div 1000,
-            TC5 div 1000
+            TC5 div 1000,
+            TC6 div 1000
         ]
     ).
 
