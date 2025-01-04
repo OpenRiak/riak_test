@@ -185,7 +185,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
         {
             ok,
             {
-                term_with_keys,
+                terms,
                 [
                     {struct, [{?IDXV2, ?KEY1}]},
                     {struct, [{?IDXV3, ?KEY2}]},
@@ -199,7 +199,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
             ?INDEX1,
             {<<"A">>, <<"Q">>},
             undefined,
-            term_with_keys,
+            terms,
             []
         )
     ),
@@ -207,7 +207,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
         {
             ok,
             {
-                term_with_keys,
+                terms,
                 [
                     {struct, [{?IDXV3, ?KEY2}]},
                     {struct, [{?IDXV1, ?KEY1}]}
@@ -220,7 +220,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
             ?INDEX2,
             {<<"A">>, <<"Q">>},
             undefined,
-            term_with_keys,
+            terms,
             []
         )
     ).
@@ -228,124 +228,124 @@ test_basic_range_returning_terms(Client, Bucket) ->
 test_basic_keycount(Client, Bucket) ->
     ?LOG_INFO("Test basic keycount with ~0p ~0p", [Client, Bucket]),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"Q">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX2,
             {<<"A">>, <<"Q">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"F">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"E">>, <<"Q">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 1}},
+        {ok, {count, 1}},
         rhc:range_query(
             Client, Bucket,
             ?INDEX1,
             {<<"A">>, <<"B">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 1}},
+        {ok, {count, 1}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"E">>, <<"F">>},
-            undefined, key_count, []
+            undefined, count, []
         )
     ).
 
 test_basic_matchcount(Client, Bucket) ->
     ?LOG_INFO("Test basic matchcount with ~0p ~0p", [Client, Bucket]),
     ?assertMatch(
-        {ok, {match_count, 3}},
+        {ok, {raw_count, 3}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"Q">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 2}},
+        {ok, {raw_count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX2,
             {<<"A">>, <<"Q">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 2}},
+        {ok, {raw_count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"F">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 2}},
+        {ok, {raw_count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"E">>, <<"Q">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 1}},
+        {ok, {raw_count, 1}},
         rhc:range_query(
             Client, Bucket,
             ?INDEX1,
             {<<"A">>, <<"B">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 1}},
+        {ok, {raw_count, 1}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"E">>, <<"F">>},
-            undefined, match_count, []
+            undefined, raw_count, []
         )
     ).
 
@@ -388,38 +388,38 @@ test_basic_regex(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"Q">>},
             <<"[A-Z]+\\|195[0-9]+">>,
-            key_count,
+            count,
             []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 3}},
+        {ok, {raw_count, 3}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX1,
             {<<"A">>, <<"Q">>},
             <<"[A-Z]+\\|195[0-9]+">>,
-            match_count,
+            raw_count,
             []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 2}},
+        {ok, {raw_count, 2}},
         rhc:range_query(
             Client,
             Bucket,
             ?INDEX2,
             {<<"A">>, <<"Q">>},
             <<"[A-Z]+\\|195[0-9]+">>,
-            match_count,
+            raw_count,
             []
         )
     ).
@@ -472,7 +472,7 @@ test_basic_filter_query(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {ok, {key_count, 2}},
+        {ok, {count, 2}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -480,14 +480,14 @@ test_basic_filter_query(Client, Bucket) ->
             {<<"A">>, <<"Q">>},
             <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
             <<"$yob = :yob1 OR $yob = :yob2">>,
-            key_count,
+            count,
             undefined,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []
         )
     ),
     ?assertMatch(
-        {ok, {match_count, 3}},
+        {ok, {raw_count, 3}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -495,7 +495,7 @@ test_basic_filter_query(Client, Bucket) ->
             {<<"A">>, <<"Q">>},
             <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
             <<"$yob = :yob1 OR $yob = :yob2">>,
-            match_count,
+            raw_count,
             undefined,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []

@@ -301,29 +301,29 @@ filterquery_test(
                 )
             end
         ),
-    {TC3, {ok, {match_count, MC}}} =
+    {TC3, {ok, {raw_count, MC}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
-                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, match_count,
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, raw_count,
                     undefined, Subs, []
                 )
             end
         ),
-    {TC4, {ok, {key_count, KC}}} =
+    {TC4, {ok, {count, KC}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
-                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, key_count,
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, count,
                     undefined, Subs, []
                 )
             end
         ),
-    {TC5, {ok, {term_with_keys, TermsKeys}}} =
+    {TC5, {ok, {terms, TermsKeys}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
-                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, term_with_keys,
+                    HTTPC, B, Idx, Range, EvalExpr, FiltrExpr, terms,
                     undefined, Subs, []
                 )
             end
@@ -338,8 +338,7 @@ filterquery_test(
     ?LOG_INFO("Filter expression query - ~s: ", [FiltrExpr]),
     ?LOG_INFO(
         "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
-        "~w (keys) ~w (raw_keys) "
-        "~w (match_count) ~w (key_count) ~w (term_with_keys)",
+        "~w (keys) ~w (raw_keys) ~w (raw_count) ~w (count) ~w (terms)",
         [
             ExpCnt,
             ScanCnt,
@@ -367,25 +366,25 @@ rangequery_test(
                 rhc:range_query(HTTPC, B, Idx, Range, Regex, raw_keys, [])
             end
         ),
-    {TC3, {ok, {match_count, MC}}} =
+    {TC3, {ok, {raw_count, MC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
-                    HTTPC, B, Idx, Range, Regex, match_count, [])
+                    HTTPC, B, Idx, Range, Regex, raw_count, [])
             end
         ),
-    {TC4, {ok, {key_count, KC}}} =
+    {TC4, {ok, {count, KC}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
-                    HTTPC, B, Idx, Range, Regex, key_count, [])
+                    HTTPC, B, Idx, Range, Regex, count, [])
             end
         ),
-    {TC5, {ok, {term_with_keys, TermsKeys}}} =
+    {TC5, {ok, {terms, TermsKeys}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
-                    HTTPC, B, Idx, Range, Regex, term_with_keys, [])
+                    HTTPC, B, Idx, Range, Regex, terms, [])
             end
         ),
     ?assertMatch(ExpCount, length(Keys)), 
@@ -398,8 +397,7 @@ rangequery_test(
     ?LOG_INFO("Regular expression query - ~0p: ", [Regex]),
     ?LOG_INFO(
         "Timings for finding ~w keys scanning ~w terms with ~w raw matches in "
-        "~w (keys) ~w (raw_keys) "
-        "~w (match_count) ~w (key_count) ~w (term_with_keys)",
+        "~w (keys) ~w (raw_keys) ~w (raw_count) ~w (count) ~w (terms)",
         [
             ExpCount,
             ScanCount,
