@@ -65,7 +65,6 @@ confirm() ->
     ok = setup_data(Nodes),
     ok = test_client_query(Nodes, http),
     ok = test_client_invalid_query(Nodes, http),
-    % ok = test_client_invalid_type(Nodes, http),
     pass.
 
 test_client_query(Nodes, http) ->
@@ -80,7 +79,10 @@ test_client_query(Nodes, http) ->
     test_basic_regex(HTTPC, ?BNAME),
     test_basic_range_returning_terms(HTTPC, {?BTYPE, ?BNAME}),
     test_basic_range_returning_terms(HTTPC, ?BNAME),
-    test_basic_filter_query(HTTPC, {?BTYPE, ?BNAME}).
+    test_basic_filter_query(HTTPC, {?BTYPE, ?BNAME}),
+    test_basic_filter_query(HTTPC, ?BNAME),
+    test_combo_query(HTTPC, {?BTYPE, ?BNAME}),
+    test_combo_query(HTTPC, ?BNAME).
 
 test_client_invalid_query(Nodes, http) ->
     ?LOG_INFO("Test error responses for http"),
@@ -498,6 +500,67 @@ test_basic_filter_query(Client, Bucket) ->
             raw_count,
             undefined,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ).
+
+
+test_combo_query(Client, Bucket) ->
+    ?LOG_INFO("Test basic combo query with ~0p ~0p", [Client, Bucket]),
+    Q1 =
+        rhc:make_query(
+            1,
+            ?INDEX1,
+            {<<"P">>, <<"Q">>},
+            {
+                <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+                <<"$yob = :yob1">>
+            }
+        ),
+    Q2 =
+        rhc:make_query(
+            2,
+            ?INDEX2,
+            {<<"E">>, <<"F">>},
+            {
+                <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+                <<"$yob = :yob2">>
+            }
+        ),
+    SubsMap = #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+    ?assertMatch(
+        {ok, {raw_count, 2}},
+        rhc:combo_query(
+            Client,
+            Bucket,
+            raw_count,
+            SubsMap,
+            <<"$1 UNION $2">>,
+            [Q1, Q2],
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {keys, [?KEY1, ?KEY2]}},
+        rhc:combo_query(
+            Client,
+            Bucket,
+            keys,
+            SubsMap,
+            <<"$1 UNION $2">>,
+            [Q1, Q2],
+            []
+        )
+    ),
+    ?assertMatch(
+        {ok, {raw_count, 0}},
+        rhc:combo_query(
+            Client,
+            Bucket,
+            raw_count,
+            SubsMap,
+            <<"$1 INTERSECT $2">>,
+            [Q1, Q2],
             []
         )
     ).

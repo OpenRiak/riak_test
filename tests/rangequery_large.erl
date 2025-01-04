@@ -247,6 +247,220 @@ query_tests(HdNode) ->
         NumberofLS1_1_90s,
         (((NumberofLS1_1 div 11) * 32) div 64) * 10,
         ?KEYCOUNT div 4
+    ),
+    comboquery_comparison(
+        HTTPC,
+        {
+            ?NAME_IDX,
+            {<<"T">>, <<"T~">>},
+            {
+                <<"delim($term, \"|\", ($fn, $dob, $gn))">>,
+                <<"$dob BETWEEN \"19910601\" AND \"19980220\"">>
+            }
+        },
+        {
+            ?POC_IDX,
+            {<<"LS2">>, <<"LS2~">>},
+            {
+                <<"delim($term, \"|\", ($pc, $dob))">>,
+                <<"$dob BETWEEN \"19910601\" AND \"19980220\"">>
+            }
+        }
+    ).
+
+comboquery_comparison(HTTPC, Q1, Q2) ->
+    B = {?BTYPE, ?BNAME},
+    {Idx1, Range1, {Eval1, Filter1}} = Q1,
+    {Idx2, Range2, {Eval2, Filter2}} = Q2,
+    {TC1, {ok, {raw_count, Q1ScanCount}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    B,
+                    Idx1,
+                    Range1,
+                    undefined,
+                    raw_count,
+                    []
+                )
+            end
+        ),
+    {TC2, {ok, {raw_count, Q2ScanCount}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    B,
+                    Idx2,
+                    Range2,
+                    undefined,
+                    raw_count,
+                    []
+                )
+            end
+        ),
+    {TC3, {ok, {keys, Q1Keys}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    B,
+                    Idx1,
+                    Range1,
+                    Eval1,
+                    Filter1,
+                    keys,
+                    undefined,
+                    undefined,
+                    []
+                )
+            end
+        ),
+    {TC4, {ok, {keys, Q2Keys}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    B,
+                    Idx2,
+                    Range2,
+                    Eval2,
+                    Filter2,
+                    keys,
+                    undefined,
+                    undefined,
+                    []
+                )
+            end
+        ),
+    S1 = sets:from_list(Q1Keys, [{version, 2}]),
+    S2 = sets:from_list(Q2Keys, [{version, 2}]),
+    Intersect = lists:sort(sets:to_list(sets:intersection(S1, S2))),
+    Union = lists:sort(sets:to_list(sets:union(S1, S2))),
+    Difference = lists:sort(sets:to_list(sets:subtract(S1, S2))),
+    Q1Map = rhc:make_query(1, Idx1, Range1, {Eval1, Filter1}),
+    Q2Map = rhc:make_query(2, Idx2, Range2, {Eval2, Filter2}),
+    {TC5, {ok, {keys, IntersectKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    keys,
+                    undefined,
+                    <<"$1 INTERSECT $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    {TC6, {ok, {keys, UnionKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    keys,
+                    undefined,
+                    <<"$1 UNION $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    {TC7, {ok, {keys, DifferenceKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    keys,
+                    undefined,
+                    <<"$1 SUBTRACT $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    {TC8, {ok, {raw_keys, RawIntersectKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    raw_keys,
+                    undefined,
+                    <<"$1 INTERSECT $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    {TC9, {ok, {raw_keys, RawUnionKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    raw_keys,
+                    undefined,
+                    <<"$1 UNION $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    {TC10, {ok, {raw_keys, RawDifferenceKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    B,
+                    raw_keys,
+                    undefined,
+                    <<"$1 SUBTRACT $2">>,
+                    [Q1Map, Q2Map],
+                    []
+                )
+            end
+        ),
+    ?assertMatch(Intersect, IntersectKeys),
+    ?assertMatch(Union, UnionKeys),
+    ?assertMatch(Difference, DifferenceKeys),
+    ?assertMatch(Intersect, lists:sort(RawIntersectKeys)),
+    ?assertMatch(Union, lists:sort(RawUnionKeys)),
+    ?assertMatch(Difference, lists:sort(RawDifferenceKeys)),
+    ?LOG_INFO(
+        "Testing of combo query:"
+    ),
+    ?LOG_INFO(
+        "Results to scan ~w and ~w "
+        "with results returned of ~w ~w",
+        [Q1ScanCount, Q2ScanCount, length(Q1Keys), length(Q2Keys)]
+    ),
+    ?LOG_INFO(
+        "Intersection of ~w union of ~w difference of ~w",
+        [length(Intersect), length(Union), length(Difference)]
+    ),
+    ?LOG_INFO(
+        "Timings:"
+    ),
+    ?LOG_INFO(
+        "Counting scan in ~w ~w ",
+        [TC1 div 1000, TC2 div 1000]
+    ),
+    ?LOG_INFO(
+        "Filter query to fetch in ~w ~w ",
+        [TC3 div 1000, TC4 div 1000]
+    ),
+    ?LOG_INFO(
+        "Combo query to fetch keys in ~w ~w ~w",
+        [TC5 div 1000, TC6 div 1000, TC7 div 1000]
+    ),
+    ?LOG_INFO(
+        "Combo query to fetch raw keys in ~w ~w ~w",
+        [TC8 div 1000, TC9 div 1000, TC10 div 1000]
     ).
 
 secondary_index_comparison(
