@@ -266,6 +266,96 @@ query_tests(HdNode) ->
                 <<"$dob BETWEEN \"19910601\" AND \"19980220\"">>
             }
         }
+    ),
+    term_counting(HTTPC).
+
+
+term_counting(HTTPC) ->
+    B = {?BTYPE, ?BNAME},
+    {TC1, {ok, {raw_count, Q1ScanCount}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    B,
+                    ?GP_IDX,
+                    {<<"SHA00001">>, <<"SHA00001~">>},
+                    undefined,
+                    raw_count,
+                    []
+                )
+            end
+        ),
+    {TC2, {ok, {raw_count, Q2MatchCount}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    B,
+                    ?GP_IDX,
+                    {<<"SHA00001">>, <<"SHA00001~">>},
+                    <<"index($term, 16, 8, $dob)">>,
+                    <<"$dob BETWEEN :low_dob AND :high_dob">>,
+                    raw_count,
+                    undefined,
+                    #{<<"low_dob">> => <<"19930901">>, <<"high_dob">> => <<"20000831">>},
+                    []
+                )
+            end
+        ),
+    {TC3, {ok, {term_with_rawcount, {struct, TCL3}}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    B,
+                    ?GP_IDX,
+                    {<<"SHA00001">>, <<"SHA00001~">>},
+                    <<"index($term, 8, 8, $gp) | index($term, 16, 8, $dob)">>,
+                    <<"$dob BETWEEN :low_dob AND :high_dob">>,
+                    term_with_rawcount,
+                    <<"gp">>,
+                    #{<<"low_dob">> => <<"19930901">>, <<"high_dob">> => <<"20000831">>},
+                    []
+                )
+            end
+        ),
+    {TC4, {ok, {term_with_count, {struct, TCL4}}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    B,
+                    ?GP_IDX,
+                    {<<"SHA00001">>, <<"SHA00001~">>},
+                    <<"index($term, 8, 8, $gp) | index($term, 16, 8, $dob)">>,
+                    <<"$dob BETWEEN :low_dob AND :high_dob">>,
+                    term_with_count,
+                    <<"gp">>,
+                    #{<<"low_dob">> => <<"19930901">>, <<"high_dob">> => <<"20000831">>},
+                    []
+                )
+            end
+        ),
+    Q3MatchCount = lists:sum(lists:map(fun({_GP, C}) ->  C end, TCL3)),
+    Q4MatchCount = lists:sum(lists:map(fun({_GP, C}) ->  C end, TCL4)),
+    ?assertMatch(Q2MatchCount, Q3MatchCount),
+    ?assertMatch(Q2MatchCount, Q4MatchCount),
+    ?assertMatch(64, length(TCL3)),
+    ?assertMatch(64, length(TCL4)),
+    ?LOG_INFO("Term counting test:"),
+    ?LOG_INFO(
+        "Query scanned ~w terms and matched ~w terms",
+        [Q1ScanCount, Q2MatchCount]
+    ),
+    ?LOG_INFO(
+        "Query found ~w different terms",
+        [length(TCL3)]
+    ),
+    ?LOG_INFO(
+        "Query took ~w (scan) ~w (count) ~w "
+        "(term_with_rawcount) ~w (term_with_count)",
+        [TC1 div 1000, TC2 div 1000, TC3 div 1000, TC4 div 1000]
     ).
 
 comboquery_comparison(HTTPC, Q1, Q2) ->
@@ -764,10 +854,10 @@ to_familyname(N) ->
     ).
 
 to_sha(N) ->
-    list_to_binary(io_lib:format("SHA~4..0B", [(N rem 4) + 1])).
+    list_to_binary(io_lib:format("SHA~5..0B", [(N rem 4) + 1])).
 
 to_gp(N) ->
-    list_to_binary(io_lib:format("SHA~4..0B", [((N div 4) rem 64) + 1])).
+    list_to_binary(io_lib:format("GP~6..0B", [((N div 4) rem 64) + 1])).
 
 to_dob(N) ->
     YOB = 1960 + ((N div 128) rem 64),

@@ -65,6 +65,7 @@ confirm() ->
     ok = setup_data(Nodes),
     ok = test_client_query(Nodes, http),
     ok = test_client_invalid_query(Nodes, http),
+    ok = test_client_invalid_type(Nodes, http),
     pass.
 
 test_client_query(Nodes, http) ->
@@ -81,6 +82,8 @@ test_client_query(Nodes, http) ->
     test_basic_range_returning_terms(HTTPC, ?BNAME),
     test_basic_filter_query(HTTPC, {?BTYPE, ?BNAME}),
     test_basic_filter_query(HTTPC, ?BNAME),
+    test_basic_term_count(HTTPC, {?BTYPE, ?BNAME}),
+    test_basic_term_count(HTTPC, ?BNAME),
     test_combo_query(HTTPC, {?BTYPE, ?BNAME}),
     test_combo_query(HTTPC, ?BNAME).
 
@@ -114,30 +117,147 @@ test_client_invalid_query(Nodes, http) ->
     ).
 
 
-% -define(ERROR_AOPREFIX, "Validation failure at stage accumulation_option due to").
+-define(ERROR_AOPREFIX, "Validation failure at stage accumulation_option due to").
 
-% test_client_invalid_type(Nodes, http) ->
-%     ?LOG_INFO("Test error responses for http - where type is invalid"),
-%     Client = rt:httpc(hd(Nodes)),
-%     {error, E1} = rhc:range_query(Client, ?BNAME, ?INDEX1, {0, 1}),
-%     ?assertMatch(
-%         ?ERROR_QEPREFIX " Invalid query range",
-%         E1
-%     ),
-%     {error, E3} = 
-%         rhc:range_query(
-%             Client,
-%             ?BNAME,
-%             ?INDEX1,
-%             {<<"A">>, <<"B">>},
-%             undefined,
-%             matches,
-%             []
-%         ),
-%     ?assertMatch(
-%         ?ERROR_AOPREFIX " Unrecognised option <<\"matches\">>",
-%         E3
-%     ).
+test_client_invalid_type(Nodes, http) ->
+    ?LOG_INFO("Test error responses for http - where type is invalid"),
+    Client = rt:httpc(hd(Nodes)),
+    BadJson1 =
+        <<"
+            {
+                \"timeout\" : 60,
+                \"query_list\" :
+                    [
+                        {
+                            \"index_name\" : \"example_bin\",
+                            \"start_term\" : 0,
+                            \"end_term\"   : 1
+                        }
+                    ]
+            }
+        ">>,
+    URL = rhc:make_query_url(Client, ?BNAME),
+    {error, E1} = send_request(URL, post, BadJson1, 30),
+    ?assertMatch(
+        ?ERROR_QEPREFIX " Invalid query range",
+        E1
+    ),
+    BadJson2 =
+        <<"
+            {
+                \"timeout\" : 60,
+                \"accumulation_option\" : \"matches\",
+                \"query_list\" :
+                    [
+                        {
+                            \"index_name\" : \"example_bin\",
+                            \"start_term\" : \"0\",
+                            \"end_term\"   : \"1\"
+                        }
+                    ]
+            }
+        ">>,
+    {error, E2} = send_request(URL, post, BadJson2, 30),
+    ?assertMatch(
+        ?ERROR_AOPREFIX " Unrecognised option <<\"matches\">>",
+        E2
+    ).
+
+send_request(Url, Method, Body, Timeout) ->
+    Accept = {"Accept", "application/json"},
+    MakeRequest =
+        ibrowse:send_req(
+            Url, [Accept], Method, Body, [{response_format, binary}], Timeout),
+    case MakeRequest of
+        Resp={ok, "200", _, _} ->
+            Resp;
+        Resp={ok, _, _, _} ->
+            rhc:handle_query_error({error, Resp});
+        Error ->
+            rhc:handle_query_error(Error)
+    end.
+
+test_basic_term_count(Client, Bucket) ->
+    ?LOG_INFO("Test basic term count with ~0p ~0p", [Client, Bucket]),
+    ?assertMatch(
+        {ok, {term_with_count, {struct, [{<<"1958">>, 1}, {<<"1959">>, 1}]}}},
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            term_with_count,
+            <<"yob">>,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {
+            ok,
+            {
+                term_with_rawcount,
+                {struct, [{<<"1958">>, 2}, {<<"1959">>, 1}]}
+            }
+        },
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            term_with_rawcount,
+            <<"yob">>,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {
+            ok,
+            {
+                term_with_count,
+                {struct, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}
+            }
+        },
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            term_with_count,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ),
+    ?assertMatch(
+        {
+            ok,
+            {
+                term_with_rawcount,
+                {struct, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}
+            }
+        },
+        rhc:filter_query(
+            Client,
+            Bucket,
+            ?INDEX1,
+            {<<"A">>, <<"Q">>},
+            <<"delim($term, \"|\", ($fn, $dob)) | index($dob, 0, 4, $yob)">>,
+            <<"$yob = :yob1 OR $yob = :yob2">>,
+            term_with_rawcount,
+            undefined,
+            #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
+            []
+        )
+    ).
+
 
 test_basic_range(Client, Bucket) ->
     ?LOG_INFO("Test basic range with ~0p ~0p", [Client, Bucket]),
