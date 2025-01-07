@@ -180,7 +180,7 @@ send_request(Url, Method, Body, Timeout) ->
 test_basic_term_count(Client, Bucket) ->
     ?LOG_INFO("Test basic term count with ~0p ~0p", [Client, Bucket]),
     ?assertMatch(
-        {ok, {term_with_count, {struct, [{<<"1958">>, 1}, {<<"1959">>, 1}]}}},
+        {ok, {term_with_count, [{<<"1958">>, 1}, {<<"1959">>, 1}]}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -195,13 +195,7 @@ test_basic_term_count(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {
-            ok,
-            {
-                term_with_rawcount,
-                {struct, [{<<"1958">>, 2}, {<<"1959">>, 1}]}
-            }
-        },
+        {ok, {term_with_rawcount, [{<<"1958">>, 2}, {<<"1959">>, 1}]}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -216,13 +210,7 @@ test_basic_term_count(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {
-            ok,
-            {
-                term_with_count,
-                {struct, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}
-            }
-        },
+        {ok, {term_with_count, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -237,13 +225,7 @@ test_basic_term_count(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {
-            ok,
-            {
-                term_with_rawcount,
-                {struct, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}
-            }
-        },
+        {ok, {term_with_rawcount, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}},
         rhc:filter_query(
             Client,
             Bucket,
@@ -304,17 +286,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
         [Client, Bucket]
     ),
     ?assertMatch(
-        {
-            ok,
-            {
-                terms,
-                [
-                    {struct, [{?IDXV2, ?KEY1}]},
-                    {struct, [{?IDXV3, ?KEY2}]},
-                    {struct, [{?IDXV1, ?KEY1}]}
-                ]
-            }
-        },
+        {ok, {terms, [{?IDXV2, ?KEY1}, {?IDXV3, ?KEY2}, {?IDXV1, ?KEY1}]}},
         rhc:range_query(
             Client,
             Bucket,
@@ -326,16 +298,7 @@ test_basic_range_returning_terms(Client, Bucket) ->
         )
     ),
     ?assertMatch(
-        {
-            ok,
-            {
-                terms,
-                [
-                    {struct, [{?IDXV3, ?KEY2}]},
-                    {struct, [{?IDXV1, ?KEY1}]}
-                ]
-            }
-        },
+        {ok, {terms, [{?IDXV3, ?KEY2}, {?IDXV1, ?KEY1}]}},
         rhc:range_query(
             Client,
             Bucket,

@@ -267,7 +267,123 @@ query_tests(HdNode) ->
             }
         }
     ),
-    term_counting(HTTPC).
+    term_counting(HTTPC),
+    max_results_rangequery_test(
+        HTTPC,
+        NumberofLS1_endsA,
+        ?KEYCOUNT div 12,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>,
+        raw_keys
+    ),
+    max_results_rangequery_test(
+        HTTPC,
+        NumberofLS1_endsA,
+        ?KEYCOUNT div 12,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>,
+        terms
+    ),
+    max_results_rangequery_test(
+        HTTPC,
+        NumberofLS1_endsA,
+        8000,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>,
+        terms
+    ),
+    max_results_rangequery_test(
+        HTTPC,
+        NumberofLS1_endsA,
+        2000,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>,
+        raw_keys
+    ),
+    max_results_rangequery_test(
+        HTTPC,
+        NumberofLS1_endsA,
+        NumberofLS1_endsA,
+        ?POC_IDX,
+        {<<"LS1_">>, <<"LS1_~">>},
+        <<"LS1_[0-9][A-Z]A">>,
+        raw_keys
+    ).
+
+
+max_results_rangequery_test(
+        HTTPC, ExpectedResults, MaxResults, Idx, Range, Regex, Type) ->
+    B = {?BTYPE, ?BNAME},
+    {Loops, Remainder} = loops_remainder(ExpectedResults, MaxResults),
+    ?LOG_INFO(
+        "Max results test with expected ~w max ~w loops ~w rem ~w",
+        [ExpectedResults, MaxResults, Loops, Remainder]
+    ),
+    {TotalT, TotalC, RemC} =
+        lists:foldl(
+            fun(_I, {TAcc, CAcc, C}) ->
+                Opts =
+                    case C of
+                        none ->
+                            [{max_results, MaxResults}];
+                        C when is_binary(C) ->
+                            [{max_results, MaxResults}, {continuation, C}]
+                    end,
+                {TC, {ok, {Type, Keys}, NewC}} =
+                    timer:tc(
+                        fun() ->
+                            rhc:range_query(
+                                HTTPC, B, Idx, Range, Regex, Type, Opts)
+                        end
+                    ),
+                {TAcc + TC, CAcc + length(Keys), NewC}
+            end,
+            {0, 0, none},
+            lists:seq(1, Loops)
+        ),
+    LastOptsA1 = 
+        case RemC of
+            RemC when is_binary(RemC) ->
+                [{max_results, MaxResults}, {continuation, RemC}];
+            none ->
+                [{max_results, MaxResults}]
+        end,
+    {LastTCK, {ok, {Type, RemKeys}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC, B, Idx, Range, Regex, Type, LastOptsA1)
+            end
+        ),
+    ?assertMatch(ExpectedResults, TotalC + length(RemKeys)),
+    {LastTCC, {ok, {count, RemCount}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC, B, Idx, Range, Regex, count, [{continuation, RemC}])
+            end
+        ),
+    ?assertMatch(Remainder, RemCount),
+    ?assertMatch(Remainder, length(RemKeys)),
+
+    ?LOG_INFO("Testing max_results with range_query type ~w:", [Type]),
+    ?LOG_INFO(
+        "Expected ~w max ~w loops ~w rem ~w",
+        [ExpectedResults, MaxResults, Loops, Remainder]
+    ),
+    ?LOG_INFO(
+        "Time for loops ~w (raw_keys) and remainder ~w (raw_keys) ~w count",
+        [TotalT div 1000, LastTCK div 1000, LastTCC div 1000]
+    ).
+      
+loops_remainder(ExpectedResults, MaxResults) ->
+    Loops = ExpectedResults div MaxResults,
+    Remainder = ExpectedResults - (Loops * MaxResults),
+    {Loops, Remainder}.
 
 
 term_counting(HTTPC) ->
@@ -303,7 +419,7 @@ term_counting(HTTPC) ->
                 )
             end
         ),
-    {TC3, {ok, {term_with_rawcount, {struct, TCL3}}}} =
+    {TC3, {ok, {term_with_rawcount, TCL3}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
@@ -320,7 +436,7 @@ term_counting(HTTPC) ->
                 )
             end
         ),
-    {TC4, {ok, {term_with_count, {struct, TCL4}}}} =
+    {TC4, {ok, {term_with_count, TCL4}}} =
         timer:tc(
             fun() ->
                 rhc:filter_query(
