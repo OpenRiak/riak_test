@@ -273,7 +273,32 @@ query_tests(HdNode) ->
         }
     ),
     term_counting(HTTPC),
-    max_results(HTTPC).
+    max_results(HTTPC),
+    check_stats(HdNode).
+
+check_stats(HdNode) ->
+    Stats = rt:get_stats(HdNode, 2000),
+    {<<"node_query_results_mean">>, NQRM} =
+        lists:keyfind(<<"node_query_results_mean">>, 1, Stats),
+    {<<"node_query_time_mean">>, NQTM} =
+        lists:keyfind(<<"node_query_time_mean">>, 1, Stats),
+    {<<"node_query">>, NQ} =
+        lists:keyfind(<<"node_query">>, 1, Stats),
+    {<<"vnode_query_time_mean">>, VQTM} =
+        lists:keyfind(<<"vnode_query_time_mean">>, 1, Stats),
+    {<<"vnode_query">>, VQ} =
+        lists:keyfind(<<"vnode_query">>, 1, Stats),
+    {<<"query_server_create">>, QSC} =
+        lists:keyfind(<<"query_server_create">>, 1, Stats),
+    {<<"query_server_create_error">>, QSE} =
+        lists:keyfind(<<"query_server_create_error">>, 1, Stats),
+    ?assert(NQRM > 0),
+    ?assert(NQTM > 0),
+    ?assert(NQTM >= VQTM),
+    ?assert(NQ > 0),
+    ?assert(NQ < VQ),
+    ?assert(QSC > 0),
+    ?assert(QSE == 0).
 
 
 max_results(HTTPC) ->
