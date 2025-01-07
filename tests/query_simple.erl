@@ -15,7 +15,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(rangequery_simple).
+-module(query_simple).
 -behavior(riak_test).
 
 -export([confirm/0]).
@@ -61,11 +61,16 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(1, ?CONFIG(?RING_SIZE)),
-    ok = setup_data(Nodes),
-    ok = test_client_query(Nodes, http),
-    ok = test_client_invalid_query(Nodes, http),
-    ok = test_client_invalid_type(Nodes, http),
+    case proplists:get_value(backend, riak_test_runner:metadata()) of
+        leveled ->
+            Nodes = rt:build_cluster(1, ?CONFIG(?RING_SIZE)),
+            ok = setup_data(Nodes),
+            ok = test_client_query(Nodes, http),
+            ok = test_client_invalid_query(Nodes, http),
+            ok = test_client_invalid_type(Nodes, http);
+        OtherBackend ->
+            ?LOG_INFO("Backend ~0p does not support query API", [OtherBackend])
+    end,
     pass.
 
 test_client_query(Nodes, http) ->

@@ -15,7 +15,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(rangequery_large).
+-module(query_sample).
 -behavior(riak_test).
 
 -export([confirm/0]).
@@ -63,17 +63,22 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(4, ?CONFIG(?RING_SIZE)),
-    ?LOG_INFO(
-        "Loading ~w items of data with ~w index terms",
-        [?KEYCOUNT, ?KEYCOUNT * 6]
-    ),
-    {LoadTime, ok} = timer:tc(fun() -> setup_data(Nodes) end),
-    ?LOG_INFO(
-        "Loading complete in ~w milliseconds",
-        [LoadTime div 1000]
-    ),
-    query_tests(hd(Nodes)),
+    case proplists:get_value(backend, riak_test_runner:metadata()) of
+        leveled ->
+            Nodes = rt:build_cluster(4, ?CONFIG(?RING_SIZE)),
+            ?LOG_INFO(
+                "Loading ~w items of data with ~w index terms",
+                [?KEYCOUNT, ?KEYCOUNT * 6]
+            ),
+            {LoadTime, ok} = timer:tc(fun() -> setup_data(Nodes) end),
+            ?LOG_INFO(
+                "Loading complete in ~w milliseconds",
+                [LoadTime div 1000]
+            ),
+            query_tests(hd(Nodes));
+        OtherBackend ->
+            ?LOG_INFO("Backend ~0p does not support query API", [OtherBackend])
+    end,
     pass.
 
 query_tests(HdNode) ->
