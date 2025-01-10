@@ -446,6 +446,7 @@ get_and_update(Pid, map) ->
 
 all_stats(_Node) ->
     common_stats()
+    ++ query_stats()
     ++ pool_stats()
     ++ tictacaae_stats()
     ++ organisation_stats()
@@ -945,6 +946,25 @@ common_stats() ->
         <<"zstd_version">>
     ].
 
+query_stats() ->
+    [
+        <<"node_query">>,
+        <<"node_query_results_100">>,
+        <<"node_query_results_mean">>,
+        <<"node_query_results_median">>,
+        <<"node_query_time_100">>,
+        <<"node_query_time_99">>,
+        <<"node_query_time_mean">>,
+        <<"node_query_time_median">>,
+        <<"node_query_total">>,
+        <<"query_server_create">>,
+        <<"query_server_create_error">>,
+        <<"vnode_query">>,
+        <<"vnode_query_time_100">>,
+        <<"vnode_query_time_99">>,
+        <<"vnode_query_time_mean">>,
+        <<"vnode_query_time_median">>
+    ].
 
 pool_stats() ->
     dscp_stats() ++ [

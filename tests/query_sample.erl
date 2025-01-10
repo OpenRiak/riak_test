@@ -15,7 +15,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(rangequery_large).
+-module(query_sample).
 -behavior(riak_test).
 
 -export([confirm/0]).
@@ -63,17 +63,22 @@
 ).
 
 confirm() ->
-    Nodes = rt:build_cluster(4, ?CONFIG(?RING_SIZE)),
-    ?LOG_INFO(
-        "Loading ~w items of data with ~w index terms",
-        [?KEYCOUNT, ?KEYCOUNT * 6]
-    ),
-    {LoadTime, ok} = timer:tc(fun() -> setup_data(Nodes) end),
-    ?LOG_INFO(
-        "Loading complete in ~w milliseconds",
-        [LoadTime div 1000]
-    ),
-    query_tests(hd(Nodes)),
+    case proplists:get_value(backend, riak_test_runner:metadata()) of
+        leveled ->
+            Nodes = rt:build_cluster(4, ?CONFIG(?RING_SIZE)),
+            ?LOG_INFO(
+                "Loading ~w items of data with ~w index terms",
+                [?KEYCOUNT, ?KEYCOUNT * 6]
+            ),
+            {LoadTime, ok} = timer:tc(fun() -> setup_data(Nodes) end),
+            ?LOG_INFO(
+                "Loading complete in ~w milliseconds",
+                [LoadTime div 1000]
+            ),
+            query_tests(hd(Nodes));
+        OtherBackend ->
+            ?LOG_INFO("Backend ~0p does not support query API", [OtherBackend])
+    end,
     pass.
 
 query_tests(HdNode) ->
@@ -268,56 +273,117 @@ query_tests(HdNode) ->
         }
     ),
     term_counting(HTTPC),
-    max_results_rangequery_test(
-        HTTPC,
+    max_results(HTTPC),
+    check_stats(HdNode).
+
+check_stats(HdNode) ->
+    Stats = rt:get_stats(HdNode, 2000),
+    {<<"node_query_results_mean">>, NQRM} =
+        lists:keyfind(<<"node_query_results_mean">>, 1, Stats),
+    {<<"node_query_time_mean">>, NQTM} =
+        lists:keyfind(<<"node_query_time_mean">>, 1, Stats),
+    {<<"node_query">>, NQ} =
+        lists:keyfind(<<"node_query">>, 1, Stats),
+    {<<"vnode_query_time_mean">>, VQTM} =
+        lists:keyfind(<<"vnode_query_time_mean">>, 1, Stats),
+    {<<"vnode_query">>, VQ} =
+        lists:keyfind(<<"vnode_query">>, 1, Stats),
+    {<<"query_server_create">>, QSC} =
+        lists:keyfind(<<"query_server_create">>, 1, Stats),
+    {<<"query_server_create_error">>, QSE} =
+        lists:keyfind(<<"query_server_create_error">>, 1, Stats),
+    ?assert(NQRM > 0),
+    ?assert(NQTM > 0),
+    ?assert(NQTM >= VQTM),
+    ?assert(NQ > 0),
+    ?assert(NQ < VQ),
+    ?assert(QSC > 0),
+    ?assert(QSE == 0).
+
+
+max_results(HTTPC) ->
+    NumberofLS1_endsA = ?KEYCOUNT div 8,
+    RangeQueryFunForMR =
+        fun(AccOpt, Opts) ->
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    {?BTYPE, ?BNAME},
+                    ?POC_IDX,
+                    {<<"LS1_">>, <<"LS1_~">>},
+                    <<"LS1_[0-9][A-Z]A">>,
+                    AccOpt,
+                    Opts)
+            end
+        end,
+    FilterQueryFunForMR =
+        fun(AccOpt, Opts) ->
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    {?BTYPE, ?BNAME},
+                    ?POC_IDX,
+                    {<<"LS1_">>, <<"LS1_~">>},
+                    <<"delim($term, \"|\", ($pc, $dob))">>,
+                    <<"ends_with($pc, \"A\")">>,
+                    AccOpt,
+                    undefined,
+                    undefined,
+                    Opts
+                )
+            end
+        end,
+
+    max_results_query_test(
         NumberofLS1_endsA,
         ?KEYCOUNT div 12,
-        ?POC_IDX,
-        {<<"LS1_">>, <<"LS1_~">>},
-        <<"LS1_[0-9][A-Z]A">>,
+        RangeQueryFunForMR,
         raw_keys
     ),
-    max_results_rangequery_test(
-        HTTPC,
+    max_results_query_test(
         NumberofLS1_endsA,
         ?KEYCOUNT div 12,
-        ?POC_IDX,
-        {<<"LS1_">>, <<"LS1_~">>},
-        <<"LS1_[0-9][A-Z]A">>,
-        terms
+        RangeQueryFunForMR,
+        raw_keys
     ),
-    max_results_rangequery_test(
-        HTTPC,
+    max_results_query_test(
         NumberofLS1_endsA,
         8000,
-        ?POC_IDX,
-        {<<"LS1_">>, <<"LS1_~">>},
-        <<"LS1_[0-9][A-Z]A">>,
+        RangeQueryFunForMR,
         terms
     ),
-    max_results_rangequery_test(
-        HTTPC,
+    max_results_query_test(
         NumberofLS1_endsA,
         2000,
-        ?POC_IDX,
-        {<<"LS1_">>, <<"LS1_~">>},
-        <<"LS1_[0-9][A-Z]A">>,
+        RangeQueryFunForMR,
+        terms
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
+        NumberofLS1_endsA,
+        RangeQueryFunForMR,
         raw_keys
     ),
-    max_results_rangequery_test(
-        HTTPC,
+    max_results_query_test(
         NumberofLS1_endsA,
+        16000,
+        FilterQueryFunForMR,
+        terms
+    ),
+    max_results_query_test(
         NumberofLS1_endsA,
-        ?POC_IDX,
-        {<<"LS1_">>, <<"LS1_~">>},
-        <<"LS1_[0-9][A-Z]A">>,
-        raw_keys
+        8000,
+        FilterQueryFunForMR,
+        terms
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
+        2000,
+        FilterQueryFunForMR,
+        terms
     ).
 
-
-max_results_rangequery_test(
-        HTTPC, ExpectedResults, MaxResults, Idx, Range, Regex, Type) ->
-    B = {?BTYPE, ?BNAME},
+max_results_query_test(ExpectedResults, MaxResults, QueryGenFun, Type) ->
     {Loops, Remainder} = loops_remainder(ExpectedResults, MaxResults),
     ?LOG_INFO(
         "Max results test with expected ~w max ~w loops ~w rem ~w",
@@ -334,55 +400,51 @@ max_results_rangequery_test(
                             [{max_results, MaxResults}, {continuation, C}]
                     end,
                 {TC, {ok, {Type, Keys}, NewC}} =
-                    timer:tc(
-                        fun() ->
-                            rhc:range_query(
-                                HTTPC, B, Idx, Range, Regex, Type, Opts)
-                        end
-                    ),
+                    timer:tc(QueryGenFun(Type, Opts)),
                 {TAcc + TC, CAcc + length(Keys), NewC}
             end,
             {0, 0, none},
             lists:seq(1, Loops)
         ),
-    LastOptsA1 = 
+    {LastOptsA1, CountOptsA1} = 
         case RemC of
             RemC when is_binary(RemC) ->
-                [{max_results, MaxResults}, {continuation, RemC}];
+                {
+                    [{max_results, MaxResults}, {continuation, RemC}],
+                    [{continuation, RemC}]
+                };
             none ->
-                [{max_results, MaxResults}]
+                {
+                    [{max_results, MaxResults}],
+                    []
+                }
         end,
     {LastTCK, {ok, {Type, RemKeys}}} =
-        timer:tc(
-            fun() ->
-                rhc:range_query(
-                    HTTPC, B, Idx, Range, Regex, Type, LastOptsA1)
-            end
-        ),
+        timer:tc(QueryGenFun(Type, LastOptsA1)),
     ?assertMatch(ExpectedResults, TotalC + length(RemKeys)),
     {LastTCC, {ok, {count, RemCount}}} =
-        timer:tc(
-            fun() ->
-                rhc:range_query(
-                    HTTPC, B, Idx, Range, Regex, count, [{continuation, RemC}])
-            end
-        ),
+        timer:tc(QueryGenFun(count, CountOptsA1)),
     ?assertMatch(Remainder, RemCount),
     ?assertMatch(Remainder, length(RemKeys)),
 
-    ?LOG_INFO("Testing max_results with range_query type ~w:", [Type]),
     ?LOG_INFO(
-        "Expected ~w max ~w loops ~w rem ~w",
-        [ExpectedResults, MaxResults, Loops, Remainder]
+        "Testing max_results with range_query type ~w and ~w expected:",
+        [Type, ExpectedResults]
     ),
     ?LOG_INFO(
-        "Time for loops ~w (raw_keys) and remainder ~w (raw_keys) ~w count",
-        [TotalT div 1000, LastTCK div 1000, LastTCC div 1000]
+        "Time for ~w loops with ~w max ~w (~w) and remainder ~w (~w) ~w count",
+        [
+            Loops,
+            MaxResults,
+            TotalT div 1000, Type,
+            LastTCK div 1000, Type,
+            LastTCC div 1000
+        ]
     ).
       
 loops_remainder(ExpectedResults, MaxResults) ->
     Loops = ExpectedResults div MaxResults,
-    Remainder = ExpectedResults - (Loops * MaxResults),
+    Remainder = max(0, ExpectedResults - (Loops * MaxResults)),
     {Loops, Remainder}.
 
 
