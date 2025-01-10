@@ -42,6 +42,7 @@
 
 -define(REPL_SLEEP, 2048).
     % May need to wait for 2 x the 1024ms max sleep time of a snk worker
+-define(NGR_INIT_TIMEOUT, 10000).
 -define(WAIT_LOOPS, 12).
 
 -define(STATS_WAIT, 1000).
@@ -49,6 +50,10 @@
 -define(CONFIG(RingSize, NVal, ObjL, SrcQueueDefns, WireCompress), [
     {riak_core, [
         {ring_creation_size, RingSize},
+        {handoff_concurrency,       max(8, RingSize div 16)},
+        {forced_ownership_handoff,  max(8, RingSize div 16)},
+        {vnode_inactivity_timeout,  4000},
+        {vnode_management_timer,    4000},
         {default_bucket_props, [
             {n_val, NVal},
             {allow_mult, true},
@@ -69,7 +74,8 @@
         {replrtq_enablesrc, true},
         {replrtq_srcobjectlimit, ObjL},
         {replrtq_srcqueue, SrcQueueDefns},
-        {replrtq_compressonwire, WireCompress}
+        {replrtq_compressonwire, WireCompress},
+        {ngr_initial_timeout, ?NGR_INIT_TIMEOUT}
     ]}
 ]).
 
@@ -107,8 +113,15 @@ confirm() ->
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
-    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
-                    ClusterA ++ ClusterB ++ ClusterC),
+    lists:foreach(
+        fun(N) -> rt:wait_for_service(N, riak_kv) end,
+        ClusterA ++ ClusterB ++ ClusterC
+    ),
+    rt:wait_until_transfers_complete(ClusterA),
+    rt:wait_until_transfers_complete(ClusterB),
+    rt:wait_until_transfers_complete(ClusterC),
+
+    timer:sleep(?NGR_INIT_TIMEOUT),
 
     ?LOG_INFO("Ready for test - with http client for rtq."),
     pass = test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC),
@@ -145,8 +158,15 @@ confirm() ->
     rt:wait_until_ring_converged(ClusterApb),
     rt:wait_until_ring_converged(ClusterBpb),
     rt:wait_until_ring_converged(ClusterCpb),
-    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
-                    ClusterApb ++ ClusterBpb ++ ClusterCpb),
+    lists:foreach(
+        fun(N) -> rt:wait_for_service(N, riak_kv) end,
+        ClusterApb ++ ClusterBpb ++ ClusterCpb
+    ),
+    rt:wait_until_transfers_complete(ClusterApb),
+    rt:wait_until_transfers_complete(ClusterBpb),
+    rt:wait_until_transfers_complete(ClusterCpb),
+
+    timer:sleep(?NGR_INIT_TIMEOUT),
 
     ?LOG_INFO("Ready for test - with protocol buffers client for rtq."),
     pass = test_rtqrepl_between_clusters(ClusterApb, ClusterBpb, ClusterCpb),

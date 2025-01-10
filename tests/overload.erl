@@ -397,7 +397,7 @@ remote_vnode_queues_empty() ->
 write_once(Node, {Bucket, Key, Value}) ->
     ?LOG_INFO("Writing to node ~0p", [Node]),
     PBC = rt:pbc(Node, [{auto_reconnect, true}, {queue_if_disconnected, true}]),
-    lager:info(
+    ?LOG_INFO(
         "Write response for Bucket ~p ~p",
         [Bucket, rt:pbc_write(PBC, Bucket, Key, Value)]
     ),

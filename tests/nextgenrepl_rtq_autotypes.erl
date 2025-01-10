@@ -44,17 +44,23 @@
 -define(REPL_SLEEP, 512).
     % May need to wait for 2 x the 256ms max sleep time of a snk worker
 -define(WAIT_LOOPS, 12).
+-define(NGR_INIT_TIMEOUT, 10000).
 
--define(CONFIG(RingSize, NVal, SrcQueueDefns), [
+-define(CONFIG(RingSize, NVal, SrcQueueDefns), 
+    [
         {riak_core,
             [
-             {ring_creation_size, RingSize},
-             {default_bucket_props,
-                 [
-                     {n_val, NVal},
-                     {allow_mult, true},
-                     {dvv_enabled, true}
-                 ]}
+                {ring_creation_size, RingSize},
+                {handoff_concurrency,       max(8, RingSize div 16)},
+                {forced_ownership_handoff,  max(8, RingSize div 16)},
+                {vnode_inactivity_timeout,  4000},
+                {vnode_management_timer,    4000},
+                {default_bucket_props,
+                    [
+                        {n_val, NVal},
+                        {allow_mult, true},
+                        {dvv_enabled, true}
+                    ]}
             ]
         },
         {riak_kv,
@@ -71,7 +77,8 @@
             {ttaaefs_maxresults, 128},
             {delete_mode, keep},
             {replrtq_enablesrc, true},
-            {replrtq_srcqueue, SrcQueueDefns}
+            {replrtq_srcqueue, SrcQueueDefns},
+            {ngr_initial_timeout, ?NGR_INIT_TIMEOUT}
           ]}
         ]).
 
@@ -122,42 +129,54 @@ confirm() ->
     rt:wait_until_ring_converged(ClusterA),
     rt:wait_until_ring_converged(ClusterB),
     rt:wait_until_ring_converged(ClusterC),
-    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end,
-                    ClusterA ++ ClusterB ++ ClusterC),
+    lists:foreach(
+        fun(N) -> rt:wait_for_service(N, riak_kv) end,
+        ClusterA ++ ClusterB ++ ClusterC
+    ),
+    rt:wait_until_transfers_complete(ClusterA),
+    rt:wait_until_transfers_complete(ClusterB),
+    rt:wait_until_transfers_complete(ClusterC),
 
+    timer:sleep(?NGR_INIT_TIMEOUT),
 
     ?LOG_INFO("Play around with sink worker counts"),
     [NodeA|_RestA] = ClusterA,
     not_found =
-        rpc:call(NodeA,
-                    riak_kv_replrtq_snk,
-                    set_workercount,
-                    [cluster_b, ?SNK_WORKERS + 1]),
+        rpc:call(
+            NodeA,
+            riak_kv_replrtq_snk,
+            set_workercount,
+            [cluster_b, ?SNK_WORKERS + 1]
+        ),
     ok =
-        rpc:call(NodeA,
-                    riak_kv_replrtq_snk,
-                    set_workercount,
-                    [cluster_a, ?SNK_WORKERS + 1]),
+        rpc:call(
+            NodeA,
+            riak_kv_replrtq_snk,
+            set_workercount,
+            [cluster_a, ?SNK_WORKERS + 1]
+        ),
     ok =
-        rpc:call(NodeA,
-                    riak_kv_replrtq_snk,
-                    set_workercount,
-                    [cluster_a, ?SNK_WORKERS]),
+        rpc:call(
+            NodeA,
+            riak_kv_replrtq_snk,
+            set_workercount,
+            [cluster_a, ?SNK_WORKERS]
+        ),
 
     ?LOG_INFO("Creating bucket types 'type1' and 'type2'"),
-    rt:create_and_activate_bucket_type(hd(ClusterA),
-                                        <<"type1">>, [{magic, false}]),
-    rt:create_and_activate_bucket_type(hd(ClusterB),
-                                        <<"type1">>, [{magic, false}]),
-    rt:create_and_activate_bucket_type(hd(ClusterC),
-                                        <<"type1">>, [{magic, false}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterA), <<"type1">>, [{magic, false}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterB), <<"type1">>, [{magic, false}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterC), <<"type1">>, [{magic, false}]),
 
-    rt:create_and_activate_bucket_type(hd(ClusterA),
-                                        <<"type2">>, [{magic, true}]),
-    rt:create_and_activate_bucket_type(hd(ClusterB),
-                                        <<"type2">>, [{magic, true}]),
-    rt:create_and_activate_bucket_type(hd(ClusterC),
-                                        <<"type2">>, [{magic, true}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterA), <<"type2">>, [{magic, true}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterB), <<"type2">>, [{magic, true}]),
+    rt:create_and_activate_bucket_type(
+        hd(ClusterC), <<"type2">>, [{magic, true}]),
 
     ?LOG_INFO("Ready for test."),
     test_rtqrepl_between_clusters(ClusterA, ClusterB, ClusterC).
