@@ -189,6 +189,8 @@ confirm() ->
 
     verify_inc(Stats7, Stats8, inc_by_one(dscp_totals())),
 
+    verify_sys_monitor_count(Node1),
+
     pass.
 
 verify_inc(Prev, Props, [{Key, Inc} | KeyIncs]) ->
@@ -202,6 +204,10 @@ verify_inc(_Prev, _Props, []) ->
 
 verify_nz(Props, Keys) ->
     [?assertNotEqual(proplists:get_value(Key, Props, 0), 0) || Key <- Keys].
+
+verify_sys_monitor_count(Node) ->
+    C = erpc:call(Node, riak_kv_util, sys_monitor_count, []),
+    ?assert(is_integer(C)).
 
 has_head_support(leveled) ->
     true;
@@ -855,7 +861,6 @@ common_stats() ->
         <<"sys_global_heaps_size">>,
         <<"sys_heap_type">>,
         <<"sys_logical_processors">>,
-        <<"sys_monitor_count">>,
         <<"sys_otp_release">>,
         <<"sys_port_count">>,
         <<"sys_process_count">>,
