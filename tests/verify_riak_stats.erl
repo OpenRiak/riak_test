@@ -180,6 +180,8 @@ confirm() ->
 
     verify_sys_monitor_count(Node1),
 
+    verify_timeout(Node1),
+
     pass.
 
 verify_inc(Prev, Props, Keys) ->
@@ -196,6 +198,29 @@ verify_nz(Props, Keys) ->
 verify_sys_monitor_count(Node) ->
     C = erpc:call(Node, riak_kv_util, sys_monitor_count, []),
     ?assert(is_integer(C)).
+
+verify_timeout(Node) ->
+    ArgsT0 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=0"],
+    ArgsT1 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=1"],
+    ArgsT5000 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=5000"],
+    StatsCommandT0 =
+        io_lib:format("curl -s -S ~s/stats?timeout=0", [rt:http_url(Node)]),
+    StatsCommandT1 =
+        io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
+    StatsCommand5000 =
+        io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
+    ?assertMatch("Bad timeout value \"0\"", os:cmd(StatsCommandT0)),
+    lager:info("Waiting for HTTP cache to be expire before testing timeout"),
+    timer:sleep(1001),
+    lager:info("Here's hoping this won't respond in < 1ms"),
+    lager:info("Intercepts wll be required in the future if this gets faster"),
+    ?assertMatch("Request timed out after 1 ms", os:cmd(StatsCommandT1)),
+    lager:info("Again waiting for cache expiry before testing cache"),
+    timer:sleep(1001),
+    JSON = os:cmd(StatsCommandT5000),
+    ?assertMatch(struct, element(1, mochijson2:decode(JSON))),
+    JSONCached = os:cmd(StatsCommandT5000),
+    ?assertMatch(JSON, JSONCached).
 
 has_head_support(leveled) ->
     true;
