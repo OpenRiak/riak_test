@@ -200,14 +200,11 @@ verify_sys_monitor_count(Node) ->
     ?assert(is_integer(C)).
 
 verify_timeout(Node) ->
-    ArgsT0 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=0"],
-    ArgsT1 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=1"],
-    ArgsT5000 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=5000"],
     StatsCommandT0 =
         io_lib:format("curl -s -S ~s/stats?timeout=0", [rt:http_url(Node)]),
     StatsCommandT1 =
         io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
-    StatsCommand5000 =
+    StatsCommandT5000 =
         io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
     ?assertMatch("Bad timeout value \"0\"", os:cmd(StatsCommandT0)),
     lager:info("Waiting for HTTP cache to be expire before testing timeout"),
