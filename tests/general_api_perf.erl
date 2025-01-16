@@ -22,6 +22,8 @@
 -module(general_api_perf).
 -export([confirm/0, spawn_profile_fun/1, confirm_pb/1, confirm_http/1]).
 
+-export([get_clients/3, perf_test/7]).
+
 -import(secondary_index_tests, [http_query/3, pb_query/3]).
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -86,10 +88,24 @@ confirm_http(Node) ->
 
 perf_test(Node, ClientMod, ClientCount) ->
     Clients = get_clients(ClientCount, Node, ClientMod),
+    BucketPrefix = <<"BucketName">>,
+    perf_test(
+        Node,
+        ClientMod,
+        Clients,
+        BucketPrefix,
+        ?KEY_COUNT,
+        ?OBJECT_SIZE_BYTES,
+        true
+    ).
+
+perf_test(Node, ClientMod, Clients, BPrefix, KeyCount, ObjSize, Profile) ->
     Buckets =
         lists:map(
-            fun(I) -> list_to_binary(io_lib:format("BucketName~w", [I])) end,
-            lists:seq(1, ClientCount)
+            fun(I) ->
+                list_to_binary(io_lib:format("~s~w", [BPrefix, I]))
+            end,
+            lists:seq(1, length(Clients))
         ),
     ClientBPairs = lists:zip(Clients, Buckets),
 
@@ -99,22 +115,34 @@ perf_test(Node, ClientMod, ClientCount) ->
     SpawnUpdateFun =
         fun({C, B}) ->
             fun() ->
-                V = crypto:strong_rand_bytes(?OBJECT_SIZE_BYTES),
+                V = crypto:strong_rand_bytes(ObjSize),
                 lists:foreach(
                     fun(I) ->
                         act(C, ClientMod, B, I, V)
                     end,
-                    lists:seq(1, ?KEY_COUNT)
+                    lists:seq(1, KeyCount)
                 ),
                 TestProcess ! complete
             end
         end,
     SpawnFuns = lists:map(SpawnUpdateFun, ClientBPairs),
     lists:foreach(fun spawn/1, SpawnFuns),
-    Profiler = spawn_profile_fun(Node),
+    Profiler =
+        case Profile of
+            true ->
+                spawn_profile_fun(Node);
+            false ->
+                none
+        end,
 
     ok = receive_complete(0, length(Clients)),
-    Profiler ! complete,
+
+    case Profile of
+        true ->
+            Profiler ! complete;
+        _ ->
+            ok
+    end,
 
     close_clients(Clients, ClientMod),
 

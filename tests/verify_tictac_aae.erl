@@ -39,7 +39,7 @@
 -module(verify_tictac_aae).
 -behavior(riak_test).
 
--export([confirm/0]).
+-export([confirm/0, wipe_out_partition/2]).
 
 %% Shared to tests
 -export([verify_data/2]).
