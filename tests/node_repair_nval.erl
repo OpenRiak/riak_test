@@ -19,7 +19,7 @@
 %% A single node test, that exercises the API, and allows for profiling
 %% of that API activity
 
--module(node_repair_big).
+-module(node_repair_nval).
 
 -export([confirm/0]).
 
@@ -31,11 +31,15 @@
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT_PERNODE, 1).
--define(KEY_COUNT, 16384).
+-define(KEY_COUNT, 8192).
 -define(OBJECT_SIZE_BYTES, 512).
 -define(NODE_COUNT, 4).
 -define(PROFILE_PAUSE, 500).
 -define(PROFILE_LENGTH, 100).
+-define(NVAL2_BUCKET, {<<"TypeN2">>, <<"Bucket2">>}).
+-define(NVAL4_BUCKET, {<<"TypeN4">>, <<"Bucket4">>}).
+% -define(NVAL2_BUCKET, <<"Bucket211">>).
+% -define(NVAL4_BUCKET, <<"Bucket411">>).
 
 -if(?OTP_RELEASE > 23).
 -define(RPC_MODULE, erpc).
@@ -43,11 +47,11 @@
 -define(RPC_MODULE, rpc).
 -endif.
 
--define(CONF,
+-define(CONF(Deferred, Span),
         [
             {riak_kv,
                 [
-                    {repair_deferred,           true},
+                    {repair_deferred,           Deferred},
                     {anti_entropy,              {off, []}},
                     {delete_mode,               keep},
                     {tictacaae_active,          active},
@@ -71,54 +75,110 @@
                     {forced_ownership_handoff,  8},
                     {vnode_inactivity_timeout,  4000},
                     {vnode_management_timer,    4000},
-                    {repair_span,               double_pair}
+                    {repair_span,               Span}
                 ]
             }
         ]
        ).
 
 confirm() ->
-    Nodes = rt:build_cluster(?NODE_COUNT, ?CONF),
-    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, Nodes),
-    node_repair_test(Nodes).
+    ?LOG_INFO("************************"),
+    ?LOG_INFO("Testing with head fold and double_pair"),
+    ?LOG_INFO("************************"),
+    Nodes1 = rt:build_cluster(?NODE_COUNT, ?CONF(true, double_pair)),
+    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, Nodes1),
+    node_repair_test(Nodes1),
+    rt:clean_cluster(Nodes1),
+    ?LOG_INFO("************************"),
+    ?LOG_INFO("Testing with previous defaults"),
+    ?LOG_INFO("************************"),
+    Nodes2 = rt:build_cluster(?NODE_COUNT, ?CONF(false, pair)),
+    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, Nodes2),
+    node_repair_test(Nodes2),
+    rt:clean_cluster(Nodes2),
+    ?LOG_INFO("************************"),
+    ?LOG_INFO("Testing with head fold and pair"),
+    ?LOG_INFO("************************"),
+    Nodes3 = rt:build_cluster(?NODE_COUNT, ?CONF(true, pair)),
+    lists:foreach(fun(N) -> rt:wait_for_service(N, riak_kv) end, Nodes3),
+    node_repair_test(Nodes3)
+    .
 
 node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     ?LOG_INFO("Commencing initial load for repair test"),
-    Clients = 
-        lists:flatten(
-            lists:map(
-                fun(N) ->
-                    get_clients(?CLIENT_COUNT_PERNODE, N, riakc_pb_socket)
-                end,
-                [hd(Nodes)]
-            )
-        ),
-    ?LOG_INFO(
-        "Load ~w using ~w clients",
-        [?KEY_COUNT, Clients]
+    
+    ?LOG_INFO("Create and activate bucket types"),
+    rt:create_and_activate_bucket_type(
+        hd(Nodes), element(1, ?NVAL2_BUCKET), [{n_val, 2}]),
+    rt:create_and_activate_bucket_type(
+        hd(Nodes), element(1, ?NVAL4_BUCKET), [{n_val, 4}]),
+    rt:wait_until_bucket_type_status(element(1, ?NVAL2_BUCKET), active, Nodes),
+    rt:wait_until_bucket_type_status(element(1, ?NVAL4_BUCKET), active, Nodes),
+    % PBC = rt:pbc(hd(Nodes)),
+    % rt:pbc_set_bucket_prop(PBC, ?NVAL2_BUCKET, [{n_val, 2}]),
+    % rt:pbc_set_bucket_prop(PBC, ?NVAL4_BUCKET, [{n_val, 4}]),
+    % rt:wait_until(
+    %     fun() ->
+    %         lists:all(
+    %             fun(X) -> X end,
+    %             lists:map(
+    %                 fun({C, Node}) ->
+    %                     {ok, Props} = riakc_pb_socket:get_bucket(C, ?NVAL2_BUCKET),
+    %                     ?LOG_INFO("Props ~0p on ~0p", [Props, Node]),
+    %                     {n_val, N} = lists:keyfind(n_val, 1, Props),
+    %                     N == 2
+    %                 end,
+    %                 lists:map(fun(Node) -> {rt:pbc(Node), Node} end, Nodes)
+    %             )
+    %         )
+    %     end
+    % ),
+    % rt:wait_until(
+    %     fun() ->
+    %         lists:all(
+    %             fun(X) -> X end,
+    %             lists:map(
+    %                 fun({C, Node}) ->
+    %                     {ok, Props} = riakc_pb_socket:get_bucket(C, ?NVAL4_BUCKET),
+    %                     ?LOG_INFO("Props ~0p on node ~0p", [Props, Node]),
+    %                     {n_val, N} = lists:keyfind(n_val, 1, Props),
+    %                     N == 4
+    %                 end,
+    %                 lists:map(fun(Node) -> {rt:pbc(Node), Node} end, Nodes)
+    %             )
+    %         )
+    %     end
+    % ),
+    ?LOG_INFO("Bucket types now active on all nodes"),
+
+    ?LOG_INFO("Load ~w using single client", [?KEY_COUNT]),
+
+    perf_test(
+        hd(Nodes),
+        riakc_pb_socket,
+        get_clients([hd(Nodes)]),
+        ?NVAL2_BUCKET,
+        ?KEY_COUNT div 2,
+        ?OBJECT_SIZE_BYTES,
+        false
     ),
     perf_test(
         hd(Nodes),
         riakc_pb_socket,
-        Clients,
-        <<"Bucket1">>,
-        ?KEY_COUNT,
+        get_clients([hd(Nodes)]),
+        ?NVAL4_BUCKET,
+        ?KEY_COUNT div 2,
         ?OBJECT_SIZE_BYTES,
         false
     ),
+    InitCount = count_all_keys(hd(Nodes)),
+    ?assertMatch(?KEY_COUNT, InitCount),
+
     NodeToFail = lists:last(Nodes),
     ?LOG_INFO("Picked a node to fail - ~w", [NodeToFail]),
     TheirPartitions = get_partitions_for_node(NodeToFail),
     rt:stop_and_wait(NodeToFail),
-    Clients2 = 
-        lists:flatten(
-            lists:map(
-                fun(N) ->
-                    get_clients(?CLIENT_COUNT_PERNODE, N, riakc_pb_socket)
-                end,
-                [hd(Nodes)]
-            )
-        ),
+    Clients2 = get_clients([hd(Nodes)]),
     KeyCount2 = ?KEY_COUNT div 2,
     ?LOG_INFO(
         "Load ~w without ~w using ~w clients",
@@ -128,7 +188,7 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         hd(Nodes),
         riakc_pb_socket,
         Clients2,
-        <<"Bucket2">>,
+        <<"Bucket1">>,
         KeyCount2,
         ?OBJECT_SIZE_BYTES,
         false
@@ -140,16 +200,13 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     rt:wait_until_transfers_complete(Nodes),
     rt:wait_until_node_handoffs_complete(NodeToFail),
     
+    ExpectedHHKeyCount = ?KEY_COUNT + KeyCount2,
+    ?LOG_INFO("Wait for counts - hinted sends may complete but not receives?"),
+    rt:wait_until(
+        fun() -> ExpectedHHKeyCount == count_all_keys(hd(Nodes)) end),
+
     KeyCount3 = ?KEY_COUNT div 4,
-    Clients3 = 
-        lists:flatten(
-            lists:map(
-                fun(N) ->
-                    get_clients(?CLIENT_COUNT_PERNODE, N, riakc_pb_socket)
-                end,
-                [hd(Nodes)]
-            )
-        ),
+    Clients3 = get_clients([hd(Nodes)]),
     ?LOG_INFO(
         "Load ~w with ~w using ~w clients",
         [KeyCount3, NodeToFail, Clients3]
@@ -167,15 +224,10 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     ?LOG_INFO("Calling for node to be repaired"),
     ?RPC_MODULE:call(NodeToFail, riak_client, repair_node, []),
 
-    ExpectedKeyCount =
-        ?KEY_COUNT * length(Clients) +
-            KeyCount2 * length(Clients2) +
-            KeyCount3 * length(Clients3),
+    ExpectedKeyCount = ?KEY_COUNT + KeyCount2 + KeyCount3,
     ?LOG_INFO("Tracking repair transfers is hard - wait until count is good"),
 
-    P = spawn_profile_fun(hd(Nodes)),
     ok = wait_for_all_handoffs_and_repairs([NodeToFail]),
-    P ! complete,
 
     rt:wait_until(fun() -> ExpectedKeyCount == count_all_keys(NodeToFail) end),
     ?LOG_INFO("Now double-check it wasn't a fluke"),
@@ -188,17 +240,15 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     pass
     .
 
-spawn_profile_fun(Node) ->
-    spawn(fun() -> profile(Node) end).
-
-profile(Node) ->
-    receive
-        complete ->
-            ok
-    after ?PROFILE_PAUSE ->
-        ?RPC_MODULE:call(Node, riak_kv_util, profile_riak, [?PROFILE_LENGTH]),
-        profile(Node)
-    end.
+get_clients(Nodes) ->
+    lists:flatten(
+        lists:map(
+            fun(N) ->
+                get_clients(?CLIENT_COUNT_PERNODE, N, riakc_pb_socket)
+            end,
+            [hd(Nodes)]
+        )
+    ).
 
 get_partitions_for_node(Node) ->
     {ok, Ring} =
@@ -222,6 +272,7 @@ count_all_keys(Node) ->
                     {ok, Count} =
                         riakc_pb_socket:aae_erase_keys(
                             PB, B, all, all, all, count),
+                    ?LOG_INFO("Count for ~0p ~w", [B, Count]),
                     Count
                 end,
                 Buckets
