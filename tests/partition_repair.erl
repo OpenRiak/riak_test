@@ -166,7 +166,13 @@ kill_repair_verify({Partition, Node}, DataSuffix, Service) ->
     %% stash that weren't found after the repair.
     ?assertEqual({Service, ExpectToVerify}, {Service, Verified}),
 
-    {ok, [{BeforeP, _BeforeOwner}=B, _, {AfterP, _AfterOwner}=A]} = Return,
+    case Return of
+        {ok, [{BeforeP, _BeforeOwner}=B, _, {AfterP, _AfterOwner}=A]} ->
+            ok;
+        {ok, [{BeforeP, _BeforeOwner}=B, {AfterP, _AfterOwner}=A]} ->
+            % New format following refactor of pairs to list
+            ok
+    end,
     ?LOG_INFO("Verify before src partition ~0p still has data", [B]),
     StashPathB = stash_path(Service, BeforeP),
     {ok, [StashB]} = file:consult(StashPathB),

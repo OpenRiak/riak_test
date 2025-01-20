@@ -99,14 +99,28 @@ perf_test(Node, ClientMod, ClientCount) ->
         true
     ).
 
-perf_test(Node, ClientMod, Clients, BPrefix, KeyCount, ObjSize, Profile) ->
+perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
     Buckets =
-        lists:map(
-            fun(I) ->
-                list_to_binary(io_lib:format("~s~w", [BPrefix, I]))
-            end,
-            lists:seq(1, length(Clients))
-        ),
+        case BP of
+            {BT, BPrefix} ->
+                lists:map(
+                    fun(I) ->
+                        {
+                            BT,
+                            list_to_binary(io_lib:format("~s~w", [BPrefix, I]))
+                        }
+                    end,
+                    lists:seq(1, length(Clients))
+                );
+            BPrefix ->
+                lists:map(
+                    fun(I) ->
+                        list_to_binary(io_lib:format("~s~w", [BPrefix, I]))
+                    end,
+                    lists:seq(1, length(Clients))
+                )
+        end,
+        
     ClientBPairs = lists:zip(Clients, Buckets),
 
     TestProcess = self(),
