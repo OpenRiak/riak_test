@@ -115,7 +115,7 @@ perf_test(Node, ClientMod, Clients, BPrefix, KeyCount, ObjSize, Profile) ->
     SpawnUpdateFun =
         fun({C, B}) ->
             fun() ->
-                V = crypto:strong_rand_bytes(ObjSize),
+                V = base64:encode(crypto:strong_rand_bytes(ObjSize)),
                 lists:foreach(
                     fun(I) ->
                         act(C, ClientMod, B, I, V)
