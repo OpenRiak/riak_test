@@ -215,7 +215,10 @@ verify_timeout(Node) ->
     ArgsT0 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=0"],
     ArgsT1 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=1"],
     ArgsT5000 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=5000"],
-    ?assertMatch({0, "Bad timeout value \"0\""}, rt:cmd("curl", ArgsT0)),
+    ?assertMatch(
+        {0, "Bad timeout value \"0\" expected milliseconds > 0"},
+        rt:cmd("curl", ArgsT0)
+    ),
     ?LOG_INFO("Waiting for HTTP cache to be expire before testing timeout"),
     timer:sleep(1001),
     ?LOG_INFO("Here's hoping this won't respond in < 1ms"),
