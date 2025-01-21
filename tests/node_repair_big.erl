@@ -31,7 +31,7 @@
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT_PERNODE, 1).
--define(KEY_COUNT, 16384).
+-define(KEY_COUNT, 20000).
 -define(OBJECT_SIZE_BYTES, 512).
 -define(NODE_COUNT, 4).
 -define(PROFILE_PAUSE, 500).
@@ -60,7 +60,8 @@
             {leveled,
                 [
                     {compaction_runs_perday,    48},
-                    {journal_objectcount,       50000}
+                    {journal_objectcount,       50000},
+                    {compression_method,        zstd}
                 ]
             },
             {riak_core,

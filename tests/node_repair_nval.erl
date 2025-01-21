@@ -64,7 +64,8 @@
             {leveled,
                 [
                     {compaction_runs_perday,    48},
-                    {journal_objectcount,       50000}
+                    {journal_objectcount,       50000},
+                    {compression_method,        zstd}
                 ]
             },
             {riak_core,
