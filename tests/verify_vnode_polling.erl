@@ -244,7 +244,7 @@ client_write(Client, Bucket, Key, Value, Opts) ->
     riak_client:put(Obj, Opts, Client).
 
 get_all_nodes_stats(Nodes) ->
-    [{Nd, rpc:call(Nd, riak_kv_stat, get_stats, [])} || Nd <- Nodes].
+    [{Nd, rpc:call(Nd, riak_kv_status, get_stats, [web])} || Nd <- Nodes].
 
 %% @private we have to force the proxy to reload/restart to get the
 %% intercept code, so kill it, ugly, sorry, but at the same time,

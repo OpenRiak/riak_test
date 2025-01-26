@@ -206,7 +206,10 @@ verify_timeout(Node) ->
         io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
     StatsCommandT5000 =
         io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
-    ?assertMatch("Bad timeout value \"0\"", os:cmd(StatsCommandT0)),
+    ?assertMatch(
+        "Bad timeout value \"0\" expected milliseconds > 0",
+        os:cmd(StatsCommandT0)
+    ),
     lager:info("Waiting for HTTP cache to be expire before testing timeout"),
     timer:sleep(1001),
     lager:info("Here's hoping this won't respond in < 1ms"),

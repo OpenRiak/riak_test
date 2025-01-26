@@ -42,7 +42,7 @@ confirm() ->
 
 
 get_write_stats(Node) ->
-    Stats = rpc:call(Node, riak_kv_stat, get_stats, []),
+    Stats = rpc:call(Node, riak_kv_status, get_stats, [web]),
     Puts = proplists:get_value(vnode_puts, Stats),
     ReadRepairs = proplists:get_value(read_repairs, Stats),
     [{puts, Puts}, {read_repairs, ReadRepairs}].
