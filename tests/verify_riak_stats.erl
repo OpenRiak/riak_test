@@ -212,23 +212,26 @@ verify_sys_monitor_count(Node) ->
     ?assert(is_integer(C)).
 
 verify_timeout(Node) ->
-    ArgsT0 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=0"],
-    ArgsT1 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=1"],
-    ArgsT5000 = ["-s", "-S", rt:http_url(Node) ++ "/stats?timeout=5000"],
+    StatsCommandT0 =
+        io_lib:format("curl -s -S ~s/stats?timeout=0", [rt:http_url(Node)]),
+    StatsCommandT1 =
+        io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
+    StatsCommandT5000 =
+        io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
     ?assertMatch(
-        {0, "Bad timeout value \"0\" expected milliseconds > 0"},
-        rt:cmd("curl", ArgsT0)
+        "Bad timeout value \"0\" expected milliseconds > 0",
+        os:cmd(StatsCommandT0)
     ),
     ?LOG_INFO("Waiting for HTTP cache to be expire before testing timeout"),
     timer:sleep(1001),
     ?LOG_INFO("Here's hoping this won't respond in < 1ms"),
-    ?LOG_INFO("Intercepts wll be required in the future if this gest faster"),
-    ?assertMatch({0, "Request timed out after 1 ms"}, rt:cmd("curl", ArgsT1)),
+    ?LOG_INFO("Intercepts wll be required in the future if this gets faster"),
+    ?assertMatch("Request timed out after 1 ms", os:cmd(StatsCommandT1)),
     ?LOG_INFO("Again waiting for cache expiry before testing cache"),
     timer:sleep(1001),
-    {0, JSON} = rt:cmd("curl", ArgsT5000),
+    JSON = os:cmd(StatsCommandT5000),
     ?assertMatch(struct, element(1, mochijson2:decode(JSON))),
-    {0, JSONCached} = rt:cmd("curl", ArgsT5000),
+    JSONCached = os:cmd(StatsCommandT5000),
     ?assertMatch(JSON, JSONCached).
 
 has_head_support(leveled) ->
