@@ -265,7 +265,7 @@ find_key(PreflistFun, Bucket, TargetPreflist) ->
     TestK =
         list_to_binary(
             lists:flatten(
-                io_lib:format("K~8..0B", [leveled_rand:uniform(1000000)]))),
+                io_lib:format("K~8..0B", [rand:uniform(1000000)]))),
     case PreflistFun(Bucket, TestK) of
         TargetPreflist ->
             ?LOG_INFO(
