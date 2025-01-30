@@ -866,7 +866,6 @@ common_stats() ->
         <<"rings_reconciled_total">>,
         <<"runtime_tools_version">>,
         <<"sasl_version">>,
-        <<"setup_version">>,
         <<"set_actor_counts_100">>,
         <<"set_actor_counts_95">>,
         <<"set_actor_counts_99">>,
