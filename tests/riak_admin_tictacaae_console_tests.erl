@@ -69,19 +69,19 @@ confirm() ->
 
 
 -define(TTAAE_ENVVAR_SPECS,
-        [{"rebuildtick", "tictacaae_rebuildtick", integer_to_list(?REBUILD_TICK), integer_to_list(?REBUILD_TICK + 1)},
-         {"exchangetick", "tictacaae_exchangetick", integer_to_list(?EXCHANGE_TICK), integer_to_list(?EXCHANGE_TICK + 1)},
-         {"maxresults", "tictacaae_maxresults", "64", "65"},
-         {"rebuildtreeworkers", "rebuildtreeworkers", "2", "5"},
-         {"aaefoldworkers", "aaefoldworkers", "1", "3"},
-         {"rebuildstoreworkers", "rebuildstoreworkers", "1", "8"}
+        [{"rebuildtick", integer_to_list(?REBUILD_TICK), integer_to_list(?REBUILD_TICK + 1)},
+         {"exchangetick", integer_to_list(?EXCHANGE_TICK), integer_to_list(?EXCHANGE_TICK + 1)},
+         {"maxresults", "64", "65"},
+         {"rebuildtreeworkers", "2", "5"},
+         {"aaefoldworkers", "1", "3"},
+         {"rebuildstoreworkers", "1", "8"}
         ]).
 
 ch1a_tests(Node1, Node2) ->
     CheckEnvVarF =
-        fun(Var, VarText, Val) ->
+        fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s -n ~s", [Var, Node1]),
-                Expect = ff("~s on ~s is: ~s\n", [VarText, Node1, Val]),
+                Expect = ff("|~s| *~s *|", [Node1, Val]),
                 check_admin_cmd(Node1, Cmd, Expect),
                 check_admin_cmd(Node2, Cmd, Expect)
         end,
@@ -91,10 +91,10 @@ ch1a_tests(Node1, Node2) ->
                 check_admin_cmd(Node1, Cmd, any)
         end,
     [begin
-         CheckEnvVarF(Var, VarText, OrigVal),
+         CheckEnvVarF(Var, OrigVal),
          SetEnvVarF(Var, NewVal),
-         CheckEnvVarF(Var, VarText, NewVal)
-     end || {Var, VarText, OrigVal, NewVal} <- ?TTAAE_ENVVAR_SPECS],
+         CheckEnvVarF(Var, NewVal)
+     end || {Var, OrigVal, NewVal} <- ?TTAAE_ENVVAR_SPECS],
     ok.
 
 node_partitions(Node) ->
@@ -103,17 +103,17 @@ node_partitions(Node) ->
 
 
 -define(TTAAE_VNODE_SPECS,
-        [{"tokenbucket", "tictacaae_tokenbucket", "true", "false"},
-         {"storeheads", "tictacaae_storeheads", "true", "false"}
+        [{"tokenbucket", "true", "false"},
+         {"storeheads", "true", "false"}
         ]).
 
 ch1b_tests(Node1, Node2) ->
     PP1 = node_partitions(Node1),
     Px = lists:nth(rand:uniform(length(PP1)), PP1),
     CheckEnvVarF =
-        fun(Var, VarText, Val) ->
+        fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s -n ~s -p ~b", [Var, Node1, Px]),
-                Expect = ff("~s on ~s/~b is: ~s\n", [VarText, Node1, Px, Val]),
+                Expect = ff("| *~s *| *~b *| *~s *|", [Node1, Px, Val]),
                 check_admin_cmd(Node1, Cmd, Expect),
                 check_admin_cmd(Node2, Cmd, Expect)
         end,
@@ -124,10 +124,10 @@ ch1b_tests(Node1, Node2) ->
                 check_admin_cmd(Node1, Cmd, Expect)
         end,
     [begin
-         CheckEnvVarF(Var, VarText, OrigVal),
+         CheckEnvVarF(Var, OrigVal),
          SetEnvVarF(Var, NewVal),
-         CheckEnvVarF(Var, VarText, NewVal)
-     end || {Var, VarText, OrigVal, NewVal} <- ?TTAAE_VNODE_SPECS],
+         CheckEnvVarF(Var, NewVal)
+     end || {Var, OrigVal, NewVal} <- ?TTAAE_VNODE_SPECS],
     ok.
 
 
@@ -207,7 +207,7 @@ write_some_data(PB) ->
 
 list_buckets_test(Node) ->
     NVal = 3,
-    Cmd = ff("tictacaae fold list-buckets ~b -o ~s", [NVal, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold list-buckets nval=~b -o ~s", [NVal, ?TMP_FILE]),
     NonAsciiNameHexEncoded = iolist_to_binary(["0x", mochihex:to_hex(?NON_ASCII_BUCKET_NAME)]),
     AssertFun =
         fun(Out) ->
@@ -222,10 +222,13 @@ list_buckets_test(Node) ->
     ok.
 
 find_keys_test(Node) ->
-    Cmd1 = ff("tictacaae fold find-keys ~s all all sibling_count=0 -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd1 = ff("tictacaae fold find-keys bucket=~s key_range=all modified_range=all sibling_count=0 -o ~s",
+              [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    %% also, test parsing of date strings
     TS1 = calendar:system_time_to_rfc3339(os:system_time(second) - 3600),
     TS2 = calendar:system_time_to_rfc3339(os:system_time(second) + 3600),
-    Cmd2 = ff("tictacaae fold find-keys ~s all ~s,~s sibling_count=0 -o ~s", [?ASCII_BUCKET_NAME, TS1, TS2, ?TMP_FILE]),
+    Cmd2 = ff("tictacaae fold find-keys bucket=~s key_range=all modified_range=~s,~s sibling_count=0 -o ~s",
+              [?ASCII_BUCKET_NAME, TS1, TS2, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -239,7 +242,8 @@ find_keys_test(Node) ->
     ok.
 
 count_keys_test(Node) ->
-    Cmd = ff("tictacaae fold count-keys ~s all all sibling_count=0 -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold count-keys bucket=~s key_range=all modified_range=all sibling_count=0 -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -259,7 +263,8 @@ delete_some_data(PB) ->
     ok.
 
 find_tombstones_test(Node) ->
-    Cmd = ff("tictacaae fold find-tombstones ~s all all all -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold find-tombstones bucket=~s key_range=all modified_range=all segments=all -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -272,7 +277,8 @@ find_tombstones_test(Node) ->
     ok.
 
 count_tombstones_test(Node) ->
-    Cmd = ff("tictacaae fold count-tombstones ~s all all all -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold count-tombstones bucket=~s key_range=all modified_range=all segments=all -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -285,7 +291,8 @@ count_tombstones_test(Node) ->
     ok.
 
 reap_tombstones_test(Node) ->
-    Cmd = ff("tictacaae fold reap-tombstones ~s all all all local -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold reap-tombstones bucket=~s key_range=all modified_range=all segments=all change_method=local -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -298,7 +305,8 @@ reap_tombstones_test(Node) ->
     ok.
 
 object_stats_test(Node) ->
-    Cmd = ff("tictacaae fold object-stats ~s all all -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold object-stats bucket=~s key_range=all modified_range=all -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -320,7 +328,8 @@ object_stats_test(Node) ->
     ok.
 
 erase_keys_test(Node) ->
-    Cmd = ff("tictacaae fold erase-keys ~s all all all local -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold erase-keys bucket=~s key_range=all modified_range=all segments=all change_method=local -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -333,7 +342,8 @@ erase_keys_test(Node) ->
     ok.
 
 repair_keys_test(Node) ->
-    Cmd = ff("tictacaae fold repair-keys ~s all all -o ~s", [?ASCII_BUCKET_NAME, ?TMP_FILE]),
+    Cmd = ff("tictacaae fold repair-keys bucket=~s key_range=all modified_range=all -o ~s",
+             [?ASCII_BUCKET_NAME, ?TMP_FILE]),
     AssertFun =
         fun(Out) ->
                 assert_cmd_output(Out),
@@ -374,7 +384,12 @@ check_admin_cmd(Node, Cmd, AssertFun) when is_function(AssertFun) ->
 check_admin_cmd(Node, Cmd, Expect) ->
     S = string:tokens(Cmd, " "),
     {ok, Out} = rt:admin(Node, S),
-    ?assertEqual(Expect ++ "ok\n", Out).
+    case re:run(Out, Expect) of
+        nomatch ->
+            fail;
+        _ ->
+            ok
+    end.
 
 ff(F, A) ->
     lists:flatten(io_lib:format(F, A)).
