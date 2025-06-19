@@ -184,8 +184,7 @@ send_request(Url, Method, Body, Timeout) ->
 
 test_basic_term_count(Client, Bucket) ->
     ?LOG_INFO("Test basic term count with ~0p ~0p", [Client, Bucket]),
-    ?assertMatch(
-        {ok, {term_with_count, [{<<"1958">>, 1}, {<<"1959">>, 1}]}},
+    {ok, {term_with_count, TermCount1}} =
         rhc:filter_query(
             Client,
             Bucket,
@@ -197,10 +196,9 @@ test_basic_term_count(Client, Bucket) ->
             <<"yob">>,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []
-        )
-    ),
-    ?assertMatch(
-        {ok, {term_with_rawcount, [{<<"1958">>, 2}, {<<"1959">>, 1}]}},
+        ),
+    ?assertMatch([{<<"1958">>, 1}, {<<"1959">>, 1}], lists:sort(TermCount1)),
+    {ok, {term_with_rawcount, TermCount2}} =
         rhc:filter_query(
             Client,
             Bucket,
@@ -212,10 +210,9 @@ test_basic_term_count(Client, Bucket) ->
             <<"yob">>,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []
-        )
-    ),
-    ?assertMatch(
-        {ok, {term_with_count, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}},
+        ),
+    ?assertMatch([{<<"1958">>, 2}, {<<"1959">>, 1}], lists:sort(TermCount2)),
+    {ok, {term_with_count, TermCount3}} =
         rhc:filter_query(
             Client,
             Bucket,
@@ -227,10 +224,12 @@ test_basic_term_count(Client, Bucket) ->
             undefined,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []
-        )
-    ),
+        ),
     ?assertMatch(
-        {ok, {term_with_rawcount, [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}]}},
+        [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}],
+        lists:sort(TermCount3)
+    ),
+    {ok, {term_with_rawcount, TermCount4}} =
         rhc:filter_query(
             Client,
             Bucket,
@@ -242,7 +241,10 @@ test_basic_term_count(Client, Bucket) ->
             undefined,
             #{<<"yob1">> => <<"1958">>, <<"yob2">> => <<"1959">>},
             []
-        )
+        ),
+    ?assertMatch(
+        [{?IDXV2, 1}, {?IDXV3, 1}, {?IDXV1, 1}],
+        lists:sort(TermCount4)
     ).
 
 
@@ -282,6 +284,16 @@ test_basic_range(Client, Bucket) ->
         {ok, {keys, [?KEY2]}},
         rhc:range_query(
             Client, Bucket, ?INDEX1, {<<"E">>, <<"F">>}
+        )
+    ),
+    % test inclusive
+    % -define(IDXV2, <<"AFKAP|19580607">>).
+    % -define(IDXV3, <<"EASTON|19590427">>).
+    % -define(IDXV1, <<"PRINCE|19580607">>).
+    ?assertMatch(
+        {ok, {keys, [?KEY1, ?KEY2]}},
+        rhc:range_query(
+            Client, Bucket, ?INDEX2, {?IDXV3, ?IDXV1}
         )
     ).
 
