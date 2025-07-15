@@ -31,4 +31,4 @@ jobs:
       - name: Compile
         run: make all
       - name: Run dialyzer
-        run: ./rebar3 as check do dialyzer
+        run: ./rebar3 as check do xref, dialyzer
