@@ -28,7 +28,5 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
-      - name: Compile
-        run: make all
-      - name: Run dialyzer
+      - name: Run xref and dialyzer
         run: ./rebar3 as check do xref, dialyzer
