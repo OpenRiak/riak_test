@@ -230,6 +230,11 @@ verify_aae(Nodes) ->
             Node, RogueKeyList, ?EXCL_BUCKET, NoFixMaxTime
         ),
 
+    ?LOG_INFO(
+        "Reset all the key filters - just check they all return true"
+    ),
+    {?RING_SIZE, 0} = erpc:call(Node, riak_kv_util, reset_aae_key_filter, []),
+
     ok.
 
 
@@ -294,12 +299,16 @@ verify_data(Node, KeyValues, Bucket, MaxTime) ->
 
 merge_values(O) ->
     Vals = riak_object:get_values(O),
-    lists:foldl(fun(NV, V) ->
-                        case size(NV) > size(V) of
-                            true -> NV;
-                            _ -> V
-                        end
-                end, <<>>, Vals).
+    lists:foldl(
+        fun(NV, V) ->
+                case size(NV) > size(V) of
+                    true -> NV;
+                    _ -> V
+                end
+        end,
+        <<>>,
+        Vals
+    ).
 
 verify_replicas(Node, B, K, V, N) ->
     Replies = [rt:get_replica(Node, B, K, I, N)
