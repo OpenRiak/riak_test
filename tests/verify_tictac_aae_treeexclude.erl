@@ -111,8 +111,8 @@ verify_aae(Nodes) ->
 
     ?LOG_INFO("Setting bucket types"),
     ?LOG_INFO(
-        "As an side - checking bucket properties enabled as expected"
-        "For sync_on_write and node_confirms"
+        "As an aside - checking bucket properties enabled as expected "
+        "for sync_on_write and node_confirms"
     ),
     rt:create_activate_and_wait_for_bucket_type(
         Nodes, ?STD_TYPE1, [{sync_on_write, one}, {node_confirms, 0}]
