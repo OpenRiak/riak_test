@@ -188,8 +188,8 @@ verify_aae(Nodes) ->
     write_data(Node, KeyList, [], {?STD_TYPE2, ?TYPED_BUCKET_NAME}),
     write_data(Node, KeyList, [], {?EXCL_TYPE, ?TYPED_BUCKET_NAME}),
     write_data(Node, KeyList, [], ?ST_BUCKET1),
-    write_data(Node, KeyList, [], ?ST_BUCKET2),
-    write_data(Node, KeyList, [], ?EXCL_BUCKET),
+    write_data(Node, KeyList, [{sync_on_write, one}], ?ST_BUCKET2),
+    write_data(Node, KeyList, [{sync_on_write, backend}], ?EXCL_BUCKET),
 
     ?LOG_INFO("Loading rogue data ~w keys per bucket", [?ROGUE_KEYS]),
     RogueKeyList = test_KVs(?NUM_KEYS + 1, ?NUM_KEYS + ?ROGUE_KEYS),
