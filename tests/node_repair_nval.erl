@@ -22,6 +22,13 @@
 -module(node_repair_nval).
 
 -export([confirm/0]).
+-export(
+    [
+        get_partitions_for_node/1,
+        count_all_keys/1,
+        wait_for_all_handoffs_and_repairs/1
+    ]
+).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -38,8 +45,6 @@
 -define(PROFILE_LENGTH, 100).
 -define(NVAL2_BUCKET, {<<"TypeN2">>, <<"Bucket2">>}).
 -define(NVAL4_BUCKET, {<<"TypeN4">>, <<"Bucket4">>}).
-% -define(NVAL2_BUCKET, <<"Bucket211">>).
-% -define(NVAL4_BUCKET, <<"Bucket411">>).
 
 -if(?OTP_RELEASE > 23).
 -define(RPC_MODULE, erpc).
@@ -115,41 +120,6 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         hd(Nodes), element(1, ?NVAL4_BUCKET), [{n_val, 4}]),
     rt:wait_until_bucket_type_status(element(1, ?NVAL2_BUCKET), active, Nodes),
     rt:wait_until_bucket_type_status(element(1, ?NVAL4_BUCKET), active, Nodes),
-    % PBC = rt:pbc(hd(Nodes)),
-    % rt:pbc_set_bucket_prop(PBC, ?NVAL2_BUCKET, [{n_val, 2}]),
-    % rt:pbc_set_bucket_prop(PBC, ?NVAL4_BUCKET, [{n_val, 4}]),
-    % rt:wait_until(
-    %     fun() ->
-    %         lists:all(
-    %             fun(X) -> X end,
-    %             lists:map(
-    %                 fun({C, Node}) ->
-    %                     {ok, Props} = riakc_pb_socket:get_bucket(C, ?NVAL2_BUCKET),
-    %                     ?LOG_INFO("Props ~0p on ~0p", [Props, Node]),
-    %                     {n_val, N} = lists:keyfind(n_val, 1, Props),
-    %                     N == 2
-    %                 end,
-    %                 lists:map(fun(Node) -> {rt:pbc(Node), Node} end, Nodes)
-    %             )
-    %         )
-    %     end
-    % ),
-    % rt:wait_until(
-    %     fun() ->
-    %         lists:all(
-    %             fun(X) -> X end,
-    %             lists:map(
-    %                 fun({C, Node}) ->
-    %                     {ok, Props} = riakc_pb_socket:get_bucket(C, ?NVAL4_BUCKET),
-    %                     ?LOG_INFO("Props ~0p on node ~0p", [Props, Node]),
-    %                     {n_val, N} = lists:keyfind(n_val, 1, Props),
-    %                     N == 4
-    %                 end,
-    %                 lists:map(fun(Node) -> {rt:pbc(Node), Node} end, Nodes)
-    %             )
-    %         )
-    %     end
-    % ),
     ?LOG_INFO("Bucket types now active on all nodes"),
 
     ?LOG_INFO("Load ~w using single client", [?KEY_COUNT]),

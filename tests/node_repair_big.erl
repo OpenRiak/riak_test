@@ -28,6 +28,13 @@
 
 -import(general_api_perf, [perf_test/7, get_clients/3]).
 -import(verify_tictac_aae, [wipe_out_partition/2]).
+-import(node_repair_nval,
+    [
+        get_partitions_for_node/1,
+        count_all_keys/1,
+        wait_for_all_handoffs_and_repairs/1
+    ]
+).
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT_PERNODE, 1).
@@ -200,55 +207,3 @@ profile(Node) ->
         ?RPC_MODULE:call(Node, riak_kv_util, profile_riak, [?PROFILE_LENGTH]),
         profile(Node)
     end.
-
-get_partitions_for_node(Node) ->
-    {ok, Ring} =
-        ?RPC_MODULE:call(Node, riak_core_ring_manager, get_raw_ring, []),
-    Owners = ?RPC_MODULE:call(Node, riak_core_ring, all_owners, [Ring]),
-    TheirPartitions =
-        lists:filtermap(
-            fun({P, N}) -> case N of Node -> {true, P}; _ -> false end end,
-        Owners
-        ),
-    ?LOG_INFO("Node ~w owns indexes ~0p", [Node, TheirPartitions]),
-    TheirPartitions.
-
-count_all_keys(Node) ->
-    PB = rt:pbc(Node),
-    {ok, Buckets} = riakc_pb_socket:aae_list_buckets(PB, 3),
-    AllKeyCount =
-        lists:sum(
-            lists:map(
-                fun(B) ->
-                    {ok, Count} =
-                        riakc_pb_socket:aae_erase_keys(
-                            PB, B, all, all, all, count),
-                    Count
-                end,
-                Buckets
-            )
-        ),
-    AllKeyCount.
-
-wait_for_all_handoffs_and_repairs([]) ->
-    ok;
-wait_for_all_handoffs_and_repairs([N|Rest]) ->
-    HOs = ?RPC_MODULE:call(N, riak_core_vnode_manager, all_handoffs, []),
-    ?LOG_INFO("Vnode manager on ~w reports ~0p", [N, HOs]),
-    timer:sleep(4000),
-    case length(HOs) of
-        0 ->
-            HOsUpd =
-                ?RPC_MODULE:call(
-                    N, riak_core_vnode_manager, all_handoffs, []),
-            ?LOG_INFO("Vnode manager on ~w reports ~0p", [N, HOsUpd]),
-            case length(HOsUpd) of
-                0 ->
-                    wait_for_all_handoffs_and_repairs(Rest);
-                _ ->
-                    wait_for_all_handoffs_and_repairs([N|Rest])
-            end;
-        _ ->
-            wait_for_all_handoffs_and_repairs([N|Rest])
-    end.            
-
