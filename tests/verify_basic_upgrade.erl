@@ -42,8 +42,14 @@
 
 
 -define(CONFIG_PLAINTEXT(CoreConfig),
-[
-    CoreConfig,
+    [
+        CoreConfig,
+        {
+            riak_kv,
+            [
+                {leveled_reload_recalc, true}
+            ]
+        },
         {leveled,
             [
                 {journal_objectcount, 2000},
@@ -54,11 +60,18 @@
                 {compression, false}
             ]
         }
-        ]).
+    ]
+).
 
 -define(CONFIG_NATIVE(CoreConfig), 
     [
         CoreConfig,
+        {
+            riak_kv,
+            [
+                {leveled_reload_recalc, true}
+            ]
+        },
         {leveled,
             [
                 {journal_objectcount, 2000},
@@ -70,11 +83,18 @@
                 {compression, snappy}
             ]
         }
-        ]).
+    ]
+).
 
 -define(CONFIG_LZ4(CoreConfig), 
     [
         CoreConfig,
+        {
+            riak_kv,
+            [
+                {leveled_reload_recalc, true}
+            ]
+        },
         {leveled,
             [
                 {journal_objectcount, 2000},
@@ -86,7 +106,8 @@
                 {compression, lz4}
             ]
         }
-    ]).
+    ]
+).
 
 confirm() ->
 

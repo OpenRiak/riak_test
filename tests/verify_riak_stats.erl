@@ -189,6 +189,10 @@ confirm() ->
 
     verify_inc(Stats7, Stats8, inc_by_one(dscp_totals())),
 
+    verify_sys_monitor_count(Node1),
+
+    verify_timeout(Node1),
+
     pass.
 
 verify_inc(Prev, Props, [{Key, Inc} | KeyIncs]) ->
@@ -203,6 +207,33 @@ verify_inc(_Prev, _Props, []) ->
 verify_nz(Props, Keys) ->
     [?assertNotEqual(proplists:get_value(Key, Props, 0), 0) || Key <- Keys].
 
+verify_sys_monitor_count(Node) ->
+    C = erpc:call(Node, riak_kv_util, sys_monitor_count, []),
+    ?assert(is_integer(C)).
+
+verify_timeout(Node) ->
+    StatsCommandT0 =
+        io_lib:format("curl -s -S ~s/stats?timeout=0", [rt:http_url(Node)]),
+    StatsCommandT1 =
+        io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
+    StatsCommandT5000 =
+        io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
+    ?assertMatch(
+        "Bad timeout value \"0\" expected milliseconds > 0",
+        os:cmd(StatsCommandT0)
+    ),
+    ?LOG_INFO("Waiting for HTTP cache to be expire before testing timeout"),
+    timer:sleep(1001),
+    ?LOG_INFO("Here's hoping this won't respond in < 1ms"),
+    ?LOG_INFO("Intercepts wll be required in the future if this gets faster"),
+    ?assertMatch("Request timed out after 1 ms", os:cmd(StatsCommandT1)),
+    ?LOG_INFO("Again waiting for cache expiry before testing cache"),
+    timer:sleep(1001),
+    JSON = os:cmd(StatsCommandT5000),
+    ?assertMatch(struct, element(1, mochijson2:decode(JSON))),
+    JSONCached = os:cmd(StatsCommandT5000),
+    ?assertMatch(JSON, JSONCached).
+
 has_head_support(leveled) ->
     true;
 has_head_support(_Backend) ->
@@ -210,6 +241,7 @@ has_head_support(_Backend) ->
 
 get_stats(Node) ->
     rt:get_stats(Node, 10000).
+
 
 get_console_stats(Node) ->
     OkStats = rt:admin_stats(Node),
@@ -855,7 +887,6 @@ common_stats() ->
         <<"sys_global_heaps_size">>,
         <<"sys_heap_type">>,
         <<"sys_logical_processors">>,
-        <<"sys_monitor_count">>,
         <<"sys_otp_release">>,
         <<"sys_port_count">>,
         <<"sys_process_count">>,

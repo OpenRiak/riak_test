@@ -582,7 +582,7 @@ check_match_conflict(riakc_pb_socket, {error, <<"session_remote_exit">>}, true) 
 check_match_conflict(riakc_pb_socket, {error, <<"session_noconnection">>}, true) ->
     true;
 check_match_conflict(ClientMod, Response, _) ->
-    lager:error("Unexpected: ~w ~w", [ClientMod, Response]),
+    ?LOG_ERROR("Unexpected: ~w ~w", [ClientMod, Response]),
     error.
 
 check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}) ->
