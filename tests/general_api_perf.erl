@@ -22,7 +22,7 @@
 -module(general_api_perf).
 -export([confirm/0, spawn_profile_fun/1, confirm_pb/1, confirm_http/1]).
 
--export([get_clients/3, perf_test/7]).
+-export([get_clients/3, perf_test/8]).
 
 -import(secondary_index_tests, [http_query/3, pb_query/3]).
 -include_lib("kernel/include/logger.hrl").
@@ -100,6 +100,9 @@ perf_test(Node, ClientMod, ClientCount) ->
     ).
 
 perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
+    perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, true).
+
+perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, Query) ->
     Buckets =
         case BP of
             {BT, BPrefix} ->
@@ -132,7 +135,7 @@ perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
                 V = base64:encode(crypto:strong_rand_bytes(ObjSize)),
                 lists:foreach(
                     fun(I) ->
-                        act(C, ClientMod, B, I, V)
+                        act(C, ClientMod, B, I, V, Query)
                     end,
                     lists:seq(1, KeyCount)
                 ),
@@ -216,7 +219,7 @@ to_index(N) ->
 to_meta(N) ->
     list_to_binary(io_lib:format("M~8..0B", [N])).
 
-act(Client, ClientMod, Bucket, I, V) ->
+act(Client, ClientMod, Bucket, I, V, Query) ->
     K = to_key(I),
     Obj = riakc_obj:new(Bucket, K, <<I:32/integer, V/binary>>),
     MD0 = riakc_obj:get_metadata(Obj),
@@ -270,8 +273,8 @@ act(Client, ClientMod, Bucket, I, V) ->
         _ ->
             ok
     end,
-    case I rem ?QUERY_EVERY of
-        0 when I > ?QUERY_EVERY ->
+    case {I rem ?QUERY_EVERY, Query} of
+        {0, true} when I > ?QUERY_EVERY ->
             {ok, ?INDEX_RESULTS{keys=HttpResKeys}} =
                 case ClientMod of
                     riakc_pb_socket ->

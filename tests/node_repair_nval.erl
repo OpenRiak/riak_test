@@ -33,7 +33,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--import(general_api_perf, [perf_test/7, get_clients/3]).
+-import(general_api_perf, [perf_test/8, get_clients/3]).
 -import(verify_tictac_aae, [wipe_out_partition/2]).
 
 -define(DEFAULT_RING_SIZE, 32).
@@ -111,6 +111,8 @@ confirm() ->
     .
 
 node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
+    Use2i = rt:get_backends() == leveled orelse rt:get_backends() == eleveldb,
+    ?LOG_INFO("2i status for test ~w", [Use2i]),
     ?LOG_INFO("Commencing initial load for repair test"),
     
     ?LOG_INFO("Create and activate bucket types"),
@@ -131,7 +133,8 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         ?NVAL2_BUCKET,
         ?KEY_COUNT div 2,
         ?OBJECT_SIZE_BYTES,
-        false
+        false,
+        Use2i
     ),
     perf_test(
         hd(Nodes),
@@ -140,7 +143,8 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         ?NVAL4_BUCKET,
         ?KEY_COUNT div 2,
         ?OBJECT_SIZE_BYTES,
-        false
+        false,
+        Use2i
     ),
     InitCount = count_all_keys(hd(Nodes)),
     ?assertMatch(?KEY_COUNT, InitCount),
@@ -162,7 +166,8 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         <<"Bucket1">>,
         KeyCount2,
         ?OBJECT_SIZE_BYTES,
-        false
+        false,
+        Use2i
     ),
 
     lists:foreach(
@@ -189,7 +194,8 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
         <<"Bucket3">>,
         KeyCount3,
         ?OBJECT_SIZE_BYTES,
-        false
+        false,
+        Use2i
     ),
 
     ?LOG_INFO("Calling for node to be repaired"),
