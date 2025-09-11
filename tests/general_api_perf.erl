@@ -22,7 +22,7 @@
 -module(general_api_perf).
 -export([confirm/0, spawn_profile_fun/1, confirm_pb/1, confirm_http/1]).
 
--export([get_clients/3, perf_test/8]).
+-export([get_clients/3, perf_test/8, get_bucketprefix/2]).
 
 -import(secondary_index_tests, [http_query/3, pb_query/3]).
 -include_lib("kernel/include/logger.hrl").
@@ -30,16 +30,25 @@
 -include_lib("riakc/include/riakc.hrl").
 
 -define(DEFAULT_RING_SIZE, 8).
--define(CLIENT_COUNT, 12).
--define(QUERY_EVERY, 100).
+-define(CLIENT_COUNT, 4).
+-define(QUERY_EVERY, 1000).
 -define(GET_EVERY, 1).
--define(UPDATE_EVERY, 2).
+-define(GETS_PER_GET, 4).
+-define(UPDATE_EVERY, 8).
 -define(LOG_EVERY, 2000).
--define(KEY_COUNT, 20000).
--define(OBJECT_SIZE_BYTES, 512).
+-define(KEY_COUNT, 12000).
+-define(OBJECT_SIZE_BYTES, 4096).
 -define(PROFILE_PAUSE, 10000).
--define(PROFILE_LENGTH, 50).
+-define(PROFILE_LENGTH, 20).
 -define(REQUEST_PAUSE_UPTO, 3).
+-define(N_VAL, 3).
+-define(ALLOW_MULT, false).
+-define(INDEX_ENTRIES, 6).
+-define(USE_TYPED_BUCKET, true).
+
+-define(FIELD_LIST,
+    ["bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"]
+).
 
 -if(?OTP_RELEASE > 23).
 -define(RPC_MODULE, erpc).
@@ -63,13 +72,17 @@
             {leveled,
                 [
                     {compaction_runs_perday, 48},
-                    {journal_objectcount, 20000}
+                    {journal_objectcount, 20000},
+                    {compression_method, zstd}
                 ]
             },
             {riak_core,
                 [
                     {ring_creation_size, ?DEFAULT_RING_SIZE},
-                    {default_bucket_props, [{allow_mult, true}, {n_val, 1}]}
+                    {
+                        default_bucket_props,
+                        [{allow_mult, ?ALLOW_MULT}, {n_val, ?N_VAL}]
+                    }
                 ]
             }
         ]
@@ -88,7 +101,7 @@ confirm_http(Node) ->
 
 perf_test(Node, ClientMod, ClientCount) ->
     Clients = get_clients(ClientCount, Node, ClientMod),
-    BucketPrefix = <<"BucketName">>,
+    BucketPrefix = get_bucketprefix(Node, ?USE_TYPED_BUCKET),
     perf_test(
         Node,
         ClientMod,
@@ -100,7 +113,14 @@ perf_test(Node, ClientMod, ClientCount) ->
     ).
 
 perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
-    perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, true).
+    Query =
+        case rt:get_backends() of
+            bitcask ->
+                false;
+            _ ->
+                true
+        end,
+    perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, Query).
 
 perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, Query) ->
     Buckets =
@@ -171,7 +191,18 @@ receive_complete(Target, Target) ->
     ok;
 receive_complete(T, Target) ->
     receive complete -> receive_complete(T + 1, Target) end.
-    
+
+
+get_bucketprefix(_Node, false) ->
+    <<"BucketName">>;
+get_bucketprefix(Node, true) ->
+    rt:create_activate_and_wait_for_bucket_type(
+        [Node],
+        <<"BucketTypeName">>,
+        [{allow_mult, ?ALLOW_MULT}, {n_val, ?N_VAL}]
+    ),
+    {<<"BucketTypeName">>, <<"BucketName">>}.
+
 get_clients(ClientsPerNode, Node, ClientMod) ->
     lists:map(
         fun(N) ->
@@ -223,8 +254,7 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
     K = to_key(I),
     Obj = riakc_obj:new(Bucket, K, <<I:32/integer, V/binary>>),
     MD0 = riakc_obj:get_metadata(Obj),
-    FieldList =
-        ["bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"],
+    FieldList = lists:sublist(?FIELD_LIST, ?INDEX_ENTRIES),
     MD1 =
         lists:foldl(
             fun(IdxName, MDAcc) ->
@@ -268,8 +298,17 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
     end,
     case I rem ?GET_EVERY of
         0 when I > 1000 ->
-            {ok, _PastObj} =
-                ClientMod:get(Client, Bucket, to_key(rand:uniform(I - 1000)));
+            lists:foreach(
+                fun(_I) ->
+                    {ok, _PastObj} =
+                        ClientMod:get(
+                            Client,
+                            Bucket,
+                            to_key(rand:uniform(I - 1000))
+                        )
+                end,
+                lists:seq(1, ?GETS_PER_GET)
+            );  
         _ ->
             ok
     end,
@@ -281,8 +320,11 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
                         ClientMod:get_index_range(
                             Client,
                             Bucket,
-                            {binary_index,
-                                lists:nth(rand:uniform(5), FieldList)},
+                            {
+                                binary_index,
+                                lists:nth(
+                                    rand:uniform(?INDEX_ENTRIES), FieldList)
+                            },
                             to_index(I - 99), to_index(I),
                             []
                         );
