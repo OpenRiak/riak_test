@@ -52,14 +52,17 @@
 -define(CONFIG(RingSize, NVal, DeleteMode), [
         {riak_core,
             [
-             {ring_creation_size, RingSize},
-             {default_bucket_props,
-                 [
-                     {n_val, NVal},
-                     {allow_mult, true},
-                     {dvv_enabled, true}
-                 ]}
-            ]
+                {ring_creation_size, RingSize},
+                {handoff_concurrency, 8},
+                {forced_ownership_handoff, 8},
+                {vnode_inactivity_timeout, 5000},
+                {default_bucket_props,
+                    [
+                        {n_val, NVal},
+                        {allow_mult, true},
+                        {dvv_enabled, true}
+                    ]}
+                ]
         },
         {riak_kv,
           [
@@ -102,7 +105,6 @@ confirm() ->
         rt:deploy_clusters([
             {5, ?CONFIG(?A_RING, ?A_NVAL, keep)},
             {1, ?CONFIG(?B_RING, ?B_NVAL, immediate)}]),
-
 
     test_repl(pb, [ClusterAP, ClusterBP]),
 
@@ -389,48 +391,60 @@ test_repl(Protocol, [ClusterA, ClusterB]) ->
         % There's no pre-built function to confirm all is stable after this
         % but it should be stable soon after - so sleep
     ?LOG_INFO("Node 5 has stopped in Cluster A"),
+
     {ok, Phase2TombCountS1} =
-        aae_fold(NodeA1,
-                    Protocol,
-                    {reap_tombs,
-                        ?TEST_BUCKET, all, all, all,
-                        {job, 2}}),
+        aae_fold(
+            NodeA1,
+            Protocol,
+            {reap_tombs, ?TEST_BUCKET, all, all, all, local}
+        ),
         % Need to reap before we erase if we want to check the key count
         % As the erase will generate more tombstones
     {ok, Phase2KeyCountS1} =
-        aae_fold(NodeA1,
-                    Protocol,
-                    {erase_keys,
-                        ?TEST_BUCKET, all, all, all,
-                        {job, 2}}),
+        aae_fold(
+            NodeA1,
+            Protocol,
+            {erase_keys, ?TEST_BUCKET, all, all, all, local}
+        ),
         % Need to reap before we erase if we want to check the key count
         % As the erase will generate more tombstones
     ?assertMatch(ExpectedEC, Phase2TombCountS1),
     ?assertMatch(Phase1KeyCount, Phase2KeyCountS1),
 
-    {ok, Phase2TombCountS2} =
-        wait_until_stable(?MODULE,
-                            aae_fold,
-                            [NodeA1,
-                                Protocol,
-                                {reap_tombs,
-                                    ?TEST_BUCKET, all, all, all,
-                                    count}],
-                            undefined,
-                            ?LOOP_COUNT),
-    {ok, Phase2KeyCountS2} =
-        wait_until_stable(?MODULE,
-                            aae_fold,
-                            [NodeA1,
-                                Protocol,
-                                {erase_keys,
-                                    ?TEST_BUCKET, all, all, all,
-                                    count}],
-                            undefined,
-                            ?LOOP_COUNT),
+    ?LOG_INFO(
+        "Reaped ~w tombs during failure then erased ~w keys",
+        [Phase2TombCountS1, Phase2KeyCountS1]
+    ),
 
-    ?LOG_INFO("After reap/erase during fail - tombs ~w keys ~w",
-                [Phase2TombCountS2, Phase2KeyCountS2]),
+    {ok, Phase2TombCountS2} =
+        wait_until_stable(
+            ?MODULE,
+            aae_fold,
+            [
+                NodeA1,
+                Protocol,
+                {reap_tombs, ?TEST_BUCKET, all, all, all, count}
+            ],
+            undefined,
+            ?LOOP_COUNT
+        ),
+    {ok, Phase2KeyCountS2} =
+        wait_until_stable(
+            ?MODULE,
+            aae_fold,
+            [
+                NodeA1,
+                Protocol,
+                {erase_keys, ?TEST_BUCKET, all, all, all, count}
+            ],
+            undefined,
+            ?LOOP_COUNT
+        ),
+
+    ?LOG_INFO(
+        "After reap/erase during fail - counts stable at tombs ~w keys ~w",
+        [Phase2TombCountS2, Phase2KeyCountS2]
+    ),
     ?assertMatch(true, Phase2TombCountS2 > 0),
     ?assertMatch(true, Phase2KeyCountS2 == 0),
         %% As this is a cluster with delete_mode of keep, then the deletes
@@ -438,52 +452,109 @@ test_repl(Protocol, [ClusterA, ClusterB]) ->
         %% of keep deletes can happen on a best endeavours basis
     ?assertMatch(true, Phase2KeyCountS2 < Phase2KeyCountS1),
 
+    {QLP1S2, QLP2S2} = total_reap_queue_lengths(ClusterA -- [NodeA5]),
+    ?LOG_INFO(
+        "Before restart - total reaper queue lengths ~0p",
+        [{QLP1S2, QLP2S2}]
+    ),
+    ?assertMatch(0, QLP2S2),
+        % All reaps have been applied
+    ?assert(QLP1S2 > 0),
+        % Some reaps are in redo state - waiting for primaries to be available
+
     rt:start_and_wait(NodeA5),
     ?LOG_INFO("Node 5 has re-started in Cluster A"),
+    timer:sleep(2000),
+    ok = rt:wait_until_transfers_complete(ClusterA),
 
     {ok, Phase1KeyCount} =
-        wait_for_outcome(?MODULE,
-                            aae_fold,
-                            [NodeA1,
-                                Protocol,
-                                {reap_tombs,
-                                    ?TEST_BUCKET, all, all, all,
-                                    count}],
-                            {ok, Phase1KeyCount},
-                            ?LOOP_COUNT),
+        wait_for_outcome(
+            ?MODULE,
+            aae_fold,
+            [
+                NodeA1,
+                Protocol,
+                {reap_tombs, ?TEST_BUCKET, all, all, all, count}
+            ],
+            {ok, Phase1KeyCount},
+            ?LOOP_COUNT
+        ),
         %% The keys deleted since phase 1 will now be tombstones
     {ok, 0} =
-        wait_for_outcome(?MODULE,
-                            aae_fold,
-                            [NodeA1,
-                                Protocol,
-                                {erase_keys,
-                                    ?TEST_BUCKET, all, all, all,
-                                    count}],
-                            {ok, 0},
-                            ?LOOP_COUNT),
+        wait_for_outcome(
+            ?MODULE,
+            aae_fold,
+            [
+                NodeA1,
+                Protocol,
+                {erase_keys, ?TEST_BUCKET, all, all, all, count}],
+                {ok, 0},
+                ?LOOP_COUNT
+            ),
         %% All deletes eventually happen
+    
+    {QLP1S3, QLP2S3} = total_reap_queue_lengths(ClusterA -- [NodeA5]),
+    ?LOG_INFO(
+        "After restart - total reaper queue lengths ~0p",
+        [{QLP1S3, QLP2S3}]
+    ),
+    ?assertMatch(0, QLP2S3),
+        % All reaps have been applied
+    ?assertMatch(0, QLP1S3),
+        % All redos have been applied
 
-    {ok, KB3} = aae_fold(NodeB1,
-                            Protocol,
-                            {erase_keys, ?TEST_BUCKET, all, all, all, count}),
-    {ok, TB3} = aae_fold(NodeB1,
-                            Protocol,
-                            {reap_tombs, ?TEST_BUCKET, all, all, all, count}),
+    {ok, KB3} =
+        aae_fold(
+            NodeB1,
+            Protocol,
+            {erase_keys, ?TEST_BUCKET, all, all, all, count}
+        ),
+    {ok, TB3} =
+        aae_fold(
+            NodeB1,
+            Protocol,
+            {reap_tombs, ?TEST_BUCKET, all, all, all, count}
+        ),
     ?assertMatch(0, KB3),
     ?assertMatch(0, TB3),
         %% Cluster B should have no keys and no tombs
+
+    {ok, Phase1KeyCount} =
+        aae_fold(
+            NodeA1,
+            Protocol,
+            {reap_tombs, ?TEST_BUCKET, all, all, all, local}
+        ),
+    {ok, 0} =
+        wait_for_outcome(
+            ?MODULE,
+            aae_fold,
+            [
+                NodeA1,
+                Protocol,
+                {reap_tombs, ?TEST_BUCKET, all, all, all, count}],
+                {ok, 0},
+                ?LOOP_COUNT
+            ),
+        %% All reaps eventually happen
+
+    {root_compare, 0} =
+        fullsync_check(
+            Protocol,
+            {NodeA1, ?A_NVAL, cluster_a},
+            {NodeB1ip, NodeB1port, ?B_NVAL}
+        ),
 
     pass.
 
 fullsync_check(Protocol, {SrcNode, SrcNVal, SnkCluster},
                 {SinkIP, SinkPort, SinkNVal}) ->
     ModRef = riak_kv_ttaaefs_manager,
-    _ = rpc:call(SrcNode, ModRef, pause, []),
-    ok = rpc:call(SrcNode, ModRef, set_queuename, [SnkCluster]),
-    ok = rpc:call(SrcNode, ModRef, set_sink, [Protocol, SinkIP, SinkPort]),
-    ok = rpc:call(SrcNode, ModRef, set_allsync, [SrcNVal, SinkNVal]),
-    AAEResult = rpc:call(SrcNode, riak_client, ttaaefs_fullsync, [all_check, 60]),
+    _ = erpc:call(SrcNode, ModRef, pause, []),
+    ok = erpc:call(SrcNode, ModRef, set_queuename, [SnkCluster]),
+    ok = erpc:call(SrcNode, ModRef, set_sink, [Protocol, SinkIP, SinkPort]),
+    ok = erpc:call(SrcNode, ModRef, set_allsync, [SrcNVal, SinkNVal]),
+    AAEResult = erpc:call(SrcNode, riak_client, ttaaefs_fullsync, [all_check, 60]),
     AAEResult.
 
 length_aae_fold(Node, Protocol, Query) ->
@@ -681,3 +752,14 @@ write_then_delete(NodeA1, NodeB1, Start, End) ->
 
 ts_epoch({MegaSecs, Secs, _MicroSecs}) ->
     Secs + 1000000 * MegaSecs.
+
+total_reap_queue_lengths(Cluster) ->
+    total_reap_queue_lengths(Cluster, 0, 0).
+
+total_reap_queue_lengths([], P1, P2) ->
+    {P1, P2};
+total_reap_queue_lengths([Node|Rest], P1, P2) ->
+    Stats = erpc:call(Node, riak_kv_reaper, reap_stats, []),
+    [{1, NP1}, {2, NP2}] =
+        lists:sort(element(2, lists:keyfind(mqueue_lengths, 1, Stats))),
+    total_reap_queue_lengths(Rest, P1 + NP1, P2 + NP2).
