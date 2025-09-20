@@ -21,15 +21,18 @@
 
 -module(general_counter_perf).
 -export([confirm/0, confirm_pb/2]).
+-export([test_loop/6]).
 
 -include_lib("kernel/include/logger.hrl").
 
--define(DEFAULT_RING_SIZE, 8).
+-define(DEFAULT_RING_SIZE, 32).
 -define(BUCKET_TYPE, <<"counters">>).
 -define(TEST_BUCKET, {?BUCKET_TYPE, <<"TestBucket">>}).
--define(COUNTER_COUNT, 10000).
--define(UPDATE_COUNT, 250000).
-
+-define(COUNTER_COUNT, 20000).
+-define(UPDATE_COUNT, 20000).
+-define(CLIENT_COUNT, 100).
+-define(LOG_EVERY, 1000).
+-define(PROFILE_TEST, false).
 
 -define(CONF,
         [
@@ -42,12 +45,12 @@
                     {tictacaae_storeheads, true},
                     {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
                     {tictacaae_suspend, true},
-                    {direct_stats, true}
+                    {direct_stats, false}
                 ]
             },
             {leveled,
                 [
-                    {compaction_runs_perday, 48},
+                    {compaction_runs_perday, 24},
                     {journal_objectcount, 20000},
                     {compression_method, zstd}
                 ]
@@ -73,7 +76,7 @@
 confirm() ->
     [Node] = rt:build_cluster(1, ?CONF),
     rt:wait_for_service(Node, riak_kv),
-    confirm_pb(Node, true).
+    confirm_pb(Node, ?PROFILE_TEST).
 
 confirm_pb(Node, Profile) ->
 
@@ -82,8 +85,6 @@ confirm_pb(Node, Profile) ->
         ?BUCKET_TYPE,
         [{datatype, counter}, {allow_mult, true}]
     ),
-    
-    Client = rt:pbc(Node),
 
     Profiler =
         case Profile of
@@ -92,16 +93,31 @@ confirm_pb(Node, Profile) ->
             false ->
                 ok
         end,
+
+    SW = os:timestamp(),
+    ReturnPid = self(),
+    lists:foreach(
+        fun(C) ->
+            spawn(
+                ?MODULE,
+                test_loop,
+                [C, ReturnPid, ?COUNTER_COUNT, 0, ?UPDATE_COUNT, {0, 0}]
+            )
+        end,
+        lists:map(fun(_I) -> rt:pbc(Node) end, lists:seq(1, ?CLIENT_COUNT))
+    ),
     
-    {TC, _} =
-        timer:tc(
-            fun() ->
-                test_loop(Client, ?COUNTER_COUNT, 0, ?UPDATE_COUNT, {0, 0})
-            end
-        ),
+    receive_loop(?CLIENT_COUNT),
+
+    TestTime = timer:now_diff(os:timestamp(), SW) div 1000,
     ?LOG_INFO(
-        "Test with ~w updates to ~w counters in ~w ms" ,
-        [?UPDATE_COUNT, ?COUNTER_COUNT, TC div 1000]
+        "Test with ~w updates across ~w counters in ~w ms updates persec ~w" ,
+        [
+            ?UPDATE_COUNT * ?CLIENT_COUNT,
+            ?COUNTER_COUNT,
+            TestTime,
+            trunc((1000 * ?UPDATE_COUNT * ?CLIENT_COUNT) / TestTime)
+        ]
     ),
     case Profile of
         true ->
@@ -111,12 +127,21 @@ confirm_pb(Node, Profile) ->
     end,
     pass.
 
+receive_loop(0) ->
+    ok;
+receive_loop(C) when C > 0 ->
+    receive
+        complete ->
+            receive_loop(C - 1)
+    end.
+
 to_key(N) ->
     list_to_binary(io_lib:format("K~8..0B", [N])).
 
-test_loop(Client, _CC, UC, UC, _TS) ->
-    riakc_pb_socket:stop(Client);
-test_loop(Client, CC, C, UC, {TS, MaxTS}) ->
+test_loop(Client, TestPid, _CC, UC, UC, _TS) ->
+    riakc_pb_socket:stop(Client),
+    TestPid ! complete;
+test_loop(Client, TestPid, CC, C, UC, {TS, MaxTS}) ->
     Key = to_key(rand:uniform(CC)),
     C1 = riakc_counter:increment(rand:uniform(16), riakc_counter:new()),
     {TS0, ok} =
@@ -131,14 +156,15 @@ test_loop(Client, CC, C, UC, {TS, MaxTS}) ->
             end
         ),
     UpdTSAcc =
-        case C rem 1000 of
-            0 ->
+        case C rem ?LOG_EVERY of
+            0 when C > 0 ->
                 ?LOG_INFO(
-                    "1000 updates of ~w with to counter took "
+                    "~w updates up to accumulated total of ~w took "
                     "mean_micros=~w with max_micros=~w",
                     [
+                        ?LOG_EVERY,
                         C,
-                        (TS + TS0) div 1000,
+                        (TS + TS0) div ?LOG_EVERY,
                         max(TS0, MaxTS)
                     ]
                 ),
@@ -146,7 +172,7 @@ test_loop(Client, CC, C, UC, {TS, MaxTS}) ->
             _ ->
                 {TS + TS0, max(MaxTS, TS0)}
         end,
-    test_loop(Client, CC, C + 1, UC, UpdTSAcc).
+    test_loop(Client, TestPid, CC, C + 1, UC, UpdTSAcc).
 
 
     
