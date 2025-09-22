@@ -186,7 +186,7 @@ setup_cluster(Protocol, ClusterA, ClusterB) ->
 test_repl(Protocol, [ClusterA, ClusterB]) ->
 
     ?LOG_INFO(
-        "Test run using ~0p protocol an a mix of delete modes",
+        "Test run using ~0p protocol on a mix of delete modes",
         [Protocol]
     ),
     
