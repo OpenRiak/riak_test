@@ -62,6 +62,7 @@ confirm() ->
     ch1a_tests(Node1, Node2),
     ch1b_tests(Node1, Node2),
     ch1c_tests(Node1, Node2),
+    ch1d_tests(Node1, Node2),
 
     ch2_tests(Node1, Node2),
 
@@ -97,6 +98,40 @@ ch1a_tests(Node1, Node2) ->
      end || {Var, OrigVal, NewVal} <- ?TTAAE_ENVVAR_SPECS],
     ok.
 
+-define(TTAAE_POOLSIZE_SPECS,
+        [{"rebuildtreeworkers", {2, 0}, {5, 1}},
+         {"aaefoldworkers", {1, 0}, {3, 1}},
+         {"rebuildstoreworkers", {1, 0}, {2, 0}}
+        ]).
+
+ch1b_tests(Node1, Node2) ->
+    CheckF =
+        fun(Var, SZ, LSZ, OF) ->
+                Cmd = ff("tictacaae ~s -n ~s", [Var, Node1]),
+                %% size | latched_size | max_overflow
+                Expect = ff("|~s| *~b *| *~b *| *~b *|", [Node1, SZ, LSZ, OF]),
+                check_admin_cmd(Node1, Cmd, Expect),
+                check_admin_cmd(Node2, Cmd, Expect)
+        end,
+    SetF1 =
+        fun(Var, SZ) ->
+                Cmd = ff("tictacaae ~s ~b -n ~s", [Var, SZ, Node1]),
+                check_admin_cmd(Node1, Cmd, any)
+        end,
+    SetF2 =
+        fun(Var, SZ, OF) ->
+                Cmd = ff("tictacaae ~s ~b ~b ~n ~s", [Var, SZ, OF, Node1]),
+                check_admin_cmd(Node1, Cmd, any)
+        end,
+    [begin
+         CheckF(Var, SZ0, SZ0, OF0),
+         SetF1(Var, SZ1),
+         CheckF(Var, SZ1, SZ0, OF0),
+         SetF2(Var, SZ1, OF1),
+         CheckF(Var, SZ1, SZ0, OF1)
+     end || {Var, {SZ0, OF0}, {SZ1, OF1}} <- ?TTAAE_POOLSIZE_SPECS],
+    ok.
+
 node_partitions(Node) ->
     {ok, Ring} = rpc:call(Node, riak_core_ring_manager, get_my_ring, []),
     [P || {P, Owner} <- rpc:call(Node, riak_core_ring, all_owners, [Ring]), Owner =:= Node].
@@ -107,7 +142,7 @@ node_partitions(Node) ->
          {"storeheads", "true", "false"}
         ]).
 
-ch1b_tests(Node1, Node2) ->
+ch1c_tests(Node1, Node2) ->
     PP1 = node_partitions(Node1),
     Px = lists:nth(rand:uniform(length(PP1)), PP1),
     CheckEnvVarF =
@@ -137,7 +172,7 @@ ch1b_tests(Node1, Node2) ->
          {{?REBUILD_WAIT + 1, ?REBUILD_DELAY + 1}, {?REBUILD_WAIT + 1, ?REBUILD_DELAY}}
         ]).
 
-ch1c_tests(Node1, Node2) ->
+ch1d_tests(Node1, Node2) ->
     PP1 = node_partitions(Node1),
     Px = lists:nth(rand:uniform(length(PP1)), PP1),
     CheckEnvVarF =
