@@ -25,14 +25,24 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--define(DEFAULT_RING_SIZE, 32).
 -define(BUCKET_TYPE, <<"counters">>).
 -define(TEST_BUCKET, {?BUCKET_TYPE, <<"TestBucket">>}).
+
+%% Settings for full perf test
+-define(DEFAULT_RING_SIZE, 32).
 -define(COUNTER_COUNT, 20000).
 -define(UPDATE_COUNT, 20000).
 -define(CLIENT_COUNT, 100).
 -define(LOG_EVERY, 1000).
 -define(PROFILE_TEST, false).
+
+%% Settings for profile check
+% -define(DEFAULT_RING_SIZE, 8).
+% -define(COUNTER_COUNT, 10000).
+% -define(UPDATE_COUNT, 500000).
+% -define(CLIENT_COUNT, 1).
+% -define(LOG_EVERY, 10000).
+% -define(PROFILE_TEST, false).
 
 -define(CONF,
         [
@@ -45,7 +55,8 @@
                     {tictacaae_storeheads, true},
                     {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
                     {tictacaae_suspend, true},
-                    {direct_stats, false}
+                    {direct_stats, false},
+                    {metadata_version, v1}
                 ]
             },
             {leveled,
@@ -83,7 +94,10 @@ confirm_pb(Node, Profile) ->
     rt:create_and_activate_bucket_type(
         Node,
         ?BUCKET_TYPE,
-        [{datatype, counter}, {allow_mult, true}]
+        [
+            {datatype, counter},
+            {allow_mult, true}
+        ]
     ),
 
     Profiler =
