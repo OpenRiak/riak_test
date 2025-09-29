@@ -83,13 +83,13 @@ ch1a_tests(Node1, Node2) ->
         fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s -n ~s", [Var, Node1]),
                 Expect = ff("|~s| *~s *|", [Node1, Val]),
-                check_admin_cmd(Node1, Cmd, Expect),
-                check_admin_cmd(Node2, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect),
+                ok = check_admin_cmd(Node2, Cmd, Expect)
         end,
     SetEnvVarF =
         fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s ~s -n ~s", [Var, Val, Node1]),
-                check_admin_cmd(Node1, Cmd, any)
+                ok = check_admin_cmd(Node1, Cmd, any)
         end,
     [begin
          CheckEnvVarF(Var, OrigVal),
@@ -110,18 +110,18 @@ ch1b_tests(Node1, Node2) ->
                 Cmd = ff("tictacaae ~s -n ~s", [Var, Node1]),
                 %% size | latched_size | max_overflow
                 Expect = ff("|~s| *~b *| *~b *| *~b *|", [Node1, SZ, LSZ, OF]),
-                check_admin_cmd(Node1, Cmd, Expect),
-                check_admin_cmd(Node2, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect),
+                ok = check_admin_cmd(Node2, Cmd, Expect)
         end,
     SetF1 =
         fun(Var, SZ) ->
                 Cmd = ff("tictacaae ~s ~b -n ~s", [Var, SZ, Node1]),
-                check_admin_cmd(Node1, Cmd, any)
+                ok = check_admin_cmd(Node1, Cmd, any)
         end,
     SetF2 =
         fun(Var, SZ, OF) ->
-                Cmd = ff("tictacaae ~s ~b ~b ~n ~s", [Var, SZ, OF, Node1]),
-                check_admin_cmd(Node1, Cmd, any)
+                Cmd = ff("tictacaae ~s ~b ~b -n ~s", [Var, SZ, OF, Node1]),
+                ok = check_admin_cmd(Node1, Cmd, any)
         end,
     [begin
          CheckF(Var, SZ0, SZ0, OF0),
@@ -149,14 +149,14 @@ ch1c_tests(Node1, Node2) ->
         fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s -n ~s -p ~b", [Var, Node1, Px]),
                 Expect = ff("| *~s *| *~b *| *~s *|", [Node1, Px, Val]),
-                check_admin_cmd(Node1, Cmd, Expect),
-                check_admin_cmd(Node2, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect),
+                ok = check_admin_cmd(Node2, Cmd, Expect)
         end,
     SetEnvVarF =
         fun(Var, Val) ->
                 Cmd = ff("tictacaae ~s ~s -n ~s -p ~b", [Var, Val, Node1, Px]),
                 Expect = ff("Set ~s to ~s on partition ~b on ~s\n", [Var, Val, Px, Node1]),
-                check_admin_cmd(Node1, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect)
         end,
     [begin
          CheckEnvVarF(Var, OrigVal),
@@ -179,14 +179,14 @@ ch1d_tests(Node1, Node2) ->
         fun({RW, RD}) ->
                 Cmd = ff("tictacaae rebuild_schedule -n ~s -p ~b", [Node1, Px]),
                 Expect = ff("rebuild_schedule on ~s/~b is: RW: ~b, RD: ~b\n", [Node1, Px, RW, RD]),
-                check_admin_cmd(Node1, Cmd, Expect),
-                check_admin_cmd(Node2, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect),
+                ok = check_admin_cmd(Node2, Cmd, Expect)
         end,
     SetEnvVarF =
         fun({RW, RD}) ->
                 Cmd = ff("tictacaae rebuild_schedule ~b ~b -n ~s -p ~b", [RW, RD, Node1, Px]),
                 Expect = ff("Set rebuild_schedule to RW: ~b, RD: ~b on partition ~b on ~s\n", [RW, RD, Px, Node1]),
-                check_admin_cmd(Node1, Cmd, Expect)
+                ok = check_admin_cmd(Node1, Cmd, Expect)
         end,
     [begin
          CheckEnvVarF(OrigVal),
@@ -250,9 +250,10 @@ list_buckets_test(Node) ->
                 Doc = wait_until_file_appears(?TMP_FILE),
                 BB = mochijson2:decode(Doc),
                 true = lists:member(?ASCII_BUCKET_NAME, BB),
-                true = lists:member(NonAsciiNameHexEncoded, BB)
+                true = lists:member(NonAsciiNameHexEncoded, BB),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -269,10 +270,11 @@ find_keys_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 KK = [K || #{<<"key">> := K} <- mochijson2:decode(Doc, [{format, map}])],
-                ?assertEqual(KK, [K || {K, _} <- ?SAMPLE1])
+                ?assertEqual(KK, [K || {K, _} <- ?SAMPLE1]),
+                ok
         end,
-    check_admin_cmd(Node, Cmd1, AssertFun),
-    check_admin_cmd(Node, Cmd2, AssertFun),
+    ok = check_admin_cmd(Node, Cmd1, AssertFun),
+    ok = check_admin_cmd(Node, Cmd2, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -284,9 +286,10 @@ count_keys_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 Counted = mochijson2:decode(Doc),
-                ?assertEqual(Counted, length(?SAMPLE1))
+                ?assertEqual(Counted, length(?SAMPLE1)),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -305,9 +308,10 @@ find_tombstones_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 KK = [K || #{<<"key">> := K} <- mochijson2:decode(Doc, [{format, map}])],
-                ?assertEqual(KK, ?DELETED_KEYS)
+                ?assertEqual(KK, ?DELETED_KEYS),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -319,9 +323,10 @@ count_tombstones_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 Counted = mochijson2:decode(Doc),
-                ?assertEqual(length(?DELETED_KEYS), Counted)
+                ?assertEqual(length(?DELETED_KEYS), Counted),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -333,9 +338,10 @@ reap_tombstones_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 Counted = mochijson2:decode(Doc),
-                ?assertEqual(2, Counted)
+                ?assertEqual(2, Counted),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -356,9 +362,10 @@ object_stats_test(Node) ->
                 ?assertEqual(Size1Min, 2),
                 ?assertEqual(Size1Max, 3),
                 ?assertEqual(Sibl1Min, 2),
-                ?assertEqual(Sibl1Max, 3)
+                ?assertEqual(Sibl1Max, 3),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -370,9 +377,10 @@ erase_keys_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 Res = mochijson2:decode(Doc),
-                ?assertEqual(3, Res)
+                ?assertEqual(3, Res),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -384,9 +392,10 @@ repair_keys_test(Node) ->
                 assert_cmd_output(Out),
                 Doc = wait_until_file_appears(?TMP_FILE),
                 Res = mochijson2:decode(Doc),
-                ?assertEqual(3, Res)
+                ?assertEqual(3, Res),
+                ok
         end,
-    check_admin_cmd(Node, Cmd, AssertFun),
+    ok = check_admin_cmd(Node, Cmd, AssertFun),
     ok = file:delete(?TMP_FILE),
     ok.
 
@@ -411,7 +420,8 @@ wait_until_file_appears(File, W) ->
 
 check_admin_cmd(Node, Cmd, any) ->
     S = string:tokens(Cmd, " "),
-    {ok, _} = rt:admin(Node, S);
+    {ok, _} = rt:admin(Node, S),
+    ok;
 check_admin_cmd(Node, Cmd, AssertFun) when is_function(AssertFun) ->
     S = string:tokens(Cmd, " "),
     {ok, Out} = rt:admin(Node, S),
