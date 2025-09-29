@@ -177,15 +177,15 @@ ch1d_tests(Node1, Node2) ->
     Px = lists:nth(rand:uniform(length(PP1)), PP1),
     CheckEnvVarF =
         fun({RW, RD}) ->
-                Cmd = ff("tictacaae rebuild_schedule -n ~s -p ~b", [Node1, Px]),
-                Expect = ff("rebuild_schedule on ~s/~b is: RW: ~b, RD: ~b\n", [Node1, Px, RW, RD]),
+                Cmd = ff("tictacaae rebuild-schedule -n ~s -p ~b", [Node1, Px]),
+                Expect = ff("| *~s *| *~b *| *RW: ~b, RD: ~b *|", [Node1, Px, RW, RD]),
                 ok = check_admin_cmd(Node1, Cmd, Expect),
                 ok = check_admin_cmd(Node2, Cmd, Expect)
         end,
     SetEnvVarF =
         fun({RW, RD}) ->
-                Cmd = ff("tictacaae rebuild_schedule ~b ~b -n ~s -p ~b", [RW, RD, Node1, Px]),
-                Expect = ff("Set rebuild_schedule to RW: ~b, RD: ~b on partition ~b on ~s\n", [RW, RD, Px, Node1]),
+                Cmd = ff("tictacaae rebuild-schedule ~b ~b -n ~s -p ~b", [RW, RD, Node1, Px]),
+                Expect = ff("Set rebuild.schedule to RW: ~b, RD: ~b on partition ~b on ~s\n", [RW, RD, Px, Node1]),
                 ok = check_admin_cmd(Node1, Cmd, Expect)
         end,
     [begin
