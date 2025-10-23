@@ -124,7 +124,7 @@
 ]).
 
 -type app_config() :: list(config_elem()).
--type backend() :: bitcask | leveldb | leveled | memory | multi.
+-type backend() :: bitcask | eleveldb | leveled | memory | multi.
 -type backends() :: list(backend()).
 -type capabilities() :: list(capability()).
 -type capability() :: atom() | {atom(), tuple()}.
