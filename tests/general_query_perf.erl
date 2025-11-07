@@ -41,7 +41,8 @@
 -define(CURRENT_YEAR, 2025).
 -define(EXISTING, "99999999").
 -define(CLIENT_COUNT, 4).
--define(TOTAL_KEYS, 10000).
+-define(TOTAL_KEYS, 28000).
+-define(APPLY_BRAKES_FOR_LAST, 2000). % per client
 
 -define(CONF,
     [
@@ -100,7 +101,14 @@ load_data(Node, Bucket) ->
             spawn(
                 fun() ->
                     ?LOG_INFO("Client ~w spawned", [I]),
-                    pbc_load(C, I, Bucket, 0, ?TOTAL_KEYS div ?CLIENT_COUNT),
+                    pbc_load(
+                        C,
+                        I,
+                        Bucket,
+                        0,
+                        ?TOTAL_KEYS div ?CLIENT_COUNT,
+                        false
+                    ),
                     Me ! complete
                 end
             )
@@ -120,7 +128,13 @@ receive_loop(CountDown) ->
 
 generate_record() ->
     {YOB, DOB} = generate_dob(),
-    PostCodeCount = max((?CURRENT_YEAR - YOB) div 4, 2 * ?MEAN_POSTCODES),
+    PostCodeCount =
+        rand:uniform(
+            max(
+                1,
+                min((?CURRENT_YEAR - YOB) div 4, 2 * ?MEAN_POSTCODES)
+            )
+        ),
     [{CA, CurrentPostCode}|PreviousPostCodes] =
         lists:map(
             fun(_I) ->
@@ -156,7 +170,6 @@ generate_record() ->
                     ),
                 [{CurrentPostCode, {FED, ?EXISTING}}|PrevPCs]
         end,
-
     CurrentFamilyName = generate_familyname(),
     PreviousFamilyNames =
         case rand:uniform() of
@@ -182,27 +195,32 @@ generate_record() ->
 
 generate_postcode(HotPostCodes) ->
     {AC, Area, DC} =
-        case {rand:uniform(), HotPostCodes} of
+        case rand:uniform() of
             N when N < ?HOT_POSTCODE_CHANCE, HotPostCodes /= none ->
                 maps:get(rand:uniform(?HOT_POSTCODE_COUNT), HotPostCodes);
             _ ->
                 maps:get(rand:uniform(?POSTAL_AREA_COUNT), ?POSTAL_AREA_MAP)
         end,
-    {
-        Area,
-        lists:flatten(
-            io_lib:format(
-                "~s~p_~s~s~s",
-                [
-                    AC,
-                    rand:uniform(DC),
-                    [(64 + rand:uniform(26))],
-                    [51 + rand:uniform(5)],
-                    [51 + rand:uniform(5)]
-                ]
-            )
-        )
-    }.
+    case DC of
+        DC when is_integer(DC) ->
+            {
+                Area,
+                lists:flatten(
+                    io_lib:format(
+                        "~s~p_~s~s~s",
+                        [
+                            AC,
+                            rand:uniform(DC),
+                            [(64 + rand:uniform(26))],
+                            [51 + rand:uniform(5)],
+                            [51 + rand:uniform(5)]
+                        ]
+                    )
+                )
+            };
+        ActualPostCode ->
+            {Area, ActualPostCode}
+    end.
 
 generate_familyname() ->
     binary_to_list(
@@ -253,22 +271,29 @@ generate_date(YOB) ->
 generate_id(Worker, Count) ->
     io_lib:format("HSS0~2..0B~8..0B", [Worker, Count]).
 
-pbc_load(Client, ClientID, Bucket, Total, Total) ->
+pbc_load(Client, ClientID, Bucket, Total, Total, _Brake) ->
     ?LOG_INFO(
         "ClientID ~0p finished load of ~w records into Bucket ~0p",
         [ClientID, Total, Bucket]
     ),
     riakc_pb_socket:stop(Client);
-pbc_load(Client, ClientID, Bucket, RecordNumber, Total) ->
-    case RecordNumber rem 1000 of
-        0 when RecordNumber > 0 ->
-            ?LOG_INFO(
-                "Client ~w has loaded ~w records of ~w",
-                [ClientID, RecordNumber, Total]
-            );
-        _ ->
-            ok
-    end,
+pbc_load(Client, ClientID, Bucket, RecordNumber, Total, Brake) ->
+    ApplyBrake =
+        case RecordNumber rem 1000 of
+            0 when RecordNumber > 0 ->
+                ?LOG_INFO(
+                    "Client ~w has loaded ~w records of ~w",
+                    [ClientID, RecordNumber, Total]
+                ),
+                case Total - RecordNumber of
+                    ToGo when ToGo =< ?APPLY_BRAKES_FOR_LAST ->
+                        true;
+                    _ ->
+                        false
+                    end;
+            _ ->
+                Brake
+        end,
     ID = generate_id(ClientID, RecordNumber),
     PatientRecord = generate_record(),
     IdxMap = generate_indexes(PatientRecord),
@@ -294,7 +319,13 @@ pbc_load(Client, ClientID, Bucket, RecordNumber, Total) ->
             IdxMap
         ),
     ok = riakc_pb_socket:put(Client, riakc_obj:update_metadata(Obj, MD1)),
-    pbc_load(Client, ClientID, Bucket, RecordNumber + 1, Total).
+    case ApplyBrake of
+        true ->
+            timer:sleep(10);
+        _ ->
+            ok
+    end,
+    pbc_load(Client, ClientID, Bucket, RecordNumber + 1, Total, ApplyBrake).
 
 generate_indexes(PatientRecord) ->
     #{
