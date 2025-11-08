@@ -26,8 +26,6 @@
 -export([confirm/0]).
 
 -include_lib("kernel/include/logger.hrl").
-% -include_lib("stdlib/include/assert.hrl").
-% -include_lib("riakc/include/riakc.hrl").
 -include("postal_area.hrl").
 -include("family_name.hrl").
 -include("given_name.hrl").
@@ -43,6 +41,8 @@
 -define(CLIENT_COUNT, 4).
 -define(TOTAL_KEYS, 28000).
 -define(APPLY_BRAKES_FOR_LAST, 2000). % per client
+-define(QUERY_LOOPS, 10).
+-define(POST_LOAD_PAUSE, 10000).
 
 -define(CONF,
     [
@@ -82,8 +82,30 @@ confirm() ->
     [Node] = rt:build_cluster(1, ?CONF),
     rt:wait_for_service(Node, riak_kv),
     Bucket = get_bucketprefix(Node, true),
-    load_data(Node, Bucket).
-
+    load_data(Node, Bucket),
+    timer:sleep(?POST_LOAD_PAUSE),
+    ResultListRaw =
+        lists:foldl(
+            fun(_I, Acc) ->
+                Rs = count_test(Node, Bucket),
+                case Acc of
+                    none ->
+                        Rs;
+                    Acc when is_list(Acc), length(Acc) == length(Rs) ->
+                        lists:map(
+                            fun({A, R}) -> A + R end,
+                            lists:zip(Acc, Rs)
+                        )
+                end
+            end,
+            none,
+            lists:seq(1, ?QUERY_LOOPS)
+        ),
+    ?LOG_INFO(
+        "Count timings ~0p",
+        [lists:map(fun(T) -> T div ?QUERY_LOOPS end, ResultListRaw)]
+    ),
+    pass.
 
 get_bucketprefix(Node, true) ->
     rt:create_activate_and_wait_for_bucket_type(
@@ -116,7 +138,7 @@ load_data(Node, Bucket) ->
         lists:seq(1, ?CLIENT_COUNT)
     ),
     ok = receive_loop(?CLIENT_COUNT),
-    pass.
+    ok.
 
 receive_loop(0) ->
     ok;
@@ -412,3 +434,238 @@ generate_status_flags(YOB, CA) ->
                 "NY"
         end,
     lists:flatten([Flag1, Flag2, Flag3, Flag4]).
+
+count_test(Node, Bucket) ->
+    HTTPC = rt:httpc(Node),
+    ?LOG_INFO("Counting - raw, de-duplicated, and by term"),
+    RepIdx = <<"healthreport_bin">>,
+    _R0 =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA">>, <<"SHA~">>},
+                    undefined,
+                    count,
+                    []
+                )
+            end
+        ),
+    R1 =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA">>, <<"SHA~">>},
+                    undefined,
+                    count,
+                    []
+                )
+            end
+        ),
+    R2 =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA">>, <<"SHA~">>},
+                    undefined,
+                    raw_count,
+                    []
+                )
+            end
+        ),
+    R3 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA">>, <<"SHA~">>},
+                    <<"index($term, 0, 8, $sha)">>,
+                    <<"attribute_exists($sha)">>,
+                    term_with_count,
+                    <<"sha">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    R4 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA">>, <<"SHA~">>},
+                    <<"index($term, 0, 8, $sha)">>,
+                    <<"attribute_exists($sha)">>,
+                    term_with_rawcount,
+                    <<"sha">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    R5 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01002">>},
+                    <<"index($term, 0, 8, $sha)">>,
+                    <<"attribute_exists($sha)">>,
+                    term_with_count,
+                    <<"sha">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    R6 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01002">>},
+                    <<"index($term, 0, 8, $sha)">>,
+                    <<"attribute_exists($sha)">>,
+                    term_with_rawcount,
+                    <<"sha">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    {TC7, {ok, {term_with_count, TCL7}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01001">>},
+                    <<"index($term, 8, 8, $gp)">>,
+                    <<"attribute_exists($gp)">>,
+                    term_with_count,
+                    <<"gp">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    R7 = {TC7, {ok, {term_with_count, length(TCL7)}}},
+    {TC8, {ok, {term_with_rawcount, TCL8}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01001">>},
+                    <<"index($term, 8, 8, $gp)">>,
+                    <<"attribute_exists($gp)">>,
+                    term_with_rawcount,
+                    <<"gp">>,
+                    #{},
+                    []
+                )
+            end
+        ),
+    R8 = {TC8, {ok, {term_with_rawcount, length(TCL8)}}},
+    R9 =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01010">>, <<"SHA01011">>},
+                    undefined,
+                    raw_count,
+                    []
+                )
+            end
+        ),
+    R10 =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01010">>, <<"SHA01011">>},
+                    undefined,
+                    count,
+                    []
+                )
+            end
+        ),
+    AgeEvalExpr1 =
+        <<"index($term, 16, 8, $dob) | index($term, 24, 1, $smoker) | ">>,
+    AgeEvalExpr2 =
+        <<"map($dob, <, ((:sy, :s), (:by, :b), (:xy, :x), (:my, :m)), :z, $generation)">>,
+    AgeEvalExpr3=
+        <<" | join(($generation, $smoker), \".\", $gensmoke)">>,
+    GenSubs =
+        #{
+            <<"sy">> => <<"1946">>,
+            <<"by">> => <<"1966">>,
+            <<"xy">> => <<"1980">>, 
+            <<"my">> => <<"1997">>,
+            <<"s">> => <<"Silent">>,
+            <<"b">> => <<"Boomer">>,
+            <<"x">> => <<"GenX">>,
+            <<"m">> => <<"Millenial">>,
+            <<"z">> => <<"GenZ">>
+        },
+    AgeEvalExpr = <<AgeEvalExpr1/binary, AgeEvalExpr2/binary, AgeEvalExpr3/binary>>,
+    R11 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01~">>},
+                    AgeEvalExpr,
+                    <<"attribute_exists($gensmoke)">>,
+                    term_with_count,
+                    <<"gensmoke">>,
+                    GenSubs,
+                    []
+                )
+            end
+        ),
+    R12 =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    RepIdx,
+                    {<<"SHA01000">>, <<"SHA01~">>},
+                    AgeEvalExpr,
+                    <<"attribute_exists($gensmoke)">>,
+                    term_with_rawcount,
+                    <<"gensmoke">>,
+                    GenSubs,
+                    []
+                )
+            end
+        ),
+    ResultList = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12],
+    lists:foreach(fun(R) -> ?LOG_INFO("~0p", [R]) end, ResultList),
+    lists:map(fun({TS, _}) -> TS end, ResultList).
