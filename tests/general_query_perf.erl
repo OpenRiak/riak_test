@@ -439,6 +439,7 @@ count_test(Node, Bucket) ->
     HTTPC = rt:httpc(Node),
     ?LOG_INFO("Counting - raw, de-duplicated, and by term"),
     RepIdx = <<"healthreport_bin">>,
+    Options = [{timeout, 600}],
     _R0 =
         timer:tc(
             fun() ->
@@ -449,7 +450,7 @@ count_test(Node, Bucket) ->
                     {<<"SHA">>, <<"SHA~">>},
                     undefined,
                     count,
-                    []
+                    Options
                 )
             end
         ),
@@ -463,7 +464,7 @@ count_test(Node, Bucket) ->
                     {<<"SHA">>, <<"SHA~">>},
                     undefined,
                     count,
-                    []
+                    Options
                 )
             end
         ),
@@ -477,7 +478,7 @@ count_test(Node, Bucket) ->
                     {<<"SHA">>, <<"SHA~">>},
                     undefined,
                     raw_count,
-                    []
+                    Options
                 )
             end
         ),
@@ -494,7 +495,7 @@ count_test(Node, Bucket) ->
                     term_with_count,
                     <<"sha">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -511,7 +512,7 @@ count_test(Node, Bucket) ->
                     term_with_rawcount,
                     <<"sha">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -528,7 +529,7 @@ count_test(Node, Bucket) ->
                     term_with_count,
                     <<"sha">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -545,7 +546,7 @@ count_test(Node, Bucket) ->
                     term_with_rawcount,
                     <<"sha">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -562,7 +563,7 @@ count_test(Node, Bucket) ->
                     term_with_count,
                     <<"gp">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -580,7 +581,7 @@ count_test(Node, Bucket) ->
                     term_with_rawcount,
                     <<"gp">>,
                     #{},
-                    []
+                    Options
                 )
             end
         ),
@@ -595,7 +596,7 @@ count_test(Node, Bucket) ->
                     {<<"SHA01010">>, <<"SHA01011">>},
                     undefined,
                     raw_count,
-                    []
+                    Options
                 )
             end
         ),
@@ -609,7 +610,7 @@ count_test(Node, Bucket) ->
                     {<<"SHA01010">>, <<"SHA01011">>},
                     undefined,
                     count,
-                    []
+                    Options
                 )
             end
         ),
@@ -645,7 +646,7 @@ count_test(Node, Bucket) ->
                     term_with_count,
                     <<"gensmoke">>,
                     GenSubs,
-                    []
+                    Options
                 )
             end
         ),
@@ -662,7 +663,7 @@ count_test(Node, Bucket) ->
                     term_with_rawcount,
                     <<"gensmoke">>,
                     GenSubs,
-                    []
+                    Options
                 )
             end
         ),
