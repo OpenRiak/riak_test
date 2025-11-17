@@ -39,7 +39,7 @@
 -define(CURRENT_YEAR, 2025).
 -define(EXISTING, "99999999").
 -define(CLIENT_COUNT, 4).
--define(TOTAL_KEYS, 100000).
+-define(TOTAL_KEYS, 1000000).
 -define(APPLY_BRAKES_FOR_LAST, 2000). % per client
 -define(QUERY_LOOPS, 10).
 -define(POST_LOAD_PAUSE, 10000).
@@ -556,28 +556,28 @@ postcode_test(Node, Bucket) ->
         "keys in eval range ~w results ~w",
         [T14, T15, CCC, CCCR0]
     ),
-    {T16, T17, CHC, CHCR1} =
+    {T16, T17, T18, CHC, CHCR1} =
         get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for hot postcode: "
-        "With eval ~w and pure range ~w "
+        "With eval ~w and pure range ~w non-raw ~w "
         "keys in eval range ~w results ~w",
-        [T16, T17, CHC, CHCR1]
+        [T16, T17, T18, CHC, CHCR1]
     ),
-    {T18, T19, CCC, CCCR1} =
+    {T19, T20, T21, CCC, CCCR1} =
         get_postcode_effective(HTTPC, Bucket, PcIdx, CPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for cold postcode: "
-        "With eval ~w and pure range ~w "
+        "With eval ~w and pure range ~w non-raw ~w "
         "keys in eval range ~w results ~w",
-        [T18, T18, CCC, CCCR1]
+        [T19, T20, T21, CCC, CCCR1]
     ),
 
     [
         T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11,
         R0HA_Cnt, R0HC_Cnt, R0CA_Cnt, R0CC_Cnt, HADup, HCDup, CADup, CCDup,
         T12, T13, CHC, CHCR0, T14, T15, CCC, CCCR0,
-        T16, T17, CHC, CHCR1, T18, T19, CCC, CCCR1
+        T16, T17, T18, CHC, CHCR1, T19, T20, T21, CCC, CCCR1
     ].
     
 
@@ -699,7 +699,7 @@ get_postcode_yobr(HTTPC, Bucket, PcIdx, HPCBin) ->
 get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin) ->
     TildaBin = <<"~">>,
     Options = [{timeout, 600}],
-    {_T0, {ok, {count, C0}}} =
+    {_T0, {ok, {raw_count, C0}}} =
         timer:tc(
             fun() ->
                 rhc:range_query(
@@ -708,7 +708,7 @@ get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin) ->
                     PcIdx,
                     {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
                     undefined,
-                    count,
+                    raw_count,
                     Options
                 )
             end
@@ -730,22 +730,37 @@ get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin) ->
                 )
             end
         ),
-    {T2, {ok, {terms, TKL2}}} =
+    {T2, {ok, {raw_terms, TKL2}}} =
         timer:tc(
-                fun() ->
-                    rhc:range_query(
-                        HTTPC,
-                        Bucket,
-                        PcIdx,
-                        {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
-                        undefined,
-                        terms,
-                        Options
-                    )
-                end
-            ),
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    raw_terms,
+                    Options
+                )
+            end
+        ),
+    {T3, {ok, {terms, _}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    terms,
+                    Options
+                )
+            end
+        ),
+    
     true = C0 == length(TKL2),
-    {T1, T2, C0, length(KL1)}.
+    {T1, T2, T3, C0, length(KL1)}.
 
 count_test(Node, Bucket) ->
     HTTPC = rt:httpc(Node),
