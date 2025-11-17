@@ -540,44 +540,44 @@ postcode_test(Node, Bucket) ->
             HADup, R0HA_Cnt, HCDup, R0HC_Cnt, CADup, R0CA_Cnt, CCDup, R0CC_Cnt
         ]
     ),
-    {T12, T13, CHC, CHCR0} =
+    {T12, T13, CHC0, CHCR0} =
         get_postcode_yobr(HTTPC, Bucket, PcIdx, HPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for hot postcode: "
         "With eval ~w and pure range ~w "
         "keys in eval range ~w results ~w",
-        [T12, T13, CHC, CHCR0]
+        [T12, T13, CHC0, CHCR0]
     ),
-    {T14, T15, CCC, CCCR0} =
+    {T14, T15, CCC0, CCCR0} =
         get_postcode_yobr(HTTPC, Bucket, PcIdx, CPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for cold postcode: "
         "With eval ~w and pure range ~w "
         "keys in eval range ~w results ~w",
-        [T14, T15, CCC, CCCR0]
+        [T14, T15, CCC0, CCCR0]
     ),
-    {T16, T17, T18, CHC, CHCR1} =
+    {T16, T17, T18, CHC1, CHCR1} =
         get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for hot postcode: "
         "With eval ~w and pure range ~w non-raw ~w "
         "keys in eval range ~w results ~w",
-        [T16, T17, T18, CHC, CHCR1]
+        [T16, T17, T18, CHC1, CHCR1]
     ),
-    {T19, T20, T21, CCC, CCCR1} =
+    {T19, T20, T21, CCC1, CCCR1} =
         get_postcode_effective(HTTPC, Bucket, PcIdx, CPCBin),
     ?LOG_INFO(
         "Difference between fetching keys for cold postcode: "
         "With eval ~w and pure range ~w non-raw ~w "
         "keys in eval range ~w results ~w",
-        [T19, T20, T21, CCC, CCCR1]
+        [T19, T20, T21, CCC1, CCCR1]
     ),
 
     [
         T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11,
         R0HA_Cnt, R0HC_Cnt, R0CA_Cnt, R0CC_Cnt, HADup, HCDup, CADup, CCDup,
-        T12, T13, CHC, CHCR0, T14, T15, CCC, CCCR0,
-        T16, T17, T18, CHC, CHCR1, T19, T20, T21, CCC, CCCR1
+        T12, T13, CHC0, CHCR0, T14, T15, CCC0, CCCR0,
+        T16, T17, T18, CHC1, CHCR1, T19, T20, T21, CCC1, CCCR1
     ].
     
 
