@@ -39,7 +39,7 @@
 -define(CURRENT_YEAR, 2025).
 -define(EXISTING, "99999999").
 -define(CLIENT_COUNT, 4).
--define(TOTAL_KEYS, 28000).
+-define(TOTAL_KEYS, 100000).
 -define(APPLY_BRAKES_FOR_LAST, 2000). % per client
 -define(QUERY_LOOPS, 10).
 -define(POST_LOAD_PAUSE, 10000).
@@ -84,10 +84,17 @@ confirm() ->
     Bucket = get_bucketprefix(Node, true),
     load_data(Node, Bucket),
     timer:sleep(?POST_LOAD_PAUSE),
+    ?LOG_INFO("Running count tests on report index"),
+    loop_and_log_results(fun() -> count_test(Node, Bucket) end),
+    ?LOG_INFO("Running key fetch tests on postcode index"),
+    loop_and_log_results(fun() -> postcode_test(Node, Bucket) end),
+    pass.
+
+loop_and_log_results(ResultFun) ->
     ResultListRaw =
         lists:foldl(
             fun(_I, Acc) ->
-                Rs = count_test(Node, Bucket),
+                Rs = ResultFun(),
                 case Acc of
                     none ->
                         Rs;
@@ -102,10 +109,10 @@ confirm() ->
             lists:seq(1, ?QUERY_LOOPS)
         ),
     ?LOG_INFO(
-        "Count timings ~0p",
+        "Timings ~0p",
         [lists:map(fun(T) -> T div ?QUERY_LOOPS end, ResultListRaw)]
-    ),
-    pass.
+    ).
+
 
 get_bucketprefix(Node, true) ->
     rt:create_activate_and_wait_for_bucket_type(
@@ -160,7 +167,7 @@ generate_record() ->
     [{CA, CurrentPostCode}|PreviousPostCodes] =
         lists:map(
             fun(_I) ->
-                generate_postcode(?HOT_POSTCODE_MAP)
+                generate_postcode(?HOT_POSTCODE_MAP, ?HOT_POSTCODE_CHANCE)
             end,
             lists:seq(1, max(1, PostCodeCount))
         ),
@@ -215,10 +222,10 @@ generate_record() ->
         status_flags => generate_status_flags(YOB, CA)
     }.
 
-generate_postcode(HotPostCodes) ->
+generate_postcode(HotPostCodes, PostCodeChance) ->
     {AC, Area, DC} =
         case rand:uniform() of
-            N when N < ?HOT_POSTCODE_CHANCE, HotPostCodes /= none ->
+            N when N < PostCodeChance, HotPostCodes /= none ->
                 maps:get(rand:uniform(?HOT_POSTCODE_COUNT), HotPostCodes);
             _ ->
                 maps:get(rand:uniform(?POSTAL_AREA_COUNT), ?POSTAL_AREA_MAP)
@@ -434,6 +441,311 @@ generate_status_flags(YOB, CA) ->
                 "NY"
         end,
     lists:flatten([Flag1, Flag2, Flag3, Flag4]).
+
+postcode_test(Node, Bucket) ->
+    HTTPC = rt:httpc(Node),
+    PcIdx = <<"postalcode_bin">>,
+    {_HotPostalArea, HotPostCode} =
+        generate_postcode(?HOT_POSTCODE_MAP, 1.0),
+    {_ColdPostalArea, ColdPostCode} =
+        generate_postcode(?HOT_POSTCODE_MAP, 0.0),
+    HPABin = list_to_binary(lists:sublist(HotPostCode, 3)),
+    HPCBin = list_to_binary(HotPostCode),
+    CPABin = list_to_binary(lists:sublist(ColdPostCode, 3)),
+    CPCBin = list_to_binary(ColdPostCode),
+    ?LOG_INFO(
+        "Testing with hot code ~s, and cold code ~s",
+        [HotPostCode, ColdPostCode]
+    ),
+    {
+        {T0, {ok, {count, R0HA_Cnt}}}, 
+        {T1, {ok, {count, R0HC_Cnt}}},
+        {T2, {ok, {count, R0CA_Cnt}}},
+        {T3, {ok, {count, R0CC_Cnt}}}
+    } =
+        get_hot_and_cold_raw(
+            HTTPC,
+            Bucket,
+            PcIdx,
+            HPABin,
+            HPCBin,
+            CPABin,
+            CPCBin,
+            count
+        ),
+    ?LOG_INFO(
+        "Count results for: "
+        "Hot Area ~0p Hot Code ~0p Cold Area ~0p Cold Code ~0p",
+        [{T0, R0HA_Cnt}, {T1, R0HC_Cnt}, {T2, R0CA_Cnt}, {T3, R0CC_Cnt}]
+    ),
+    {
+        {T4, {ok, {raw_keys, R0HA_RKL}}},
+        {T5, {ok, {raw_keys, R0HC_RKL}}},
+        {T6, {ok, {raw_keys, R0CA_RKL}}},
+        {T7, {ok, {raw_keys, R0CC_RKL}}}
+    } =
+        get_hot_and_cold_raw(
+            HTTPC,
+            Bucket,
+            PcIdx,
+            HPABin,
+            HPCBin,
+            CPABin,
+            CPCBin,
+            raw_keys
+        ),
+    ?LOG_INFO(
+        "Raw key results for Hot Area: "
+        "~0p Hot Code ~0p Cold Area ~0p Cold Code ~0p",
+        [
+            {T4, length(R0HA_RKL)},
+            {T5, length(R0HC_RKL)},
+            {T6, length(R0CA_RKL)},
+            {T7, length(R0CC_RKL)}
+        ]
+    ),
+    {
+        {T8, {ok, {keys, R0HA_KL}}},
+        {T9, {ok, {keys, R0HC_KL}}},
+        {T10, {ok, {keys, R0CA_KL}}},
+        {T11, {ok, {keys, R0CC_KL}}}
+    } =
+        get_hot_and_cold_raw(
+            HTTPC,
+            Bucket,
+            PcIdx,
+            HPABin,
+            HPCBin,
+            CPABin,
+            CPCBin,
+            keys
+        ),
+    ?LOG_INFO(
+        "Deduplicated and sorted key results for Hot Area: "
+        "~0p Hot Code ~0p Cold Area ~0p Cold Code ~0p",
+        [
+            {T8, length(R0HA_KL)},
+            {T9, length(R0HC_KL)},
+            {T10, length(R0CA_KL)},
+            {T11, length(R0CC_KL)}
+        ]
+    ),
+    HADup = length(R0HA_RKL) - R0HA_Cnt,
+    HCDup = length(R0HC_RKL) - R0HC_Cnt,
+    CADup = length(R0CA_RKL) - R0CA_Cnt,
+    CCDup = length(R0CC_RKL) - R0CC_Cnt,
+    ?LOG_INFO(
+        "Duplicates found: ~w in ~w;  ~w in ~w; ~w in ~w; ~w in ~w",
+        [
+            HADup, R0HA_Cnt, HCDup, R0HC_Cnt, CADup, R0CA_Cnt, CCDup, R0CC_Cnt
+        ]
+    ),
+    {T12, T13, CHC, CHCR0} =
+        get_postcode_yobr(HTTPC, Bucket, PcIdx, HPCBin),
+    ?LOG_INFO(
+        "Difference between fetching keys for hot postcode: "
+        "With eval ~w and pure range ~w "
+        "keys in eval range ~w results ~w",
+        [T12, T13, CHC, CHCR0]
+    ),
+    {T14, T15, CCC, CCCR0} =
+        get_postcode_yobr(HTTPC, Bucket, PcIdx, CPCBin),
+    ?LOG_INFO(
+        "Difference between fetching keys for cold postcode: "
+        "With eval ~w and pure range ~w "
+        "keys in eval range ~w results ~w",
+        [T14, T15, CCC, CCCR0]
+    ),
+    {T16, T17, CHC, CHCR1} =
+        get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin),
+    ?LOG_INFO(
+        "Difference between fetching keys for hot postcode: "
+        "With eval ~w and pure range ~w "
+        "keys in eval range ~w results ~w",
+        [T16, T17, CHC, CHCR1]
+    ),
+    {T18, T19, CCC, CCCR1} =
+        get_postcode_effective(HTTPC, Bucket, PcIdx, CPCBin),
+    ?LOG_INFO(
+        "Difference between fetching keys for cold postcode: "
+        "With eval ~w and pure range ~w "
+        "keys in eval range ~w results ~w",
+        [T18, T18, CCC, CCCR1]
+    ),
+
+    [
+        T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11,
+        R0HA_Cnt, R0HC_Cnt, R0CA_Cnt, R0CC_Cnt, HADup, HCDup, CADup, CCDup,
+        T12, T13, CHC, CHCR0, T14, T15, CCC, CCCR0,
+        T16, T17, CHC, CHCR1, T18, T19, CCC, CCCR1
+    ].
+    
+
+get_hot_and_cold_raw(
+    HTTPC, Bucket, PcIdx, HPABin, HPCBin, CPABin, CPCBin, AccOpt)
+->
+    TildaBin = <<"~">>,
+    Options = [{timeout, 600}],
+    R0HA =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPABin, <<HPABin/binary, TildaBin/binary>>},
+                    undefined,
+                    AccOpt,
+                    Options
+                )
+            end
+        ),
+    R0HC =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    AccOpt,
+                    Options
+                )
+            end
+        ),
+    R0CA =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {CPABin, <<CPABin/binary, TildaBin/binary>>},
+                    undefined,
+                    AccOpt,
+                    Options
+                )
+            end
+        ),
+    R0CC =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {CPCBin, <<CPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    AccOpt,
+                    Options
+                )
+            end
+        ),
+    {R0HA, R0HC, R0CA, R0CC}.
+
+get_postcode_yobr(HTTPC, Bucket, PcIdx, HPCBin) ->
+    TildaBin = <<"~">>,
+    Options = [{timeout, 600}],
+    {_T0, {ok, {count, C0}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    count,
+                    Options
+                )
+            end
+        ),
+    {T1, {ok, {keys, KL1}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    <<"delim($term, \"|\", ($pc, $dob, $ed))">>,
+                    <<"$dob BETWEEN \"1981\" AND \"1985\"">>,
+                    keys,
+                    undefined,
+                    #{},
+                    Options
+                )
+            end
+        ),
+    StartKey = <<HPCBin/binary, <<"|1981">>/binary>>,
+    EndKey = <<HPCBin/binary, <<"|1985">>/binary>>,
+    {T2, {ok, {keys, KL1}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {StartKey, EndKey},
+                    undefined,
+                    keys,
+                    Options
+                )
+            end
+        ),
+    {T1, T2, C0, length(KL1)}.
+
+get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin) ->
+    TildaBin = <<"~">>,
+    Options = [{timeout, 600}],
+    {_T0, {ok, {count, C0}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    undefined,
+                    count,
+                    Options
+                )
+            end
+        ),
+    {T1, {ok, {keys, KL1}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                    <<"delim($term, \"|\", ($pc, $dob, $ed)) | index($ed, 0, 8, $sed) | index($ed, 8, 16, $eed)">>,
+                    <<"\"20100901\" BETWEEN $sed AND $eed">>,
+                    keys,
+                    undefined,
+                    #{},
+                    Options
+                )
+            end
+        ),
+    {T2, {ok, {terms, TKL2}}} =
+        timer:tc(
+                fun() ->
+                    rhc:range_query(
+                        HTTPC,
+                        Bucket,
+                        PcIdx,
+                        {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
+                        undefined,
+                        terms,
+                        Options
+                    )
+                end
+            ),
+    true = C0 == length(TKL2),
+    {T1, T2, C0, length(KL1)}.
 
 count_test(Node, Bucket) ->
     HTTPC = rt:httpc(Node),
