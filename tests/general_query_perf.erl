@@ -480,7 +480,8 @@ peoplefinder_test(Node, B) ->
 intersection_query(HTTPC, Bucket, PfIdx, PcIdx, YOB, FN1, FN2, FN3, GNs, HotPostCode) ->
     Options = [{timeout, 600}],
     YOBStartTerm = integer_to_binary(YOB),
-    YOBEndTerm =  integer_to_binary(YOB + 1),
+    YOBOtherTerm =  integer_to_binary(YOB + 1),
+    YOBEndTerm =  integer_to_binary(YOB + 2),
     FNB1 = list_to_binary(FN1),
     FNB2 = list_to_binary(FN2),
     FNB3 = list_to_binary(FN3),
@@ -575,7 +576,7 @@ intersection_query(HTTPC, Bucket, PfIdx, PcIdx, YOB, FN1, FN2, FN3, GNs, HotPost
             "index($ed, 0, 8, $sed) | index($ed, 8, 8, $eed)"
         >>,
     FilterPC =
-        <<"$yob = :yob AND (:address_date BETWEEN $sed AND $eed)">>,
+        <<"($yob = :yob1 OR $yob = :yob2) AND (:address_date BETWEEN $sed AND $eed)">>,
     RangePC =
         {
             HotPostCodeBin,
@@ -597,7 +598,8 @@ intersection_query(HTTPC, Bucket, PfIdx, PcIdx, YOB, FN1, FN2, FN3, GNs, HotPost
                         <<"dl1">> => <<"|">>,
                         <<"dl2">> => <<".">>,
                         <<"address_date">> => <<"20100901">>,
-                        <<"yob">> => YOBStartTerm
+                        <<"yob1">> => YOBStartTerm,
+                        <<"yob2">> => YOBOtherTerm
                     },
                     Options
                 )
@@ -623,7 +625,8 @@ intersection_query(HTTPC, Bucket, PfIdx, PcIdx, YOB, FN1, FN2, FN3, GNs, HotPost
                         <<"gn3">> => GN3B,
                         <<"gn4">> => GN4B,
                         <<"address_date">> => <<"20100901">>,
-                        <<"yob">> => YOBStartTerm
+                        <<"yob1">> => YOBStartTerm,
+                        <<"yob2">> => YOBOtherTerm
                     },
                     <<"$1 INTERSECT $2">>,
                     [Q1Map, Q2Map],
@@ -646,7 +649,8 @@ compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
     EndTerm = integer_to_binary(YOB + rand:uniform(8)),
     FN2B = list_to_binary(lists:sublist(FN, 2)),
     FNLB = list_to_binary([lists:last(FN)]),
-    GNB = list_to_binary(GN),
+    GNI = list_to_binary([hd(GN)]),
+    Dot = <<".">>,
     PAB =
         case lists:nth(2, ColdPostCode) of
             N when
@@ -656,6 +660,7 @@ compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
             _AN ->
                 list_to_binary(lists:sublist(ColdPostCode, 2))
         end,
+    % ?LOG_INFO("FN Prefix ~s Suffix ~s and PA ~s", [FN2B, FNLB, PAB]),
 
     {_T0, {ok, {count, C0}}} =
         timer:tc(
@@ -679,10 +684,10 @@ compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
                     Bucket,
                     PfIdx,
                     {StartTerm, EndTerm},
-                    <<"delim($term, :dl1, ($dob, $cfn, $gns, $cpc)) | split($gns, :dl2, $gnl)">>,
+                    <<"delim($term, :dl1, ($dob, $cfn, $gns, $cpc))">>,
                     <<
                         "begins_with($cfn, :fn_prefix) AND ends_with($cfn, :fn_suffix)"
-                        " AND (:gn IN $gnl) AND begins_with($cpc, :postal_area)"
+                        " AND contains($gns, :gni) AND begins_with($cpc, :postal_area)"
                     >>,
                     keys,
                     undefined,
@@ -691,7 +696,7 @@ compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
                         <<"dl2">> => <<".">>,
                         <<"fn_prefix">> => FN2B,
                         <<"fn_suffix">> => FNLB,
-                        <<"gn">> => GNB,
+                        <<"gni">> => <<Dot/binary, GNI/binary>>,
                         <<"postal_area">> => PAB
                     },
                     Options
@@ -712,8 +717,8 @@ compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
                         <<"[A-Z]*">>/binary,
                         FNLB/binary,
                         <<"\\|[A-Z\\.]*\\.">>/binary,
-                        GNB/binary,
-                        <<"\\.[^\\|]*\\|">>/binary,
+                        GNI/binary,
+                        <<"[^\\|]*\\|">>/binary,
                         PAB/binary,
                         <<".*">>/binary
                     >>,
