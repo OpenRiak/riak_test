@@ -39,7 +39,7 @@
 -define(CURRENT_YEAR, 2025).
 -define(EXISTING, "99999999").
 -define(CLIENT_COUNT, 4).
--define(TOTAL_KEYS, 1000000).
+-define(TOTAL_KEYS, 2500000).
 -define(APPLY_BRAKES_FOR_LAST, 2000). % per client
 -define(QUERY_LOOPS, 10).
 -define(POST_LOAD_PAUSE, 10000).
@@ -88,6 +88,8 @@ confirm() ->
     loop_and_log_results(fun() -> count_test(Node, Bucket) end),
     ?LOG_INFO("Running key fetch tests on postcode index"),
     loop_and_log_results(fun() -> postcode_test(Node, Bucket) end),
+    ?LOG_INFO("Running key fetch tests on peoplefinder index"),
+    loop_and_log_results(fun() -> peoplefinder_test(Node, Bucket) end),
     pass.
 
 loop_and_log_results(ResultFun) ->
@@ -367,13 +369,15 @@ generate_pfinder1(PatientRecord) ->
     GNString =
         lists:flatten(
             [
-                maps:get(preferred_gname, PatientRecord)|
+                ".",
+                maps:get(preferred_gname, PatientRecord),
                 lists:map(
                     fun(OGN) ->
                         lists:flatten([".", OGN])
                     end,
                     maps:get(other_gnames, PatientRecord)
-                )
+                ),
+                "."
             ]
         ),
     [
@@ -441,6 +445,289 @@ generate_status_flags(YOB, CA) ->
                 "NY"
         end,
     lists:flatten([Flag1, Flag2, Flag3, Flag4]).
+
+peoplefinder_test(Node, B) ->
+    HTTPC = rt:httpc(Node),
+    PfIdx = <<"peoplefinder_bin">>,
+    PcIdx = <<"postalcode_bin">>,
+    {_ColdPostalArea, ColdPostCode} =
+        generate_postcode(?HOT_POSTCODE_MAP, 0.0),
+    {_HotPostalArea, HotPostCode} =
+        generate_postcode(?HOT_POSTCODE_MAP, 1.0),
+    {YOB, _DOB} = generate_dob(),
+    {GN, OGNs} = generate_givenname(),
+    FN = generate_familyname(),
+    FN2 = generate_familyname(),
+    FN3 = generate_familyname(),
+    {T1, T2, C0, C1} =
+        compare_regex_filter(HTTPC, B, PfIdx, YOB, FN, GN, ColdPostCode),
+    {T3, C2, C3, C4, C5, C6} =
+        intersection_query(
+            HTTPC,
+            B,
+            PfIdx,
+            PcIdx,
+            YOB,
+            FN,
+            FN2,
+            FN3,
+            [GN] ++ [OGNs],
+            HotPostCode
+        ),
+    [T1, T2, C0, C1, T3, C2, C3, C4, C5, C6].
+
+
+intersection_query(HTTPC, Bucket, PfIdx, PcIdx, YOB, FN1, FN2, FN3, GNs, HotPostCode) ->
+    Options = [{timeout, 600}],
+    YOBStartTerm = integer_to_binary(YOB),
+    YOBEndTerm =  integer_to_binary(YOB + 1),
+    FNB1 = list_to_binary(FN1),
+    FNB2 = list_to_binary(FN2),
+    FNB3 = list_to_binary(FN3),
+    {GN1B, GN2B, GN3B, GN4B} =
+        case lists:map(fun list_to_binary/1, GNs) of
+            [GN1|[GN2|[GN3|[GN4|_Rest]]]] ->
+                {GN1, GN2, GN3, GN4};
+            [GN1|[GN2|[GN3|_Rest]]] ->
+                {GN1, GN2, GN3, GN3};
+            [GN1|[GN2|_Rest]] ->
+                {GN1, GN2, GN2, GN2};
+            [GN1|_Rest] ->
+                {GN1, GN1, GN1, GN1}
+        end,
+    HotPostCodeBin = list_to_binary(HotPostCode),
+    TildaBin = <<"~">>,
+    RangePF = {YOBStartTerm, YOBEndTerm},
+    RangePC =
+        {
+            HotPostCodeBin,
+            <<HotPostCodeBin/binary, TildaBin/binary>>
+        },
+    {_T0, {ok, {count, C0}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PfIdx,
+                    RangePF,
+                    undefined,
+                    count,
+                    Options
+                )
+            end
+        ),
+    {_T1, {ok, {count, C1}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    RangePC,
+                    undefined,
+                    count,
+                    Options
+                )
+            end
+        ),
+    EvalPF =
+        <<
+            "delim($term, :dl1, ($dob, $cfn, $gns, $cpc)) | "
+            "split($gns, :dl2, $gnl) "
+        >>,
+    FilterPF =
+        <<
+            "($cfn = :fn1 OR $cfn = :fn2 OR $cfn = :fn3) AND "
+            "((:gn1 IN $gnl) OR (:gn2 IN $gnl) OR (:gn3 IN $gnl) OR (:gn4 IN $gnl))"
+            >>,
+    {_T2, {ok, {count, C2}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    PfIdx,
+                    RangePF,
+                    EvalPF,
+                    FilterPF,
+                    count,
+                    undefined,
+                    #{
+                        <<"dl1">> => <<"|">>,
+                        <<"dl2">> => <<".">>,
+                        <<"fn1">> => FNB1,
+                        <<"fn2">> => FNB2,
+                        <<"fn3">> => FNB3,
+                        <<"gn1">> => GN1B,
+                        <<"gn2">> => GN2B,
+                        <<"gn3">> => GN3B,
+                        <<"gn4">> => GN4B
+                    },
+                    Options
+                )
+            end
+        ),
+    EvalPC =
+        <<
+            "delim($term, :dl1, ($pc, $dob, $ed)) | "
+            "index($dob, 0, 4, $yob) | "
+            "index($ed, 0, 8, $sed) | index($ed, 8, 8, $eed)"
+        >>,
+    FilterPC =
+        <<"$yob = :yob AND (:address_date BETWEEN $sed AND $eed)">>,
+    RangePC =
+        {
+            HotPostCodeBin,
+            <<HotPostCodeBin/binary, TildaBin/binary>>
+        },
+    {_T3, {ok, {count, C3}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    PcIdx,
+                    RangePC,
+                    EvalPC,
+                    FilterPC,
+                    count,
+                    undefined,
+                    #{
+                        <<"dl1">> => <<"|">>,
+                        <<"dl2">> => <<".">>,
+                        <<"address_date">> => <<"20100901">>,
+                        <<"yob">> => YOBStartTerm
+                    },
+                    Options
+                )
+            end
+        ),
+    Q1Map = rhc:make_query(1, PfIdx, RangePF, {EvalPF, FilterPF}),
+    Q2Map = rhc:make_query(2, PcIdx, RangePC, {EvalPC, FilterPC}),
+    {T4, {ok, {keys, KL1}}} =
+        timer:tc(
+            fun() ->
+                rhc:combo_query(
+                    HTTPC,
+                    Bucket,
+                    keys,
+                    #{
+                        <<"dl1">> => <<"|">>,
+                        <<"dl2">> => <<".">>,
+                        <<"fn1">> => FNB1,
+                        <<"fn2">> => FNB2,
+                        <<"fn3">> => FNB3,
+                        <<"gn1">> => GN1B,
+                        <<"gn2">> => GN2B,
+                        <<"gn3">> => GN3B,
+                        <<"gn4">> => GN4B,
+                        <<"address_date">> => <<"20100901">>,
+                        <<"yob">> => YOBStartTerm
+                    },
+                    <<"$1 INTERSECT $2">>,
+                    [Q1Map, Q2Map],
+                    Options
+                )
+            end
+        ),
+    ?LOG_INFO(
+        "Combo query in ~w, results ~w when "
+        "Query A ~w of ~w "
+        "Query B ~w of ~w",
+        [T4, length(KL1), C2, C0, C3, C1]
+    ),
+    {T4, length(KL1), C2, C0, C3, C1}.
+
+
+compare_regex_filter(HTTPC, Bucket, PfIdx, YOB, FN, GN, ColdPostCode) ->
+    Options = [{timeout, 600}],
+    StartTerm = integer_to_binary(YOB),
+    EndTerm = integer_to_binary(YOB + rand:uniform(8)),
+    FN2B = list_to_binary(lists:sublist(FN, 2)),
+    FNLB = list_to_binary([lists:last(FN)]),
+    GNB = list_to_binary(GN),
+    PAB =
+        case lists:nth(2, ColdPostCode) of
+            N when
+                    N == "0"; N == "1"; N == "2"; N == "3"; N == "4";
+                    N == "5"; N == "6"; N == "7"; N == "8"; N == "9" ->
+                list_to_binary([hd(ColdPostCode)]);
+            _AN ->
+                list_to_binary(lists:sublist(ColdPostCode, 2))
+        end,
+
+    {_T0, {ok, {count, C0}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PfIdx,
+                    {StartTerm, EndTerm},
+                    undefined,
+                    count,
+                    Options
+                )
+            end
+        ),
+    {T1, {ok, {keys, KL1}}} =
+        timer:tc(
+            fun() ->
+                rhc:filter_query(
+                    HTTPC,
+                    Bucket,
+                    PfIdx,
+                    {StartTerm, EndTerm},
+                    <<"delim($term, :dl1, ($dob, $cfn, $gns, $cpc)) | split($gns, :dl2, $gnl)">>,
+                    <<
+                        "begins_with($cfn, :fn_prefix) AND ends_with($cfn, :fn_suffix)"
+                        " AND (:gn IN $gnl) AND begins_with($cpc, :postal_area)"
+                    >>,
+                    keys,
+                    undefined,
+                    #{
+                        <<"dl1">> => <<"|">>,
+                        <<"dl2">> => <<".">>,
+                        <<"fn_prefix">> => FN2B,
+                        <<"fn_suffix">> => FNLB,
+                        <<"gn">> => GNB,
+                        <<"postal_area">> => PAB
+                    },
+                    Options
+                )
+            end
+        ),
+    {T2, {ok, {keys, KL2}}} =
+        timer:tc(
+            fun() ->
+                rhc:range_query(
+                    HTTPC,
+                    Bucket,
+                    PfIdx,
+                    {StartTerm, EndTerm},
+                    <<
+                        <<"[^\\|]*\\|">>/binary,
+                        FN2B/binary,
+                        <<"[A-Z]*">>/binary,
+                        FNLB/binary,
+                        <<"\\|[A-Z\\.]*\\.">>/binary,
+                        GNB/binary,
+                        <<"\\.[^\\|]*\\|">>/binary,
+                        PAB/binary,
+                        <<".*">>/binary
+                    >>,
+                    keys,
+                    Options
+                )
+            end
+        ),
+    ?LOG_INFO(
+        "Filtered through ~w keys to find ~w or ~w in ~w ~w",
+        [C0, length(KL1), length(KL2), T1, T2]
+    ),
+    {T1, T2, C0, length(KL1)}
+    .
 
 postcode_test(Node, Bucket) ->
     HTTPC = rt:httpc(Node),
