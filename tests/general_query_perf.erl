@@ -721,11 +721,11 @@ get_postcode_effective(HTTPC, Bucket, PcIdx, HPCBin) ->
                     Bucket,
                     PcIdx,
                     {HPCBin, <<HPCBin/binary, TildaBin/binary>>},
-                    <<"delim($term, \"|\", ($pc, $dob, $ed)) | index($ed, 0, 8, $sed) | index($ed, 8, 16, $eed)">>,
+                    <<"delim($term, :pipe, ($pc, $dob, $ed)) | index($ed, 0, 8, $sed) | index($ed, 8, 8, $eed)">>,
                     <<"\"20100901\" BETWEEN $sed AND $eed">>,
                     keys,
                     undefined,
-                    #{},
+                    #{<<"pipe">> => <<"|">>},
                     Options
                 )
             end
