@@ -399,7 +399,7 @@ confirm() ->
     ?LOG_INFO("Granting riak_kv.list_buckets, checking that list_buckets succeeds"),
     ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.list_buckets", "on",
                                                     "default", "to", Username]]),
-
+    timer:sleep(1000),
     {ok, BList} = riakc_pb_socket:list_buckets(PB),
     ?assertEqual([<<"counters">>, <<"hello">>], lists:sort(BList)),
 
@@ -407,7 +407,7 @@ confirm() ->
     ?LOG_INFO("Granting mapreduce, checking that job succeeds"),
     ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.mapreduce", "on",
                                                     "default", "to", Username]]),
-
+    timer:sleep(1000),
     ?LOG_INFO("checking mapreduce with a whitelisted modfun works"),
     ?assertEqual(
         {ok, [{1, [<<"1">>]}]},
