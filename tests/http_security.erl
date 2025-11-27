@@ -28,6 +28,8 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
+-define(RING_SIZE, 16).
+
 -define(assertDenied(Op), ?assertMatch({error, {forbidden, _}}, Op)).
 
 confirm() ->
@@ -48,39 +50,88 @@ confirm() ->
 
     ?LOG_INFO("Deploy some nodes"),
     PrivDir = rt:priv_dir(),
-    Conf = [
-            {riak_core, [
-                    {default_bucket_props, [{allow_mult, true}, {dvv_enabled, true}]},
-                    {ssl, [
-                            {certfile, filename:join([CertDir,
-                                                      "site3.basho.com/cert.pem"])},
-                            {keyfile, filename:join([CertDir,
-                                                     "site3.basho.com/key.pem"])},
-                            {cacertfile, filename:join([CertDir, "site3.basho.com/cacerts.pem"])}
-                            ]}
-                    ]},
-             {riak_search, [
-                     {enabled, true}
-                    ]}
+    Conf =
+        [
+            {
+                riak_core,
+                    [
+                        {
+                            default_bucket_props,
+                            [{allow_mult, true}, {dvv_enabled, true}]
+                        },
+                        {
+                            ssl,
+                            [
+                                {
+                                    certfile,
+                                    filename:join(
+                                        [CertDir, "site3.basho.com/cert.pem"]
+                                    )
+                                },
+                                {
+                                    keyfile,
+                                    filename:join(
+                                        [CertDir, "site3.basho.com/key.pem"]
+                                    )
+                                },
+                                {
+                                    cacertfile,
+                                    filename:join(
+                                        [CertDir, "site3.basho.com/cacerts.pem"]
+                                    )
+                                }
+                            ]
+                        },
+                        {ring_creation_size, ?RING_SIZE},
+                        {handoff_concurrency, 8},
+                        {forced_ownership_handoff, 8},
+                        {vnode_inactivity_timeout, 4000},
+                        {vnode_management_timer, 2000}
+                    ]
+            }
     ],
     Nodes = rt:build_cluster(4, Conf),
     Node = hd(Nodes),
     %% enable security on the cluster
-    ok = rpc:call(Node, riak_core_console, security_enable, [[]]),
+
     enable_ssl(Node),
     %%[enable_ssl(N) || N <- Nodes],
-    {ok, [{IP0, Port0}]} = rpc:call(Node, application, get_env,
-                                    [riak_api, http]),
-    {ok, [{IP, Port}]} = rpc:call(Node, application, get_env,
-                                  [riak_api, https]),
+    {ok, [{IP0, Port0}]} =
+        erpc:call(Node, application, get_env, [riak_api, http]),
+    {ok, [{IP, Port}]} =
+        erpc:call(Node, application, get_env, [riak_api, https]),
 
     MD = riak_test_runner:metadata(),
-    HaveIndexes = case proplists:get_value(backend, MD) of
-                      undefined -> false; %% default is da 'cask
-                      bitcask -> false;
-                      _ -> true
-                  end,
+    HaveIndexes =
+        case proplists:get_value(backend, MD) of
+            undefined -> false; %% default is da 'cask
+            bitcask -> false;
+            _ -> true
+        end,
 
+    ?LOG_INFO(
+        "Checking SSL client OK without credentials as security not enabled"
+    ),
+    CM1 =
+        rhc:create(
+            IP,
+            Port,
+            "riak",
+            [
+                {is_ssl, true},
+                {ssl_options, [{verify, verify_none}]}
+            ]
+        ),
+    ?assertMatch(ok, rhc:ping(CM1)),
+    InitObject =
+        riakc_obj:new(
+            <<"yolo">>, <<"no_auth">>, <<"howareyou">>, "text/plain"
+        ),
+    ?assertMatch(ok, rhc:put(CM1, InitObject)),
+    ?assertMatch(ok, element(1, rhc:get(CM1, <<"yolo">>, <<"no_auth">>))),
+
+    ?LOG_INFO("Enabling Security"),
+    ok = erpc:call(Node, riak_core_console, security_enable, [[]]),
     ?LOG_INFO("Checking non-SSL results in error"),
     %% connections over regular HTTP get told to go elsewhere
     C0 = rhc:create(IP0, Port0, "riak", []),
@@ -149,6 +200,19 @@ confirm() ->
             ]
         ),
     ?assertEqual(ok, rhc:ping(C3)),
+    ?LOG_INFO("Checking that an invalid username does not work in trust mode"),
+    C3E =
+        rhc:create(
+            IP,
+            Port,
+            "riak",
+            [{is_ssl, true},
+                {ssl_options, [{verify, verify_none}]},
+                {credentials, "nobody_known", "pass"}
+            ]
+        ),
+    {error,{ok, ESC, _, _}} = rhc:ping(C3E),
+    ?assertMatch("401", ESC),
 
     ?LOG_INFO("Setting password mode on user"),
     %% require password from our IP
@@ -304,7 +368,8 @@ confirm() ->
     ?LOG_INFO("Granting riak_kv.list_buckets, checking that list_buckets succeeds"),
     ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.list_buckets", "on",
                                                     "default", "to", Username]]),
-    ?assertMatch({ok, [<<"hello">>]}, rhc:list_buckets(C7)),
+    {ok, BL} = rhc:list_buckets(C7),
+    ?assertMatch([<<"hello">>, <<"yolo">>], lists:sort(BL)),
 
     %% list keys
     ?LOG_INFO("Checking that list keys is disallowed"),
@@ -352,11 +417,12 @@ confirm() ->
     ok = rpc:call(Node, riak_core_console, grant, [["riak_core.set_bucket", "on",
                                                     "default", "hello", "to", Username]]),
 
-    ?assertEqual(ok, rhc:set_bucket(C7, <<"hello">>,
-                                    [{n_val, 5}])),
+    ?assertEqual(ok, rhc:set_bucket(C7, <<"hello">>, [{n_val, 5}])),
 
-    ?assertEqual(5, proplists:get_value(n_val, element(2, rhc:get_bucket(C7,
-                                                                         <<"hello">>)))),
+    ?assertEqual(
+        5,
+        proplists:get_value(n_val, element(2, rhc:get_bucket(C7, <<"hello">>)))
+    ),
 
     %% 2i
     case HaveIndexes of
@@ -373,29 +439,103 @@ confirm() ->
                     <<"John">>
                 )
             ),
+            ?assertMatch(
+                {
+                    error,
+                    <<
+                        "Permission denied: User 'user' does not have"
+                        " 'riak_kv.index' on default/hello"
+                    >>
+                },
+                rhc:range_query(
+                    C7,
+                    <<"hello">>,
+                    <<"name_bin">>,
+                    {<<"John">>, <<"John~">>}
+                )
+            ),
 
             ?LOG_INFO("Granting 2i permissions, checking that results come back"),
-            ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.index", "on",
-                                                            "default", "to", Username]]),
+            ok =
+                erpc:call(
+                    Node,
+                    riak_core_console,
+                    grant, 
+                    [["riak_kv.index", "on", "default", "to", Username]]
+                ),
 
             %% don't actually have any indexes
-            ?assertMatch({ok, ?INDEX_RESULTS{}},
-                         rhc:get_index(C7, <<"hello">>,
-                                                   {binary_index,
-                                                    "name"},
-                                                   <<"John">>)),
+            ?assertMatch(
+                {ok, ?INDEX_RESULTS{}},
+                rhc:get_index(
+                    C7,
+                    <<"hello">>,
+                    {binary_index, "name"},
+                    <<"John">>
+                )
+            ),
+            ?assertMatch(
+                {ok,{keys,[]}},
+                rhc:range_query(
+                    C7,
+                    <<"hello">>,
+                    <<"name_bin">>,
+                    {<<"John">>, <<"John~">>}
+                )
+            ),
 
             ?LOG_INFO("Checking that 2i on a bucket-type is disallowed"),
-            ?assertMatch({error, {"403", _}},
-                         rhc:get_index(C7, {<<"list-keys-test">>,
-                                            <<"hello">>}, {binary_index, "name"}, <<"John">>)),
+            ?assertMatch(
+                {error, {"403", _}},
+                rhc:get_index(
+                    C7, 
+                    {<<"list-keys-test">>, <<"hello">>},
+                    {binary_index, "name"},
+                    <<"John">>
+                )
+            ),
+            ?assertMatch(
+                {
+                    error,
+                    <<
+                        "Permission denied: User 'user' does not have"
+                        " 'riak_kv.index' on list-keys-test/hello"
+                    >>
+                },
+                rhc:range_query(
+                    C7,
+                    {<<"list-keys-test">>, <<"hello">>},
+                    <<"name_bin">>,
+                    {<<"John">>, <<"John~">>}
+                )
+            ),
 
             ?LOG_INFO("Granting riak_kv.index on the bucket type, checking that get_index succeeds"),
-            ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.index", "on",
-                                                    "list-keys-test", "to", Username]]),
-            ?assertMatch({ok, ?INDEX_RESULTS{}},
-                         rhc:get_index(C7, {<<"list-keys-test">>,
-                                            <<"hello">>}, {binary_index, "name"}, <<"John">>)),
+            ok = 
+                erpc:call(
+                    Node,
+                    riak_core_console,
+                    grant,
+                    [["riak_kv.index", "on", "list-keys-test", "to", Username]]
+                ),
+            ?assertMatch(
+                {ok, ?INDEX_RESULTS{}},
+                rhc:get_index(
+                    C7,
+                    {<<"list-keys-test">>, <<"hello">>},
+                    {binary_index, "name"},
+                    <<"John">>
+                )
+            ),
+            ?assertMatch(
+                {ok,{keys,[]}},
+                rhc:range_query(
+                    C7,
+                    {<<"list-keys-test">>, <<"hello">>},
+                    <<"name_bin">>,
+                    {<<"John">>, <<"John~">>}
+                )
+            ),
 
             ok
     end,
