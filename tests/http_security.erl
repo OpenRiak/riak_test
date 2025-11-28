@@ -88,6 +88,14 @@ confirm() ->
                         {vnode_inactivity_timeout, 4000},
                         {vnode_management_timer, 2000}
                     ]
+            },
+            {
+                riak_kv,
+                    [
+                        {tictacaae_active, active},
+                        {anti_entropy, passive},
+                        {replrtq_enablesrc, enabled}
+                    ]
             }
     ],
     Nodes = rt:build_cluster(4, Conf),
@@ -113,10 +121,9 @@ confirm() ->
         "Checking SSL client OK without credentials as security not enabled"
     ),
     CM1 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [
                 {is_ssl, true},
                 {ssl_options, [{verify, verify_none}]}
@@ -130,19 +137,79 @@ confirm() ->
     ?assertMatch(ok, rhc:put(CM1, InitObject)),
     ?assertMatch(ok, element(1, rhc:get(CM1, <<"yolo">>, <<"no_auth">>))),
 
+    ?assertMatch({ok, _S0}, rhc:get_server_stats(CM1)),
+    ?assertMatch({ok, [<<"yolo">>]}, rhc:aae_list_buckets(CM1, 3)),
+    ?assertMatch({ok, queue_empty}, rhc:fetch(CM1, q1_ttaaefs)),
+
     ?LOG_INFO("Enabling Security"),
     ok = erpc:call(Node, riak_core_console, security_enable, [[]]),
-    ?LOG_INFO("Checking non-SSL results in error"),
-    %% connections over regular HTTP get told to go elsewhere
-    C0 = rhc:create(IP0, Port0, "riak", []),
-    ?assertMatch({error, {ok, "426", _, _}}, rhc:ping(C0)),
+    ?LOG_INFO("Creating a non-SSL client"),
+    C0A = create_client(IP0, Port0, []),
+    ?LOG_INFO("Allow insecure http ops for backwards compatibility"),
+    ok =
+        erpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, permit_insecure_http_ops, true]
+        ),
+    ?LOG_INFO("Security enabled, but HTTP still allowed for ops functions"),
+    ?LOG_INFO("Ping not allowed - not an ops function - upgrade required"),
+    ?assertMatch({error, {ok, "426", _, _}}, rhc:ping(C0A)),
+    ?LOG_INFO("Stats, AAE Fold and Queue fetch are allowed"),
+    ?assertMatch({ok, _S1}, rhc:get_server_stats(C0A)),
+    ?assertMatch({ok, [<<"yolo">>]}, rhc:aae_list_buckets(C0A, 3)),
+    ?assertMatch({ok, queue_empty}, rhc:fetch(C0A, q1_ttaaefs)),
+
+    ?LOG_INFO("Create a client over SSL without a user"),
+    C0B =
+        create_client(
+            IP,
+            Port, 
+            [{is_ssl, true}, {ssl_options, [{verify, verify_none}]}]
+        ),
+    ?LOG_INFO("Ping not allowed - not an ops function - not authorised"),
+    ?assertMatch({error, {ok, "401", _, _}}, rhc:ping(C0B)),
+    ?LOG_INFO("Stats, AAE Fold and Queue fetch are allowed"),
+    ?assertMatch({ok, _S1}, rhc:get_server_stats(C0B)),
+    ?assertMatch({ok, [<<"yolo">>]}, rhc:aae_list_buckets(C0B, 3)),
+    ?assertMatch({ok, queue_empty}, rhc:fetch(C0B, q1_ttaaefs)),
+
+    ?LOG_INFO("Revert to new default - no insecure ops"),
+    ok =
+        erpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, permit_insecure_http_ops, false]
+        ),
+
+    ?LOG_INFO("Creating another non-SSL client"),
+    C0C = create_client(IP0, Port0, []),
+    ?LOG_INFO("Nothing allowed - all upgrade required"),
+    ?assertMatch({error, {ok, "426", _, _}}, rhc:ping(C0C)),
+    ?assertMatch({error, {ok, "426", _, _}}, rhc:get_server_stats(C0C)),
+    ?assertMatch({error, {ok, "426", _, _}}, rhc:aae_list_buckets(C0C, 3)),
+    ?assertMatch({error, {ok, "426", _, _}}, rhc:fetch(C0C, q1_ttaaefs)),
+
+    ?LOG_INFO("Create another client over SSL without a user"),
+    C0D =
+        create_client(
+            IP,
+            Port, 
+            [{is_ssl, true}, {ssl_options, [{verify, verify_none}]}]
+        ),
+    ?LOG_INFO("Nothing allowed - all not authorised"),
+    ?assertMatch({error, {ok, "401", _, _}}, rhc:ping(C0D)),
+    ?assertMatch({error, {ok, "401", _, _}}, rhc:get_server_stats(C0D)),
+    ?assertMatch({error, {ok, "401", _, _}}, rhc:aae_list_buckets(C0D, 3)),
+    ?assertMatch({error, {ok, "401", _, _}}, rhc:fetch(C0D, q1_ttaaefs)),
 
     ?LOG_INFO("Checking SSL demands authentication"),
     C1 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]}
             ]
@@ -151,18 +218,15 @@ confirm() ->
 
     ?LOG_INFO("Checking that unknown user demands reauth"),
     C2 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]},
                 {credentials, "user", "pass"}
             ]
         ),
     
-    rhc:create(IP, Port, "riak", [{is_ssl, true},
-                                        {credentials, "user", "pass"}]),
     ?assertMatch({error, {ok, "401", _, _}}, rhc:ping(C2)),
 
     %% Store this in a variable so once Riak supports utf-8 usernames
@@ -171,7 +235,13 @@ confirm() ->
 
     ?LOG_INFO("Creating user"),
     %% grant the user credentials
-    ok = rpc:call(Node, riak_core_console, add_user, [[Username, "password=password"]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            add_user,
+            [[Username, "password=password"]]
+        ),
 
     ?LOG_INFO("Setting trust mode on user"),
     %% trust anyone from this host
@@ -183,17 +253,20 @@ confirm() ->
                    inet:ntoa(A0)
            end,
     ?LOG_INFO("MyIP is ~s", [MyIP]),
-    ok = rpc:call(Node, riak_core_console, add_source, [[Username,
-                                                         MyIP++"/32",
-                                                         "trust"]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            add_source,
+            [[Username, MyIP++"/32", "trust"]]
+        ),
 
     ?LOG_INFO("Checking that credentials are ignored in trust mode"),
     %% invalid credentials should be ignored in trust mode
     C3 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]},
                 {credentials, Username, "pass"}
@@ -202,10 +275,9 @@ confirm() ->
     ?assertEqual(ok, rhc:ping(C3)),
     ?LOG_INFO("Checking that an invalid username does not work in trust mode"),
     C3E =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]},
                 {credentials, "nobody_known", "pass"}
@@ -216,17 +288,20 @@ confirm() ->
 
     ?LOG_INFO("Setting password mode on user"),
     %% require password from our IP
-    ok = rpc:call(Node, riak_core_console, add_source, [[Username,
-                                                         MyIP++"/32",
-                                                         "password"]]),
+    ok = 
+        erpc:call(
+            Node, 
+            riak_core_console, 
+            add_source, 
+            [[Username, MyIP++"/32", "password"]]
+        ),
 
     ?LOG_INFO("Checking that incorrect password demands reauth"),
     %% invalid credentials should be rejected in password mode
     C4 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]},
                 {credentials, Username, "pass"}
@@ -237,10 +312,9 @@ confirm() ->
     ?LOG_INFO("Checking that correct password is successful"),
     %% valid credentials should be accepted in password mode
     C5 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {ssl_options, [{verify, verify_none}]},
                 {credentials, Username, "password"}
@@ -249,13 +323,16 @@ confirm() ->
 
     ?assertEqual(ok, rhc:ping(C5)),
 
-    ?LOG_INFO("verifying the peer certificate rejects mismatch with server cert"),
-    %% verifying the peer certificate reject mismatch with server cert
+    % application:stop(ibrowse),
+    % application:start(ibrowse),
+
+    ?LOG_INFO(
+        "verifying the peer certificate rejects mismatch with server cert"
+    ),
     C6 =
-        rhc:create(
+        create_client(
             IP,
             Port,
-            "riak",
             [{is_ssl, true},
                 {credentials, Username, "password"},
                 {ssl_options,
@@ -273,24 +350,37 @@ confirm() ->
     ?assertMatch({error,{conn_failed,{error,_}}}, rhc:ping(C6)),
 
 
-    ?LOG_INFO("verifying the peer certificate should work if the cert is valid"),
-    %% verifying the peer certificate should work if the cert is valid
-    C7 = rhc:create(IP, Port, "riak", [{is_ssl, true},
-                                       {credentials, Username, "password"},
-                                       {ssl_options, [
-                        {cacertfile, filename:join([CertDir,
-                                                    "rootCA/cert.pem"])},
+    ?LOG_INFO(
+        "verifying the peer certificate should work if the cert is valid"
+    ),
+    C7 = 
+        create_client(
+            IP,
+            Port,
+            [
+                {is_ssl, true},
+                {credentials, Username, "password"},
+                {
+                    ssl_options,
+                    [
+                        {
+                            cacertfile,
+                            filename:join([CertDir, "rootCA/cert.pem"])
+                        },
                         {verify, verify_peer},
                         {reuse_sessions, false}
-                        ]}
-                                      ]),
+                    ]
+                }
+            ]
+        ),
 
     ?assertEqual(ok, rhc:ping(C7)),
 
     ?LOG_INFO("verifying that user cannot get/put without grants"),
     ?assertMatch(
         {error, {ok, "403", _, _}},
-        rhc:get(C7, <<"hello">>, <<"world">>)),
+        rhc:get(C7, <<"hello">>, <<"world">>)
+    ),
 
     Object =
         riakc_obj:new(
@@ -300,18 +390,29 @@ confirm() ->
     ?assertMatch({error, {ok, "403", _, _}}, rhc:put(C7, Object)),
 
     ?LOG_INFO("Granting riak_kv.get, checking get works but put doesn't"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.get", "on",
-                                                    "default", "hello", "to", Username]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.get", "on", "default", "hello", "to", Username]]
+        ),
 
     %% key is not present
-    ?assertMatch({error, notfound}, rhc:get(C7, <<"hello">>,
-                                                     <<"world">>)),
+    ?assertMatch({error, notfound}, rhc:get(C7, <<"hello">>, <<"world">>)),
 
     ?assertMatch({error, {ok, "403", _, _}}, rhc:put(C7, Object)),
 
-    ?LOG_INFO("Granting riak_kv.put, checking put works and roundtrips with get"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.put", "on",
-                                                    "default", "hello", "to", Username]]),
+    ?LOG_INFO(
+        "Granting riak_kv.put, checking put works and roundtrips with get"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.put", "on", "default", "hello", "to", Username]]
+        ),
 
     %% NOW we can put
     ?assertEqual(ok, rhc:put(C7, Object)),
@@ -323,51 +424,83 @@ confirm() ->
 
     ?LOG_INFO("Checking that delete is disallowed"),
     %% delete
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:delete(C7, <<"hello">>,
-                                                        <<"world">>)),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:delete(C7, <<"hello">>, <<"world">>)
+    ),
 
     ?LOG_INFO("Checking that delete for non-existing key is disallowed"),
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:delete(C7, <<"hello">>,
-                                                        <<"_xxboguskey">>)),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:delete(C7, <<"hello">>, <<"_xxboguskey">>)
+    ),
 
     ?LOG_INFO("Granting riak_kv.delete, checking that delete succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.delete", "on",
-                                                    "default", "hello", "to", Username]]),
-    ?assertEqual(ok, rhc:delete(C7, <<"hello">>,
-                                <<"world">>)),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.delete", "on", "default", "hello", "to", Username]]
+        ),
+    ?assertEqual(ok, rhc:delete(C7, <<"hello">>, <<"world">>)),
 
     %% key is deleted
-    ?assertMatch({error, notfound}, rhc:get(C7, <<"hello">>,
-                                                     <<"world">>)),
+    ?assertMatch({error, notfound}, rhc:get(C7, <<"hello">>,  <<"world">>)),
 
     %% write it back for list_buckets later
     ?assertEqual(ok, rhc:put(C7, Object)),
 
     ?LOG_INFO("Checking that delete for non-existing key is allowed"),
-    ?assertMatch({error, {ok, "404", _, _}}, rhc:delete(C7, <<"hello">>,
-                                                        <<"_xxboguskey">>)),
-
+    ?assertMatch(
+        {error, {ok, "404", _, _}},
+        rhc:delete(C7, <<"hello">>, <<"_xxboguskey">>)
+    ),
 
     %% slam the door in the user's face
-    ?LOG_INFO("Revoking get/put/delete, checking that get/put/delete are disallowed"),
-    ok = rpc:call(Node, riak_core_console, revoke,
-                  [["riak_kv.put,riak_kv.get,riak_kv.delete", "on",
-                    "default", "hello", "from", Username]]),
+    ?LOG_INFO(
+        "Revoking get/put/delete, checking that get/put/delete are disallowed"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            revoke,
+            [[
+                "riak_kv.put,riak_kv.get,riak_kv.delete",
+                "on",
+                "default",
+                "hello",
+                "from",
+                Username
+            ]]
+        ),
 
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:get(C7, <<"hello">>,
-                                                     <<"world">>)),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:get(C7, <<"hello">>,  <<"world">>)
+    ),
 
     ?assertMatch({error, {ok, "403", _, _}}, rhc:put(C7, Object)),
 
-    ?LOG_INFO("Pausing to build the tension (to mysteriously make tests pass)", []),
+    ?LOG_INFO(
+        "Pausing to build the tension (to mysteriously make tests pass)"
+    ),
     timer:sleep(1000),
     %% list buckets
     ?LOG_INFO("Checking that list buckets is disallowed"),
     ?assertMatch({error, {"403", _}}, rhc:list_buckets(C7)),
 
-    ?LOG_INFO("Granting riak_kv.list_buckets, checking that list_buckets succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.list_buckets", "on",
-                                                    "default", "to", Username]]),
+    ?LOG_INFO(
+        "Granting riak_kv.list_buckets, checking that list_buckets succeeds"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.list_buckets", "on", "default", "to", Username]]
+        ),
     {ok, BL} = rhc:list_buckets(C7),
     ?assertMatch([<<"hello">>, <<"yolo">>], lists:sort(BL)),
 
@@ -376,46 +509,103 @@ confirm() ->
     ?assertMatch({error, {"403", _}}, rhc:list_keys(C7, <<"hello">>)),
 
     ?LOG_INFO("Granting riak_kv.list_keys, checking that list_keys succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.list_keys", "on",
-                                                    "default", "to", Username]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.list_keys", "on", "default", "to", Username]]
+        ),
 
     ?assertMatch({ok, [<<"world">>]}, rhc:list_keys(C7, <<"hello">>)),
 
     ?LOG_INFO("Revoking list_keys"),
-    ok = rpc:call(Node, riak_core_console, revoke, [["riak_kv.list_keys", "on",
-                                                    "default", "from", Username]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            revoke,
+            [["riak_kv.list_keys", "on", "default", "from", Username]]
+        ),
 
     %% list keys with bucket type
     rt:create_and_activate_bucket_type(Node, <<"list-keys-test">>, []),
 
     ?LOG_INFO("Checking that list keys on a bucket-type is disallowed"),
-    ?assertMatch({error, {"403", _}}, rhc:list_keys(C7, {<<"list-keys-test">>, <<"hello">>})),
+    ?assertMatch(
+        {error, {"403", _}},
+        rhc:list_keys(C7, {<<"list-keys-test">>, <<"hello">>})
+    ),
 
-    ?LOG_INFO("Granting riak_kv.list_keys on the bucket type, checking that list_keys succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.list_keys", "on",
-                                                    "list-keys-test", "to", Username]]),
-    ?assertMatch({ok, []}, rhc:list_keys(C7, {<<"list-keys-test">>, <<"hello">>})),
+    ?LOG_INFO(
+        "Granting riak_kv.list_keys on the bucket type, "
+        "checking that list_keys succeeds"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.list_keys", "on", "list-keys-test", "to", Username]]
+        ),
+    ?assertMatch(
+        {ok, []},
+        rhc:list_keys(C7, {<<"list-keys-test">>, <<"hello">>})
+    ),
 
     ?LOG_INFO("Checking that get_bucket is disallowed"),
     ?assertMatch({error, {ok, "403", _, _}}, rhc:get_bucket(C7, <<"hello">>)),
 
-    ?LOG_INFO("Granting riak_core.get_bucket, checking that get_bucket succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_core.get_bucket", "on",
-                                                    "default", "hello", "to", Username]]),
+    ?LOG_INFO(
+        "Granting riak_core.get_bucket, checking that get_bucket succeeds"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [[
+                "riak_core.get_bucket",
+                "on",
+                "default",
+                "hello",
+                "to",
+                Username
+            ]]
+        ),
 
-    ?assertEqual(3, proplists:get_value(n_val, element(2, rhc:get_bucket(C7,
-                                                                         <<"hello">>)))),
+    ?assertEqual(
+        3,
+        proplists:get_value(n_val, element(2, rhc:get_bucket(C7, <<"hello">>)))
+    ),
 
     ?LOG_INFO("Checking that reset_bucket is disallowed"),
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:reset_bucket(C7, <<"hello">>)),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:reset_bucket(C7, <<"hello">>)
+    ),
 
     ?LOG_INFO("Checking that set_bucket is disallowed"),
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:set_bucket(C7, <<"hello">>,
-                                                            [{n_val, 5}])),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:set_bucket(C7, <<"hello">>, [{n_val, 5}])
+    ),
 
     ?LOG_INFO("Granting set_bucket, checking that set_bucket succeeds"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_core.set_bucket", "on",
-                                                    "default", "hello", "to", Username]]),
+    ok =
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [[
+                "riak_core.set_bucket",
+                "on",
+                "default",
+                "hello",
+                "to",
+                Username
+            ]]
+        ),
 
     ?assertEqual(ok, rhc:set_bucket(C7, <<"hello">>, [{n_val, 5}])),
 
@@ -455,7 +645,9 @@ confirm() ->
                 )
             ),
 
-            ?LOG_INFO("Granting 2i permissions, checking that results come back"),
+            ?LOG_INFO(
+                "Granting 2i permissions, checking that results come back"
+            ),
             ok =
                 erpc:call(
                     Node,
@@ -510,7 +702,10 @@ confirm() ->
                 )
             ),
 
-            ?LOG_INFO("Granting riak_kv.index on the bucket type, checking that get_index succeeds"),
+            ?LOG_INFO(
+                "Granting riak_kv.index on the bucket type, "
+                "checking that get_index succeeds"
+            ),
             ok = 
                 erpc:call(
                     Node,
@@ -544,45 +739,79 @@ confirm() ->
 
     %% grant get/put again
     ?LOG_INFO("Granting get/put for counters, checking value and increment"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.get,riak_kv.put", "on",
-                                                    "default", "hello", "to", Username]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [[
+                "riak_kv.get,riak_kv.put",
+                "on",
+                "default",
+                "hello",
+                "to",
+                Username
+            ]]
+        ),
 
 
-    ?assertMatch({error, {ok, "404", _, _}}, rhc:counter_val(C7, <<"hello">>,
-                                                    <<"numberofpies">>)),
+    ?assertMatch(
+        {error, {ok, "404", _, _}},
+        rhc:counter_val(C7, <<"hello">>,  <<"numberofpies">>)
+    ),
 
-    ok = rhc:counter_incr(C7, <<"hello">>,
-                          <<"numberofpies">>, 5),
+    ok = rhc:counter_incr(C7, <<"hello">>, <<"numberofpies">>, 5),
 
-    ?assertEqual({ok, 5}, rhc:counter_val(C7, <<"hello">>,
-                                          <<"numberofpies">>)),
+    ?assertEqual(
+        {ok, 5},
+        rhc:counter_val(C7, <<"hello">>, <<"numberofpies">>)
+    ),
 
     %% revoke get
-    ?LOG_INFO("Revoking get, checking that value fails but increment succeeds"),
-    ok = rpc:call(Node, riak_core_console, revoke,
-                  [["riak_kv.get", "on", "default", "hello", "from", Username]]),
+    ?LOG_INFO(
+        "Revoking get, checking that value fails but increment succeeds"
+    ),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            revoke,
+            [["riak_kv.get", "on", "default", "hello", "from", Username]]
+        ),
 
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:counter_val(C7, <<"hello">>,
-                                          <<"numberofpies">>)),
-    ok = rhc:counter_incr(C7, <<"hello">>,
-                          <<"numberofpies">>, 5),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:counter_val(C7, <<"hello">>, <<"numberofpies">>)
+    ),
+    ok = rhc:counter_incr(C7, <<"hello">>, <<"numberofpies">>, 5),
 
     %% revoke put
     ?LOG_INFO("Revoking put, checking that increment fails"),
-    ok = rpc:call(Node, riak_core_console, revoke,
-                  [["riak_kv.put", "on", "default", "hello", "from", Username]]),
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            revoke,
+            [["riak_kv.put", "on", "default", "hello", "from", Username]]
+        ),
 
-    ?assertMatch({error, {ok, "403", _, _}}, rhc:counter_incr(C7, <<"hello">>,
-                          <<"numberofpies">>, 5)),
+    ?assertMatch(
+        {error, {ok, "403", _, _}},
+        rhc:counter_incr(C7, <<"hello">>, <<"numberofpies">>, 5)
+    ),
 
     %% mapred tests
     %% load this module on all the nodes
     ok = rt:load_modules_on_nodes([?MODULE], Nodes),
 
     ?LOG_INFO("Checking that full-bucket mapred is disallowed"),
-    ok = rpc:call(Node, riak_core_console, grant, [["riak_kv.put", "on",
-                                                    "default", "MR", "to", Username]]),
-
+    ok = 
+        erpc:call(
+            Node,
+            riak_core_console,
+            grant,
+            [["riak_kv.put", "on", "default", "MR", "to", Username]]
+        ),
 
     ok =
         rhc:put(
@@ -811,3 +1040,13 @@ crdt_tests([Node|_]=Nodes, RHC) ->
 
 grant(Node, Args) ->
     ok = rpc:call(Node, riak_core_console, grant, [Args]).
+
+
+%% @doc
+%% ibrowse pools connections by defualt - so you might not be testing the
+%% details you think you're testing.  So stop and start ibrowse before creating
+%% each client.
+create_client(IP, Port, Options) ->
+    application:stop(ibrowse),
+    application:start(ibrowse),
+    rhc:create(IP, Port, "riak", Options).
