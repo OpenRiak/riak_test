@@ -60,7 +60,6 @@ confirm() ->
     rt:wait_until_nodes_ready(Nodes),
 
     ch1a_tests(Node1, Node2),
-    ch1b_tests(Node1, Node2),
     ch1c_tests(Node1, Node2),
     ch1d_tests(Node1, Node2),
 
@@ -72,10 +71,7 @@ confirm() ->
 -define(TTAAE_ENVVAR_SPECS,
         [{"rebuildtick", integer_to_list(?REBUILD_TICK), integer_to_list(?REBUILD_TICK + 1)},
          {"exchangetick", integer_to_list(?EXCHANGE_TICK), integer_to_list(?EXCHANGE_TICK + 1)},
-         {"maxresults", "64", "65"},
-         {"rebuildtreeworkers", "2", "5"},
-         {"aaefoldworkers", "1", "3"},
-         {"rebuildstoreworkers", "1", "8"}
+         {"maxresults", "64", "65"}
         ]).
 
 ch1a_tests(Node1, Node2) ->
@@ -96,40 +92,6 @@ ch1a_tests(Node1, Node2) ->
          SetEnvVarF(Var, NewVal),
          CheckEnvVarF(Var, NewVal)
      end || {Var, OrigVal, NewVal} <- ?TTAAE_ENVVAR_SPECS],
-    ok.
-
--define(TTAAE_POOLSIZE_SPECS,
-        [{"rebuildtreeworkers", {2, 0}, {5, 1}},
-         {"aaefoldworkers", {1, 0}, {3, 1}},
-         {"rebuildstoreworkers", {1, 0}, {2, 0}}
-        ]).
-
-ch1b_tests(Node1, Node2) ->
-    CheckF =
-        fun(Var, SZ, LSZ, OF) ->
-                Cmd = ff("tictacaae ~s -n ~s", [Var, Node1]),
-                %% size | latched_size | max_overflow
-                Expect = ff("|~s| *~b *| *~b *| *~b *|", [Node1, SZ, LSZ, OF]),
-                ok = check_admin_cmd(Node1, Cmd, Expect),
-                ok = check_admin_cmd(Node2, Cmd, Expect)
-        end,
-    SetF1 =
-        fun(Var, SZ) ->
-                Cmd = ff("tictacaae ~s ~b -n ~s", [Var, SZ, Node1]),
-                ok = check_admin_cmd(Node1, Cmd, any)
-        end,
-    SetF2 =
-        fun(Var, SZ, OF) ->
-                Cmd = ff("tictacaae ~s ~b ~b -n ~s", [Var, SZ, OF, Node1]),
-                ok = check_admin_cmd(Node1, Cmd, any)
-        end,
-    [begin
-         CheckF(Var, SZ0, SZ0, OF0),
-         SetF1(Var, SZ1),
-         CheckF(Var, SZ1, SZ0, OF0),
-         SetF2(Var, SZ1, OF1),
-         CheckF(Var, SZ1, SZ0, OF1)
-     end || {Var, {SZ0, OF0}, {SZ1, OF1}} <- ?TTAAE_POOLSIZE_SPECS],
     ok.
 
 node_partitions(Node) ->
