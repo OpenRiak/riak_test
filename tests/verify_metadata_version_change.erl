@@ -42,6 +42,13 @@
 
 -define(BATCH_SIZE, 2000).
 
+-define(NGR_INIT_DELAY, 5000).
+-define(DELAY_COUNT, 35).
+-define(DELAY_WAIT, 2000).
+    % The ?DELAY_COUNT * ?DELAY_WAIT >. 65s.  This is because a sink worker
+    % will delay for 65s when it hits an error, and an error can be caused by
+    % for all peers restarting all the source nodes.
+
 -define(INDEX_ENTRIES, 2).
 -define(FIELD_LIST,
     ["bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"]
@@ -74,6 +81,7 @@
         {delete_mode, keep},
         {replrtq_enablesrc, true},
         {replrtq_srcqueue, SrcQueueDefns},
+        {ngr_initial_timeout, ?NGR_INIT_DELAY},
         {metadata_version, MDV}
     ]}
 ]).
@@ -152,8 +160,8 @@ to_meta(N) ->
     list_to_binary(io_lib:format("M~8..0B", [N])).
 
 metadata_version_change_test(ClusterA, ClusterB) ->
-    NodeA = hd(ClusterB),
-    NodeB = hd(ClusterA),
+    NodeA = hd(ClusterA),
+    NodeB = hd(ClusterB),
 
     InitLoadClient = rt:pbc(NodeA),
     InitHTTPClient = rt:httpc(NodeA),
@@ -400,7 +408,7 @@ read_data(Client, ClientMod, Start, End, MaybeWait) ->
 
 read_data(_Client, _ClientMod, End, End, _MaybeWait, Acc, DelayCount) ->
     case DelayCount of
-        N when N < 8 ->
+        N when N < ?DELAY_COUNT ->
             lists:reverse(Acc);
         N ->
             {error, {too_many_waits, N}}
@@ -413,7 +421,7 @@ read_data(Client, ClientMod, Start, End, MaybeWait, Acc, DC) ->
                 Client, ClientMod, Start + 1, End, MaybeWait, [Obj|Acc], DC);
         {true, {error, notfound}} ->
             ?LOG_INFO("Wait for replication of ~0p", [K]),
-            timer:sleep(2000),
+            timer:sleep(?DELAY_WAIT),
             read_data(Client, ClientMod, Start, End, MaybeWait, Acc, DC + 1)
     end.
 

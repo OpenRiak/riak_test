@@ -851,6 +851,7 @@ common_stats() ->
         <<"riak_kv_vnodeq_min">>,
         <<"riak_kv_vnodeq_total">>,
         <<"riak_kv_vnodes_running">>,
+        <<"riak_logger_version">>,
         <<"riak_pb_version">>,
         <<"riak_pipe_version">>,
         <<"riak_pipe_vnodeq_max">>,
