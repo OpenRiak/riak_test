@@ -193,7 +193,7 @@ perf_test(Node, ClientMod, ClientCount) ->
     SpawnFuns = lists:map(SpawnUpdateFun, ClientBPairs),
     lists:foreach(fun spawn/1, SpawnFuns),
 
-    Profiler = general_api_perf:spawn_profile_fun(Node),
+    Profiler = spawn(fun() -> general_api_perf:profile(Node) end),
 
     ok = receive_complete(0, length(Clients)),
 

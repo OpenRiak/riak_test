@@ -101,7 +101,7 @@ confirm_pb(Node, Profile) ->
     Profiler =
         case Profile of
             true ->
-                general_api_perf:spawn_profile_fun(Node);
+                spawn(fun() -> general_api_perf:profile(Node) end);
             false ->
                 ok
         end,
