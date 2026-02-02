@@ -33,6 +33,8 @@ confirm() ->
     [Node] = rt:deploy_nodes(1),
     ?assertEqual(ok, rt:wait_until_nodes_ready([Node])),
 
+    security_ciphers_test(Node),
+
     %% Verify node-up behavior
     ping_up_test(Node),
     attach_direct_up_test(Node),
@@ -164,6 +166,13 @@ getpid_down_test(Node) ->
         PidOut =:= ""
         orelse rt:str(PidOut, " not responding to ping")
         orelse rt:str(PidOut, " not running") ).
+
+security_ciphers_test(Node) ->
+    ?LOG_INFO("Test cipher strings", []),
+    {ok, {ExitCode, Output}} = rt:admin(Node, ["security", "ciphers"], [return_exit_code]),
+    ?assertEqual(0, ExitCode),
+    ?assertEqual(nomatch, re:run(Output, "RPC to '.+' failed: {'EXIT',")).
+
 
 not_running(Output) ->
     %% Depending on relx version, a variety of output may be printed.
