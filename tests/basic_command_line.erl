@@ -171,7 +171,9 @@ security_ciphers_test(Node) ->
     ?LOG_INFO("Test cipher strings", []),
     {ok, {ExitCode, Output}} = rt:admin(Node, ["security", "ciphers"], [return_exit_code]),
     ?assertEqual(0, ExitCode),
-    ?assertEqual(nomatch, re:run(Output, "RPC to '.+' failed: {'EXIT',")).
+    ?assertEqual(match, element(1, re:run(Output, "Configured ciphers"))),
+    ?assertEqual(match, element(1, re:run(Output, "Valid ciphers\\([0-9]+\\)"))),
+    ?assertEqual(match, element(1, re:run(Output, "AES256"))).
 
 
 not_running(Output) ->
