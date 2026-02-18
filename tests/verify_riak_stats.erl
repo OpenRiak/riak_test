@@ -191,6 +191,9 @@ confirm() ->
 
     verify_sys_monitor_count(Node1),
 
+    ?LOG_INFO("Verifying vm stats are within tolerance"),
+    verify_vm_stats(Stats8),
+
     verify_timeout(Node1),
 
     pass.
@@ -202,6 +205,42 @@ verify_inc(Prev, Props, [{Key, Inc} | KeyIncs]) ->
     ?assertEqual({Key, New}, {Key, (Old + Inc)}),
     verify_inc(Prev, Props, KeyIncs);
 verify_inc(_Prev, _Props, []) ->
+    ok.
+
+verify_vm_stats(Stats) ->
+    CountsNonZero =
+        [
+            <<"vm_atom_count">>,
+            <<"vm_ets_count">>,
+            <<"vm_port_count">>,
+            <<"vm_proc_count">>
+        ],
+    lists:foreach(
+        fun(Key) -> 
+            ?assert(
+                proplists:get_value(Key, Stats) > 0
+            )
+        end,
+        CountsNonZero
+    ),
+    ?LOG_INFO(
+        "An unloaded cluster should have 95% headroom on limits"
+    ),
+    PercsUnderFive =
+        [
+            <<"vm_atom_percent">>,
+            <<"vm_ets_percent">>,
+            <<"vm_port_percent">>,
+            <<"vm_proc_percent">>   
+        ],
+    lists:foreach(
+        fun(Key) -> 
+            ?assert(
+                proplists:get_value(Key, Stats) =< 5
+            )
+        end,
+        PercsUnderFive
+    ),
     ok.
 
 verify_nz(Props, Keys) ->
@@ -480,6 +519,7 @@ all_stats(_Node) ->
     common_stats()
     ++ query_stats()
     ++ pool_stats()
+    ++ vm_stats()
     ++ tictacaae_stats()
     ++ organisation_stats()
     ++ ttaaefs_stats()
@@ -1007,6 +1047,21 @@ token_stats() ->
         <<"token_session_unreachable">>,
         <<"token_session_renewal">>].
 
+vm_stats() ->
+    [
+        <<"vm_atom_count">>,
+        <<"vm_atom_limit">>,
+        <<"vm_atom_percent">>,
+        <<"vm_ets_count">>,
+        <<"vm_ets_limit">>,
+        <<"vm_ets_percent">>,
+        <<"vm_port_count">>,
+        <<"vm_port_limit">>,
+        <<"vm_port_percent">>,
+        <<"vm_proc_count">>,
+        <<"vm_proc_limit">>,
+        <<"vm_proc_percent">>
+    ].
 
 organisation_stats() ->
     case rt_config:get(organisation) of
