@@ -26,12 +26,13 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(DEFAULT_RING_SIZE, 8).
--define(CFG(),
+-define(CFG(MetadataVersion),
         [{riak_kv,
           [
            % Speedy AAE configuration
            {anti_entropy, {off, []}},
-           {tictacaae_active, passive}
+           {tictacaae_active, passive},
+           {metadata_version, MetadataVersion}
           ]},
          {riak_core,
           [
@@ -44,9 +45,13 @@
 -define(N_VAL, 3).
 
 confirm() ->
-    C0 = rt:build_cluster(?NUM_NODES, ?CFG()),
+    C0 = rt:build_cluster(?NUM_NODES, ?CFG(v0)),
     ok = rt:wait_until_nodes_agree_about_ownership(C0),
     ok = verify_siblingmerge(C0),
+    rt:clean_cluster(C0),
+    C1 = rt:build_cluster(?NUM_NODES, ?CFG(v1)),
+    ok = rt:wait_until_nodes_agree_about_ownership(C1),
+    ok = verify_siblingmerge(C1),
     pass.
 
 
@@ -65,6 +70,36 @@ verify_siblingmerge(Cluster) ->
 
     ExpectedValsBoth = [<<1:8/integer>>, <<2:8/integer>>],
     test_replicas(Node1A, ?AMT_BUCKET, to_key(1), ExpectedValsBoth),
+
+    ?LOG_INFO("Test the HTTP API represents siblings as expected"),
+
+    application:ensure_started(inets),
+
+    {ok, _HTTPPid} = inets:start(httpc, [{profile, test_client}]),
+    URLBase = rt:http_url(Node1A),
+    KeyURL =
+        io_lib:format(
+            "~s/buckets/~s/keys/~s",
+            [URLBase, ?AMT_BUCKET, to_key(1)]
+        ),
+    {ok, Result} = httpc:request(KeyURL),
+
+    ?assertMatch(300, element(2, element(1, Result))),
+    ["Siblings:", VT1, VT2] = string:tokens(element(3, Result), "\n"),
+    ?LOG_INFO("Vtags of siblings ~s ~s", [VT1, VT2]),
+
+    ?LOG_INFO("Test that individual siblings can be fetched"),
+
+    {ok, R1} = httpc:request(io_lib:format("~s?vtag=~s", [KeyURL, VT1])),
+    {ok, R2} = httpc:request(io_lib:format("~s?vtag=~s", [KeyURL, VT2])),
+
+    ?assertMatch(200, element(2, element(1, R1))),
+    ?assertMatch(200, element(2, element(1, R2))),
+    
+    BothResults = element(3,R1) ++ element(3, R2),
+    ?assertMatch([1, 2], lists:sort(BothResults)),
+
+    inets:stop(httpc, test_client),
 
     ?LOG_INFO("Testing allow_mult = false"),
     {Node1B, Node2B} =
