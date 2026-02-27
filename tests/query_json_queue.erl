@@ -151,37 +151,40 @@ confirm_errors(Nodes) ->
     [{<<"result_reference">>, QueueRef}] = DecodedRsp2,
 
     {QNode, Pid, Secret} =
-        erpc:call(
-            hd(Nodes),
-            riak_kv_query_filebuffer,
-            decode_ref,
-            [QueueRef]
+        binary_to_term(
+            erpc:call(
+                hd(Nodes),
+                riak_kv_query_filebuffer,
+                safe_decode,
+                [QueueRef]
+            )
         ),
     
     WrongNode =
         erpc:call(
             hd(Nodes),
             riak_kv_query_filebuffer,
-            encode_ref,
-            [{'badnode@127.0.0.1', Pid, Secret}]
+            safe_encode,
+            [term_to_binary({'badnode@127.0.0.1', Pid, Secret})]
         ),
     WrongPid =
         erpc:call(
             hd(Nodes),
             riak_kv_query_filebuffer,
-            encode_ref,
-            [{QNode, self(), Secret}]
+            safe_encode,
+            [term_to_binary({QNode, self(), Secret})]
         ),
     WrongSecret =
         erpc:call(
             hd(Nodes),
             riak_kv_query_filebuffer,
-            encode_ref,
-            [{QNode, Pid, <<"BadSecret">>}]
+            safe_encode,
+            [term_to_binary({QNode, Pid, <<"BadSecret">>})]
         ),
     ?LOG_INFO(
         "Incorrect node, pid or secret will error as if the query buffer died"
     ),
+    ?LOG_INFO("Incorrect node"),
     ok = 
         get_result_error(
             HTTP_IP,
@@ -190,8 +193,9 @@ confirm_errors(Nodes) ->
             1,
             500,
             "Internal Server Error",
-            "result_server_terminated"
+            "node_unreachable"
         ),
+    ?LOG_INFO("Incorrect pid"),
     ok = 
         get_result_error(
             HTTP_IP,
@@ -202,6 +206,7 @@ confirm_errors(Nodes) ->
             "Internal Server Error",
             "result_server_terminated"
         ),
+    ?LOG_INFO("Incorrect secret"),
     ok = 
         get_result_error(
             HTTP_IP,
@@ -210,7 +215,7 @@ confirm_errors(Nodes) ->
             1,
             500,
             "Internal Server Error",
-            "result_server_terminated"
+            "incorrect_reference"
         ),
     ?LOG_INFO(
         "Incorrect bucket is a specific error"
