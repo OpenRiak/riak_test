@@ -148,7 +148,7 @@ confirm_errors(Nodes) ->
 
     {struct, DecodedRsp2} = mochijson2:decode(ValidResult),
     ?LOG_INFO("Response to query ~0p", [DecodedRsp2]),
-    [{<<"result_reference">>, QueueRef}] = DecodedRsp2,
+    [{<<"result_queue">>, QueueRef}] = DecodedRsp2,
 
     {QNode, Pid, Secret} =
         binary_to_term(
@@ -289,22 +289,22 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
     
     {struct, DecodedResponse} = mochijson2:decode(ResultJson0),
     ?LOG_INFO("Response to query ~0p", [DecodedResponse]),
-    [{<<"result_reference">>, QueueRef}] = DecodedResponse,
+    [{<<"result_queue">>, QueueRef}] = DecodedResponse,
 
     MapResponse1 = get_results(HTTP_IP, HTTP_Port, QueueRef, 0, false),
     ?assertMatch([], maps:get(<<"raw_keys">>, MapResponse1)),
-    ?assertMatch(0, maps:get(<<"responses_count">>, MapResponse1)),
+    ?assertMatch(0, maps:get(<<"returned_count">>, MapResponse1)),
 
     rt:wait_until(
         fun() ->
             MR = get_results(HTTP_IP, HTTP_Port, QueueRef, 0, true),
-            maps:get(<<"received_count">>, MR) > 1
+            maps:get(<<"queued_count">>, MR) > 1
         end
     ),
 
     MapResponse2 = get_results(HTTP_IP, HTTP_Port, QueueRef, 1, false),
     ?assertMatch(1, length(maps:get(<<"raw_keys">>, MapResponse2))),
-    ?assertMatch(1, maps:get(<<"responses_count">>, MapResponse2)),
+    ?assertMatch(1, maps:get(<<"returned_count">>, MapResponse2)),
 
     KeyList2 = maps:get(<<"raw_keys">>, MapResponse2),
 
@@ -312,27 +312,27 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
 
     MapResponse3 = get_results(HTTP_IPL, HTTP_PortL, QueueRef, 1, false),
     ?assertMatch(1, length(maps:get(<<"raw_keys">>, MapResponse3))),
-    ?assertMatch(2, maps:get(<<"responses_count">>, MapResponse3)),
+    ?assertMatch(2, maps:get(<<"returned_count">>, MapResponse3)),
 
     KeyList3 = maps:get(<<"raw_keys">>, MapResponse3) ++ KeyList2,
 
     MapResponse4 = get_results(HTTP_IPL, HTTP_PortL, QueueRef, 1, false),
     ?assertMatch(1, length(maps:get(<<"raw_keys">>, MapResponse4))),
-    ?assertMatch(3, maps:get(<<"responses_count">>, MapResponse4)),
+    ?assertMatch(3, maps:get(<<"returned_count">>, MapResponse4)),
 
     KeyList4 = maps:get(<<"raw_keys">>, MapResponse4) ++ KeyList3,
 
     rt:wait_until(
         fun() ->
             MR = get_results(HTTP_IP, HTTP_Port, QueueRef, 0, true),
-            maps:get(<<"received_count">>, MR) == ObjectCount
+            maps:get(<<"queued_count">>, MR) == ObjectCount
                 andalso maps:get(<<"query_complete">>, MR) == true
         end
     ),
 
     MapResponse5 = get_results(HTTP_IPL, HTTP_PortL, QueueRef, 997, true),
     ?assertMatch(ObjectCount, length(maps:get(<<"raw_keys">>, MapResponse5)) + 3),
-    ?assertMatch(ObjectCount, maps:get(<<"responses_count">>, MapResponse5)),
+    ?assertMatch(ObjectCount, maps:get(<<"returned_count">>, MapResponse5)),
     
     KeyList5 = KeyList4 ++ maps:get(<<"raw_keys">>, MapResponse5),
 
@@ -341,8 +341,8 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
 
     MapResponse6 = get_results(HTTP_IP, HTTP_Port, QueueRef, 100, false),
     ?assertMatch([], maps:get(<<"raw_keys">>, MapResponse6)),
-    ?assertMatch(1000, maps:get(<<"responses_count">>, MapResponse6)),
-    ?assertMatch(1000, maps:get(<<"received_count">>, MapResponse6)),
+    ?assertMatch(1000, maps:get(<<"returned_count">>, MapResponse6)),
+    ?assertMatch(1000, maps:get(<<"queued_count">>, MapResponse6)),
     ?assertMatch(true, maps:get(<<"query_complete">>, MapResponse6)),
 
     timer:sleep(2001),
@@ -402,7 +402,7 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
     
     {struct, DecodedResponse2} = mochijson2:decode(ResultJson2),
     ?LOG_INFO("Response to query ~0p", [DecodedResponse2]),
-    [{<<"result_reference">>, QueueRef2}] = DecodedResponse2,
+    [{<<"result_queue">>, QueueRef2}] = DecodedResponse2,
     {AllRawTermResults, true} =
         lists:foldl(
             fun(I, {Acc, Complete}) ->
@@ -421,8 +421,8 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
                         UpdAcc = maps:get(<<"raw_terms">>, RM) ++ Acc,
                         case {
                             maps:get(<<"query_complete">>, RM),
-                            maps:get(<<"responses_count">>, RM),
-                            maps:get(<<"received_count">>, RM)
+                            maps:get(<<"returned_count">>, RM),
+                            maps:get(<<"queued_count">>, RM)
                         } of
                             {true, RspC, RcvC} when RspC == RcvC ->
                                 ?LOG_INFO("All results received in ~w loops", [I]),
