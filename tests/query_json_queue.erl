@@ -202,9 +202,9 @@ confirm_errors(Nodes) ->
             HTTP_Port,
             WrongPid,
             1,
-            500,
-            "Internal Server Error",
-            "result_server_terminated"
+            410,
+            "Gone",
+            "no longer present"
         ),
     ?LOG_INFO("Incorrect secret"),
     ok = 
@@ -247,8 +247,6 @@ confirm_errors(Nodes) ->
 
     inets:stop(),
     ok.
-
-
 
 test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
     ok = inets:start(),
@@ -353,9 +351,9 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
             HTTP_PortL,
             QueueRef,
             1,
-            500,
-            "Internal Server Error",
-            "result_server_terminated"
+            410,
+            "Gone",
+            "no longer present"
         ),
 
     ?LOG_INFO("Checking queue of raw_terms"),
@@ -459,9 +457,9 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
             HTTP_PortL,
             QueueRef2,
             1,
-            500,
-            "Internal Server Error",
-            "result_server_terminated"
+            410,
+            "Gone",
+            "no longer present"
         ),
 
     ok = inets:stop(),
