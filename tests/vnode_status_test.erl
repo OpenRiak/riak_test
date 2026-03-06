@@ -76,13 +76,13 @@ vnode_status_test({Node, Keys}) ->
       fun() ->
               {ok, {ExitCode, Output}} = rt:admin(Node, ["vnode-status"], [return_exit_code]),
               ?assertEqual(0, ExitCode),
-              [Json, "ok\n"] = string:split(Output, "\n"),
+              Json = string:slice(Output, 0, length(Output) - length("ok\n")),
               {struct, [{_, A}]} = mochijson2:decode(Json),
               A /= []
       end),
     {ok, {ExitCode, Output}} = rt:admin(Node, ["vnode-status"], [return_exit_code]),
     ?assertEqual(0, ExitCode),
-    [Json, "ok\n"] = string:split(Output, "\n"),
+    Json = string:slice(Output, 0, length(Output) - length("ok\n")),
     {struct, SS} = mochijson2:decode(Json),
     {struct, PS} = proplists:get_value(atom_to_binary(Node), SS),
     {struct, PL} = proplists:get_value(<<"0">>, PS),
