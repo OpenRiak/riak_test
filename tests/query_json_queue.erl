@@ -181,6 +181,13 @@ confirm_errors(Nodes) ->
             safe_encode,
             [term_to_binary({QNode, Pid, <<"BadSecret">>})]
         ),
+    WrongFormat =
+        erpc:call(
+            hd(Nodes),
+            riak_kv_query_filebuffer,
+            safe_encode,
+            [term_to_binary({QNode, Pid, Secret, fun() -> ok end})]
+        ),
     ?LOG_INFO(
         "Incorrect node, pid or secret will error as if the query buffer died"
     ),
@@ -216,6 +223,17 @@ confirm_errors(Nodes) ->
             500,
             "Internal Server Error",
             "incorrect_reference"
+        ),
+    ?LOG_INFO("Incorrect format"),
+    ok = 
+        get_result_error(
+            HTTP_IP,
+            HTTP_Port,
+            WrongFormat,
+            1,
+            500,
+            "Internal Server Error",
+            "unexpected_error"
         ),
     ?LOG_INFO(
         "Incorrect bucket is a specific error"
