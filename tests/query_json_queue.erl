@@ -231,9 +231,9 @@ confirm_errors(Nodes) ->
             HTTP_Port,
             WrongFormat,
             1,
-            500,
-            "Internal Server Error",
-            "unexpected_error"
+            400,
+            "Bad Request",
+            "invalid format"
         ),
     ?LOG_INFO(
         "Incorrect bucket is a specific error"
