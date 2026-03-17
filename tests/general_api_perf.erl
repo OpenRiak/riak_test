@@ -29,15 +29,15 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
--define(DEFAULT_RING_SIZE, 8).
+-define(DEFAULT_RING_SIZE, 16).
 -define(CLIENT_COUNT, 4).
 -define(QUERY_EVERY, 1000).
 -define(GET_EVERY, 1).
--define(GETS_PER_GET, 4).
+-define(GETS_PER_GET, 2).
 -define(UPDATE_EVERY, 8).
 -define(LOG_EVERY, 2000).
--define(KEY_COUNT, 12000).
--define(OBJECT_SIZE_BYTES, 4096).
+-define(KEY_COUNT, 20000).
+-define(OBJECT_SIZE_BYTES, 1024).
 -define(PROFILE_PAUSE, 10000).
 -define(PROFILE_LENGTH, 20).
 -define(REQUEST_PAUSE_UPTO, 3).
@@ -45,6 +45,8 @@
 -define(ALLOW_MULT, false).
 -define(INDEX_ENTRIES, 6).
 -define(USE_TYPED_BUCKET, true).
+-define(TEST_TYPE, measure). % measure or profile
+-define(CONFIRM_TEST, confirm_http). % confirm_pb or confirm_http
 
 -define(FIELD_LIST,
     ["bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"]
@@ -91,7 +93,7 @@
 confirm() ->
     [Node] = rt:build_cluster(1, ?CONF),
     rt:wait_for_service(Node, riak_kv),
-    confirm_pb(Node). % can be changed to confirm_http/1
+    (?CONFIRM_TEST)(Node). % can be changed to confirm_http/1
 
 confirm_pb(Node) ->
     perf_test(Node, riakc_pb_socket, ?CLIENT_COUNT).
@@ -109,7 +111,7 @@ perf_test(Node, ClientMod, ClientCount) ->
         BucketPrefix,
         ?KEY_COUNT,
         ?OBJECT_SIZE_BYTES,
-        true
+        ?TEST_TYPE == profile
     ).
 
 perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
@@ -347,6 +349,11 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
         _ ->
             ok
     end,
-    timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO))
+    case ?TEST_TYPE == profile of
+        true ->
+            timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO));
+        _ ->
+            ok
+    end
     .
 
