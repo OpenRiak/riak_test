@@ -22,7 +22,7 @@
 -module(general_api_perf).
 -export([confirm/0, spawn_profile_fun/1, confirm_pb/1, confirm_http/1]).
 
--export([get_clients/3, perf_test/8, get_bucketprefix/2]).
+-export([get_clients/3, perf_test/8, request_pause/1, get_bucketprefix/2]).
 
 -import(secondary_index_tests, [http_query/3, pb_query/3]).
 -include_lib("kernel/include/logger.hrl").
@@ -111,10 +111,10 @@ perf_test(Node, ClientMod, ClientCount) ->
         BucketPrefix,
         ?KEY_COUNT,
         ?OBJECT_SIZE_BYTES,
-        ?TEST_TYPE == profile
+        ?TEST_TYPE
     ).
 
-perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
+perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, TestType) ->
     Query =
         case rt:get_backends() of
             bitcask ->
@@ -122,9 +122,12 @@ perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile) ->
             _ ->
                 true
         end,
-    perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, Query).
+    perf_test(
+        Node, ClientMod, Clients, BP, KeyCount, ObjSize, TestType, Query
+    ).
 
-perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, Profile, Query) ->
+perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, TestType, Query) ->
+    Profile = TestType == profile,
     Buckets =
         case BP of
             {BT, BPrefix} ->
@@ -349,11 +352,10 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
         _ ->
             ok
     end,
-    case ?TEST_TYPE == profile of
-        true ->
-            timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO));
-        _ ->
-            ok
-    end
+    request_pause(?TEST_TYPE)
     .
 
+request_pause(profile) ->
+    timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO));
+request_pause(measure) ->
+    ok.
