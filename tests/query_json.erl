@@ -475,5 +475,3 @@ put_an_object(Pid, Bucket, Key, Data, Indexes) when is_list(Indexes) ->
     Robj1 = riakc_obj:update_value(Robj0, Data),
     Robj2 = riakc_obj:update_metadata(Robj1, MetaData),
     riakc_pb_socket:put(Pid, Robj2).
-
-    

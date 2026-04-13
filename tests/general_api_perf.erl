@@ -22,7 +22,7 @@
 -module(general_api_perf).
 -export([confirm/0, profile/1, confirm_pb/1, confirm_http/1]).
 
--export([get_clients/3, perf_test/8, get_bucketprefix/2]).
+-export([get_clients/3, perf_test/8, request_pause/1, get_bucketprefix/2]).
 
 -import(secondary_index_tests, [http_query/3, pb_query/3]).
 -include_lib("kernel/include/logger.hrl").
@@ -434,6 +434,10 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
         _ ->
             ok
     end,
-    timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO))
+    request_pause(?TEST_TYPE)
     .
 
+request_pause(profile) ->
+    timer:sleep(rand:uniform(?REQUEST_PAUSE_UPTO));
+request_pause(measure) ->
+    ok.
