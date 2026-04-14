@@ -64,10 +64,13 @@ confirm() ->
         httpc:request(
             url("~s/buckets/~s/index/~s/~s~s", [Http, ?BUCKET, <<"$bucket">>, ?BUCKET, []])),
     
-    ?LOG_INFO("Query error with ErrCode ~p", [ErrCode]),
+    ?LOG_INFO("Query error with ErrCode ~p Msg ~0p", [ErrCode, Body]),
 
     ?assertEqual(true, ErrCode == 503),
-    ?assertMatch({match, _}, re:run(Body, "request timed out|{error,timeout}")), %% shows the app.config timeout
+    ?assertMatch(
+        {match, _},
+        re:run(Body, "[R|r]{1}equest timed out|{error,timeout}")
+    ),
 
     HttpRes = http_query(Http, Query, [{timeout, 5000}]),
     ?assertEqual(ExpectedKeys, lists:sort(proplists:get_value(<<"keys">>, HttpRes, []))),

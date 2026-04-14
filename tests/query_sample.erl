@@ -274,6 +274,7 @@ query_tests(HdNode) ->
     ),
     term_counting(HTTPC),
     max_results(HTTPC),
+    result_queue_check(HTTPC),
     check_stats(HdNode).
 
 check_stats(HdNode) ->
@@ -299,6 +300,81 @@ check_stats(HdNode) ->
     ?assert(NQ < VQ),
     ?assert(QSC > 0),
     ?assert(QSE == 0).
+
+
+result_queue_check(HTTPC) ->
+    NumberofLS1_endsA = ?KEYCOUNT div 8,
+    RangeQueryFun =
+        fun() ->
+            rhc:range_query(
+                HTTPC,
+                {?BTYPE, ?BNAME},
+                ?POC_IDX,
+                {<<"LS1_">>, <<"LS1_~">>},
+                <<"LS1_[0-9][A-Z]A">>,
+                queue_raw_keys,
+                [])
+        end,
+    FilterQueryFun =
+        fun() ->
+            rhc:filter_query(
+                HTTPC,
+                {?BTYPE, ?BNAME},
+                ?POC_IDX,
+                {<<"LS1_">>, <<"LS1_~">>},
+                <<"delim($term, \"|\", ($pc, $dob))">>,
+                <<"ends_with($pc, \"A\")">>,
+                queue_raw_terms,
+                undefined,
+                undefined,
+                []
+            )
+        end,
+    {TC1, {ok, {result_queue, QueueRef1}}} = timer:tc(RangeQueryFun),
+    AllResults1 = return_all_results(HTTPC, QueueRef1, raw_keys, TC1),
+    ?assertMatch(NumberofLS1_endsA, length(AllResults1)),
+    {TC2, {ok, {result_queue, QueueRef2}}} = timer:tc(FilterQueryFun),
+    AllResults2 = return_all_results(HTTPC, QueueRef2, raw_terms, TC2),
+    ?assertMatch(NumberofLS1_endsA, length(AllResults2))
+    .
+
+return_all_results(HTTPC, QueueRef, AccOpt, TC) ->
+    TS = os:system_time(millisecond),
+    {true, AllResults} =
+        lists:foldl(
+            fun(I, {Complete, Acc}) ->
+                case Complete of
+                    true ->
+                        {Complete, Acc};
+                    false ->
+                        {ok, ResultMap} =
+                            rhc:fetch_query_results(
+                                HTTPC,
+                                {?BTYPE, ?BNAME},
+                                QueueRef,
+                                [{max_results, rand:uniform(5000)}]
+                            ),
+                        case rhc:check_resultqueue_complete(ResultMap) of
+                            true ->
+                                ?LOG_INFO(
+                                    "Results fetched in ~w loops in ~w ms "
+                                    "After initial uery response in ~w micro",
+                                    [
+                                        I,
+                                        os:system_time(millisecond) - TS,
+                                        TC
+                                    ]
+                                ),
+                                {true, maps:get(AccOpt, ResultMap) ++ Acc};
+                            false ->
+                                {false, maps:get(AccOpt, ResultMap) ++ Acc}
+                        end
+                end
+            end,
+            {false, []},
+            lists:seq(1, 100)
+        ),
+    AllResults.
 
 
 max_results(HTTPC) ->
