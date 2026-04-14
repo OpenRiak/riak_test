@@ -45,7 +45,7 @@
 -define(ALLOW_MULT, false).
 -define(INDEX_ENTRIES, 6).
 -define(USE_TYPED_BUCKET, true).
--define(TEST_TYPE, measure). % measure or profile
+-define(TEST_TYPE, profile). % measure or profile
 -define(CONFIRM_TEST, confirm_http). % confirm_pb or confirm_http
 
 -define(FIELD_LIST,
@@ -337,8 +337,11 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
                         ClientMod:get_index(
                             Client,
                             Bucket,
-                            {binary_index,
-                                lists:nth(rand:uniform(5), FieldList)},
+                            {   
+                                binary_index,
+                                lists:nth(
+                                    rand:uniform(?INDEX_ENTRIES), FieldList)
+                            },
                             {to_index(I - 99), to_index(I)}
                         )
                 end,
