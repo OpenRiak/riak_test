@@ -72,16 +72,22 @@ confirm() ->
     %% random put forwarding
     {ok, C} = riak:client_connect(hd(PLNodes)),
     NodeUrl = rt:http_url(hd(PLNodes)),
-    UrlFun=fun(Key, Value, Params) ->
-            lists:flatten(io_lib:format("~s/riak/~s/~s~s",
-                    [NodeUrl, Key, Value, Params]))
-    end,
+    UrlFun=
+        fun(Key, Value, Params) ->
+            lists:flatten(
+                io_lib:format(
+                    "~s/buckets/~s/keys/~s~s",
+                    [NodeUrl, Key, Value, Params]
+                )
+            )
+        end,
 
     Obj = riak_object:new(<<"foo">>, <<"bar">>, <<42:32/integer>>),
-    ?assertEqual(ok,
-                    riak_client:put(Obj, [{pw, all}], C)),
-    ?assertMatch({ok, _},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
+    ?assertEqual(ok, riak_client:put(Obj, [{pw, all}], C)),
+    ?assertMatch(
+        {ok, _},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)
+    ),
     ObjTBAll =
         riak_object:new(
             {?TYPE_ALL, <<"foo">>}, AllKey, <<42:32/integer>>),
@@ -94,10 +100,14 @@ confirm() ->
 
 
     %% check pr/pw can't be violated
-    ?assertEqual({error, {pw_val_violation, evil}},
-                    riak_client:put(Obj, [{pw, evil}], C)),
-    ?assertEqual({error, {pr_val_violation, evil}},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, evil}], C)),
+    ?assertEqual(
+        {error, {pw_val_violation, evil}},
+        riak_client:put(Obj, [{pw, evil}], C)
+    ),
+    ?assertEqual(
+        {error, {pr_val_violation, evil}},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, evil}], C)
+    ),
 
     ?assertMatch({ok, {{_, 400, _}, _, "pr query parameter must be"++_}},
         httpc:request(get, {UrlFun(<<"foo">>, <<"bar">>, <<"?pr=evil">>), []}, [], [])),
@@ -119,18 +129,24 @@ confirm() ->
     timer:sleep(100),
 
     %% one vnode will never return, so we get timeouts
+    ?LOG_INFO("Checking for GET timeout"),
     ?assertEqual({error, timeout},
         riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
+    ?LOG_INFO("Checking for PUT timeout"),
     ?assertEqual({error, timeout},
         riak_client:put(Obj, [{pw, all}], C)),
 
     check_typed_bucket_error(C, ObjTBAll, ?TYPE_ALL, AllKey, {error, timeout}),
 
     %% we can still meet quorum, though
-    ?assertEqual(ok,
-                    riak_client:put(Obj, [{pw, quorum}], C)),
-    ?assertMatch({ok, _},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
+    ?assertEqual(
+        ok,
+        riak_client:put(Obj, [{pw, quorum}], C)
+    ),
+    ?assertMatch(
+        {ok, _},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)
+    ),
 
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
@@ -138,20 +154,34 @@ confirm() ->
 
     %% there's now a fallback in the preflist, so PR/PW won't be satisfied
     %% anymore
-    ?assertEqual({error, {pr_val_unsatisfied, 3, 2}},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
-    ?assertEqual({error, {pw_val_unsatisfied, 3, 2}},
-                    riak_client:put(Obj, [{pw, all}], C)),
+    ?assertEqual(
+        {error, {pr_val_unsatisfied, 3, 2}},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)
+    ),
+    ?assertEqual(
+        {error, {pw_val_unsatisfied, 3, 2}},
+        riak_client:put(Obj, [{pw, all}], C)
+    ),
 
     check_typed_bucket_error(
         C, ObjTBAll, ?TYPE_ALL, AllKey, unsatisfied),
 
-    ?assertMatch({ok, {{_, 503, _}, _, "PR-value unsatisfied: 2/3\n"}},
-        httpc:request(get, {UrlFun(<<"foo">>, <<"bar">>, <<"?pr=all">>), []}, [], [])),
-
-    ?assertMatch({ok, {{_, 503, _}, _, "PW-value unsatisfied: 2/3\n"}},
-        httpc:request(put, {UrlFun(<<"foo">>, <<"bar">>,
-                    <<"?pw=all">>), [], "text/plain", <<42:32/integer>>}, [], [])),
+    {ok, {{_, 503, _}, _, ErrMsg1}} =
+        httpc:request(
+            get,
+            {UrlFun(<<"foo">>, <<"bar">>, <<"?pr=all">>), []},
+            [],
+            []
+        ),
+    ?assert(nomatch =/= string:find(ErrMsg1, <<"PR-value unsatisfied: 2/3">>)),
+    {ok, {{_, 503, _}, _, ErrMsg2}} =
+        httpc:request(
+            put,
+            {UrlFun(<<"foo">>, <<"bar">>, <<"?pw=all">>), [], "text/plain", <<42:32/integer>>},
+            [],
+            []
+        ),
+    ?assert(nomatch =/= string:find(ErrMsg2, <<"PW-value unsatisfied: 2/3">>)),
 
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
@@ -166,10 +196,16 @@ confirm() ->
     timer:sleep(100),
 
     %% can't even meet quorum now
-    ?assertEqual({error, timeout},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
-    ?assertEqual({error, timeout},
-                    riak_client:put(Obj, [{pw, quorum}], C)),
+    ?LOG_INFO("Checking for GET timeout"),
+    ?assertEqual(
+        {error, timeout},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)
+    ),
+    ?LOG_INFO("Checking for PUT timeout"),
+    ?assertEqual(
+        {error, timeout},
+        riak_client:put(Obj, [{pw, quorum}], C)
+    ),
 
     check_typed_bucket_error(C, ObjTBQ, ?TYPE_QUORUM, QKey, {error, timeout}),
 
@@ -178,18 +214,25 @@ confirm() ->
     rt:wait_for_service(Node, riak_kv),
 
     %% we can make quorum again
-    ?assertEqual(ok,
-                    riak_client:put(Obj, [{pw, quorum}], C)),
-    ?assertMatch({ok, _},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)),
+    ?assertEqual(ok, riak_client:put(Obj, [{pw, quorum}], C)),
+    ?assertMatch(
+        {ok, _},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, quorum}], C)
+    ),
 
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
 
+    ?LOG_INFO("Checking for GET timeout"),
     %% intercepts still in force on second node, so we'll get timeouts
-    ?assertEqual({error, timeout},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
-    ?assertEqual({error, timeout},
-                    riak_client:put(Obj, [{pw, all}], C)),
+    ?assertEqual(
+        {error, timeout},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)
+    ),
+    ?LOG_INFO("Checking for PUT timeout"),
+    ?assertEqual(
+        {error, timeout},
+        riak_client:put(Obj, [{pw, all}], C)
+    ),
 
     check_typed_bucket_error(C, ObjTBAll, ?TYPE_ALL, AllKey, {error, timeout}),
 
@@ -199,10 +242,11 @@ confirm() ->
     rt:wait_for_service(Node2, riak_kv),
 
     %% everything is happy again
-    ?assertEqual(ok,
-                    riak_client:put(Obj, [{pw, all}], C)),
-    ?assertMatch({ok, _},
-                    riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)),
+    ?assertEqual(ok, riak_client:put(Obj, [{pw, all}], C)),
+    ?assertMatch(
+        {ok, _},
+        riak_client:get(<<"foo">>, <<"bar">>, [{pr, all}], C)
+    ),
 
     check_typed_bucket_ok(C, ObjTBAll, AllKey, ?TYPE_ALL),
     check_typed_bucket_ok(C, ObjTBQ, QKey, ?TYPE_QUORUM),
@@ -216,28 +260,42 @@ confirm() ->
 
     %% there's now a failing vnode in the preflist, so PW/DW won't be satisfied
     %% anymore
-    ?assertEqual({error, {pw_val_unsatisfied, 3, 2}},
-                    riak_client:put(Obj, [{pw, all}], C)),
-    ?assertEqual({error, {dw_val_unsatisfied, 3, 2}},
-                    riak_client:put(Obj, [{dw, all}], C)),
+    ?assertEqual(
+        {error, {pw_val_unsatisfied, 3, 2}},
+        riak_client:put(Obj, [{pw, all}], C)
+    ),
+    ?assertEqual(
+        {error, {dw_val_unsatisfied, 3, 2}},
+        riak_client:put(Obj, [{dw, all}], C)
+    ),
 
-    ?assertMatch({ok, {{_, 503, _}, _, "PW-value unsatisfied: 2/3\n"}},
-        httpc:request(put, {UrlFun(<<"foo">>, <<"bar">>,
-                    <<"?pw=all">>), [], "text/plain", <<42:32/integer>>}, [], [])),
-    ?assertMatch({ok, {{_, 503, _}, _, "DW-value unsatisfied: 2/3\n"}},
-        httpc:request(put, {UrlFun(<<"foo">>, <<"bar">>,
-                    <<"?dw=all">>), [], "text/plain", <<42:32/integer>>}, [], [])),
+    {ok, {{_, 503, _}, _, ErrMsg3}} =
+        httpc:request(
+            put,
+            {UrlFun(<<"foo">>, <<"bar">>, <<"?pw=all">>), [], "text/plain", <<42:32/integer>>},
+            [],
+            []
+        ),
+    ?assert(nomatch =/= string:find(ErrMsg3, <<"PW-value unsatisfied: 2/3">>)),
+    {ok, {{_, 503, _}, _, ErrMsg4}} =
+        httpc:request(
+            put,
+            {UrlFun(<<"foo">>, <<"bar">>, <<"?dw=all">>), [], "text/plain", <<42:32/integer>>},
+            [],
+            []
+        ),
+    ?assert(nomatch =/= string:find(ErrMsg4, <<"DW-value unsatisfied: 2/3">>)),
     pass.
 
 make_intercepts_tab(Node, Partition) ->
-    SupPid = rpc:call(Node, erlang, whereis, [sasl_safe_sup]),
-    intercepts_tab = rpc:call(Node, ets, new, [intercepts_tab, [named_table,
+    SupPid = erpc:call(Node, erlang, whereis, [sasl_safe_sup]),
+    intercepts_tab = erpc:call(Node, ets, new, [intercepts_tab, [named_table,
                 public, set, {heir, SupPid, {}}]]),
-    true = rpc:call(Node, ets, insert, [intercepts_tab, {drop_do_get_partitions,
+    true = erpc:call(Node, ets, insert, [intercepts_tab, {drop_do_get_partitions,
                 [Partition]}]),
-    true = rpc:call(Node, ets, insert, [intercepts_tab, {drop_do_head_partitions,
+    true = erpc:call(Node, ets, insert, [intercepts_tab, {drop_do_head_partitions,
                 [Partition]}]),
-    true = rpc:call(Node, ets, insert, [intercepts_tab, {drop_do_put_partitions,
+    true = erpc:call(Node, ets, insert, [intercepts_tab, {drop_do_put_partitions,
                 [Partition]}]).
 
 check_typed_bucket_ok(C, Obj, K, Type) ->

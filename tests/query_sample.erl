@@ -92,13 +92,13 @@ query_tests(HdNode) ->
                 HTTPC,
                 {?BTYPE, ?BNAME},
                 ?NAME_IDX,
-                {<<"Smith|">>, <<"Smith~">>},
+                {<<"Smith%7C">>, <<"Smith~">>},
                 undefined
             ),
             rangequery_test(
                 HTTPC,
                 ?NAME_IDX,
-                {<<"Smith|">>, <<"Smith~">>},
+                {<<"Smith%7C">>, <<"Smith~">>},
                 undefined,
                 NumberofSmiths,
                 NumberofSmiths,

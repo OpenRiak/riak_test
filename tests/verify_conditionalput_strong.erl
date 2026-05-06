@@ -365,7 +365,7 @@ test_nonematch(Nodes, Bucket, ClientMod) ->
                         riakc_obj:new(Bucket, to_key(1), <<0:32/integer>>),
                         [if_none_match]
                     ),
-                true = check_nomatch_conflict(ClientMod, R),
+                true = check_nomatch_conflict(ClientMod, R, C),
                 {ok, FinalObj} = ClientMod:get(C, Bucket, to_key(1)),
                 <<0:32/integer>> = riakc_obj:get_value(FinalObj),
                 TestProcess ! complete
@@ -585,12 +585,15 @@ check_match_conflict(ClientMod, Response, _) ->
     ?LOG_ERROR("Unexpected: ~w ~w", [ClientMod, Response]),
     error.
 
-check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}) ->
+check_nomatch_conflict(riakc_pb_socket, {error, <<"match_found">>}, _) ->
     true;
-check_nomatch_conflict(rhc, {error, {ok, "412", _Headers, _Message}}) ->
+check_nomatch_conflict(rhc, {error, {ok, "412", _Headers, _Message}}, _) ->
     true;
-check_nomatch_conflict(_, ok) ->
-    true.
+check_nomatch_conflict(_, ok, _) ->
+    true;
+check_nomatch_conflict(ClientMod, Unexpected, Client) ->
+    ?LOG_ERROR("Unexpected: ~w ~w ~w", [ClientMod, Client, Unexpected]),
+    false.
 
 to_key(N) ->
     list_to_binary(io_lib:format("K~4..0B", [N])).

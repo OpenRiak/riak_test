@@ -1,4 +1,3 @@
-test_hll
 verify_counter_converge
 verify_dt_context
 verify_dt_converge

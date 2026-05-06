@@ -36,7 +36,7 @@
 -define(GETS_PER_GET, 2).
 -define(UPDATE_EVERY, 8).
 -define(LOG_EVERY, 2000).
--define(KEY_COUNT, 20000).
+-define(KEY_COUNT, 50000).
 -define(OBJECT_SIZE_BYTES, 1024).
 -define(PROFILE_PAUSE, 10000).
 -define(PROFILE_LENGTH, 20).
@@ -45,7 +45,7 @@
 -define(ALLOW_MULT, false).
 -define(INDEX_ENTRIES, 6).
 -define(USE_TYPED_BUCKET, true).
--define(TEST_TYPE, profile). % measure or profile
+-define(TEST_TYPE, measure). % measure or profile
 -define(CONFIRM_TEST, confirm_http). % confirm_pb or confirm_http
 
 -define(FIELD_LIST,

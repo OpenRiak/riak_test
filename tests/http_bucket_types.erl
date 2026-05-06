@@ -181,7 +181,31 @@ confirm() ->
     %% the values are coming from, and those are indeed the correct
     %% hexadecimal values for the UTF-8 representation of the bucket
     %% name
-    ?WAIT({ok, [<<"0633064406270645">>]} == rhc:list_buckets(RHC, UnicodeTypeBin)),
+    ListBucketURL =
+        lists:flatten(
+            io_lib:format(
+                rt:http_url(Node) ++ "/types/~s/buckets/",
+                [
+                    uri_string:quote(
+                        unicode:characters_to_binary(
+                            [12371,12435,12395,12385,12399],
+                            utf8
+                        )
+                    )
+                ]
+            )
+        ),
+    ok = inets:start(),
+    rt:wait_until(
+        fun() ->
+            ?LOG_INFO("Calling bucket list ~s", [ListBucketURL]),
+            {ok, {{_, 200, _}, _, Body}} = httpc:request(ListBucketURL),
+            {struct, [{<<"buckets">>, BucketList}]} = mochijson2:decode(Body),
+            ?LOG_INFO("Received ~0p", [BucketList]),
+            BucketList == [UnicodeBucketBin]
+        end
+    ),
+    ok = inets:stop(),
 
     ?LOG_INFO("bucket properties tests"),
     rhc:set_bucket(RHC, {<<"default">>, <<"mybucket">>},

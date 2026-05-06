@@ -53,7 +53,7 @@ confirm() ->
     {ok, Obj2a} = rhc:put(HTTP2, Obj2, [return_body]),
     %%    c. put asis in node 1
     %%    d. fetch from node 1, check vclock is same
-    ?LOG_INFO("Put object asis in ~0p via PBC.", [Node1]),
+    ?LOG_INFO("Put object asis in ~0p via HTTP.", [Node1]),
     {ok, Obj2b} = rhc:put(HTTP1, Obj2a, [asis, return_body]),
     ?LOG_INFO("Check vclock equality after asis put (HTTP)."),
     ?assert(riakc_obj:vclock(Obj2a) == riakc_obj:vclock(Obj2b)),

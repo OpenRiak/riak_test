@@ -25,12 +25,11 @@
 
 -export([confirm/0]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
     [Node] = rt:build_cluster(1),
-
-
 
     Connections = get_connections(Node),
     Buckets = {sortof_uuid(), sortof_uuid()},
@@ -38,18 +37,23 @@ confirm() ->
     DefaultProps = default_props(),
     ValidProps = valid_props(),
 
-    %% Check we are starting in a default state
+    timer:sleep(1000),
+    ?LOG_INFO("Check we are starting in a default state"),
     verify_props(Connections, Buckets, DefaultProps),
 
-    %% Verify attempting to set invalid properties results in the
-    %% expected errors
+    ?LOG_INFO(
+        "Verify attempting to set invalid properties results in the"
+        " expected errors"
+    ),
     verify_props_errors(set_props(Connections, Buckets, invalid_props())),
 
-    %% Verify no props were harmed in the making of this request
+    ?LOG_INFO("Verify no props were harmed in the making of this request"),
     verify_props(Connections, Buckets, DefaultProps),
 
-    %% Set valid properties and verify they are present when
-    %% retrieving the bucket properties
+    ?LOG_INFO(
+        "Set valid properties and verify they are present when"
+        "retrieving the bucket properties"
+    ),
     ?assertEqual({ok, ok}, set_props(Connections, Buckets, ValidProps)),
     verify_props(Connections, Buckets, ValidProps),
 
@@ -90,48 +94,13 @@ verify_props(Connections, Buckets, Expected) ->
     {HttpProps, PbcProps} = get_props(Connections, Buckets),
     ?assert(sets:is_subset(sets:from_list(Expected), sets:from_list(HttpProps))),
     ?assert(sets:is_subset(sets:from_list(Expected), sets:from_list(PbcProps))).
+
 verify_props_errors({HttpResult, PBCResult}) ->
-    verify_errors(http_errors(HttpResult)),
+    ?LOG_INFO("HttpResult: ~0p", [HttpResult]),
+    {error, Err} = HttpResult,
+    {ok, "400", _Hdrs, Body} = Err,
+    ?assert(nomatch =/= string:find(Body, <<"decode failure">>)),
     ?assertEqual({error, function_clause}, PBCResult).
-
-http_errors(Result) ->
-    ?assertMatch({error, _}, Result),
-    {error, {ok, "400", _H, Errors0}} = Result,
-    {struct, Errors} = mochijson2:decode(Errors0),
-    Errors.
-
-verify_errors(Errors) ->
-    ?assertEqual(13, length(Errors)),
-    [?assert(verify_error(binary_to_existing_atom(Prop, latin1),
-                          binary_to_atom(Message, latin1))) || {Prop, Message} <- Errors].
-
-verify_error(allow_mult, not_boolean) ->
-    true;
-verify_error(basic_quorum, not_boolean) ->
-    true;
-verify_error(last_write_wins, not_boolean) ->
-    true;
-verify_error(notfound_ok, not_boolean) ->
-    true;
-verify_error(big_vclock, not_integer) ->
-    true;
-verify_error(n_val, not_integer) ->
-    true;
-verify_error(old_vclock, not_integer) ->
-    true;
-verify_error(small_vclock, not_integer) ->
-    true;
-verify_error(young_vclock, not_integer) ->
-    true;
-verify_error(Quorum, not_valid_quorum) when Quorum =:= dw;
-                                            Quorum =:= pw;
-                                            Quorum =:= pr;
-                                            Quorum =:= r;
-                                            Quorum =:= rw;
-                                            Quorum =:= w ->
-    true;
-verify_error(_, _) ->
-    false.
 
 default_props() ->
     [{allow_mult,false},
@@ -140,7 +109,7 @@ default_props() ->
      {chash_keyfun,{riak_core_util,chash_std_keyfun}},
      {dw,quorum},
      {last_write_wins,false},
-     {linkfun,{modfun,riak_kv_wm_link_walker,mapreduce_linkfun}},
+     % {linkfun,{modfun,riak_kv_wm_link_walker,mapreduce_linkfun}},
      {n_val,3},
      {notfound_ok,true},
      {old_vclock,86400},

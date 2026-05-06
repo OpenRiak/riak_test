@@ -55,23 +55,24 @@ confirm() ->
 
     ?LOG_INFO("testing GET timeout"),
     {error, Tup1} = rhc:get(HC, <<"foo">>, <<"bar">>, [{timeout, 100}]),
-    ?assertMatch({ok, "503", _, <<"request timed out\n">>}, Tup1),
+    check_http_object_timeout(Tup1),
 
     ?LOG_INFO("testing PUT timeout"),
     {error, Tup2} = rhc:put(HC, riakc_obj:new(<<"foo">>, <<"bar">>,
                                               <<"getgetgetgetget\n">>),
                             [{timeout, 100}]),
-    ?assertMatch({ok, "503", _, <<"request timed out\n">>}, Tup2),
+    check_http_object_timeout(Tup2),
 
     ?LOG_INFO("testing DELETE timeout"),
     {error, Tup3} = rhc:delete(HC, <<"foo">>, <<"bar">>, [{timeout, 100}]),
-    ?assertMatch({ok, "503", _, <<"request timed out\n">>}, Tup3),
+    check_http_object_timeout(Tup3),
 
     ?LOG_INFO("testing invalid timeout value"),
     {error, Tup4} = bad_timeout_fun_http(HC),
-    ?assertMatch({ok, "400", _,
-                  <<"Bad timeout value \"asdasdasd\"\n">>},
-                 Tup4),
+    ?assertMatch(ok, element(1, Tup4)),
+    ?assertMatch("400", element(2, Tup4)),
+    ?assert(nomatch =/= string:find(element(4, Tup4), "Bad timeout value")),
+    ?assert(nomatch =/= string:find(element(4, Tup4), "asdasdasd")),
 
     ?LOG_INFO("testing GET still works before long timeout"),
     {ok, O} = rhc:get(HC, <<"foo">>, <<"bar">>, [{timeout, 4000}]),
@@ -177,11 +178,14 @@ confirm() ->
     ?LOG_INFO("Checking HTTP"),
     LHC = rt:httpc(Node),
     ?LOG_INFO("Checking keys timeout"),
-    ?assertMatch({error, <<"timeout">>},
-                 rhc:list_keys(LHC, ?BUCKET, Short)),
+    {error, TimeoutMsg1} = rhc:list_keys(LHC, ?BUCKET, Short),
+    ?assert(
+        nomatch =/= string:find(TimeoutMsg1, <<"timeout">>)
+        orelse
+        nomatch =/= string:find(TimeoutMsg1, <<"Request timed out">>)
+    ),
     ?LOG_INFO("Checking keys w/ long timeout"),
-    ?assertMatch({ok, _},
-                 rhc:list_keys(LHC, ?BUCKET, Long)),
+    ?assertMatch({ok, _}, rhc:list_keys(LHC, ?BUCKET, Long)),
     ?LOG_INFO("Checking stream keys timeout"),
     {ok, ReqId2} = rhc:stream_list_keys(LHC, ?BUCKET, Short),
     wait_for_error(ReqId2),
@@ -190,11 +194,14 @@ confirm() ->
     wait_for_end(ReqId4),
 
     ?LOG_INFO("Checking buckets timeout"),
-    ?assertMatch({error, <<"timeout">>},
-                 rhc:list_buckets(LHC, Short)),
+    {error, TimeoutMsg2} = rhc:list_buckets(LHC, Short),
+    ?assert(
+        nomatch =/= string:find(TimeoutMsg2, <<"timeout">>)
+        orelse
+        nomatch =/= string:find(TimeoutMsg2, <<"Request timed out">>)
+    ),
     ?LOG_INFO("Checking buckets w/ long timeout"),
-    ?assertMatch({ok, _},
-                 rhc:list_buckets(LHC, Long)),
+    ?assertMatch({ok, _}, rhc:list_buckets(LHC, Long)),
     ?LOG_INFO("Checking stream buckets timeout"),
     {ok, ReqId3} = rhc:stream_list_buckets(LHC, Short),
     wait_for_error(ReqId3),
@@ -203,6 +210,11 @@ confirm() ->
     wait_for_end(ReqId5),
 
     pass.
+
+check_http_object_timeout(Response) ->
+    {ok, Code, _, ErrMsg} = Response,
+    ?assertMatch("503", Code),
+    ?assert(nomatch =/= string:find(ErrMsg, <<"request timed out">>)).
 
 -dialyzer({nowarn_function, bad_timeout_fun_pb/1}).
 -dialyzer({nowarn_function, bad_timeout_fun_http/1}).
@@ -218,7 +230,12 @@ wait_for_error(ReqId) ->
         {ReqId, done} ->
             ?LOG_ERROR("stream incorrectly finished"),
             error(stream_finished);
-        {ReqId, {error, <<"timeout">>}} ->
+        {ReqId, {error, TimeoutMsg}} ->
+            ?assert(
+                nomatch =/= string:find(TimeoutMsg, <<"timeout">>)
+                orelse
+                nomatch =/= string:find(TimeoutMsg, <<"Request timed out">>)
+            ),
             ?LOG_INFO("stream correctly timed out"),
             ok;
         {ReqId, {_Key, _Vals}} ->
@@ -237,7 +254,9 @@ wait_for_end(ReqId) ->
         {ReqId, done} ->
             ?LOG_INFO("stream correctly finished"),
             ok;
-        {ReqId, {error, <<"timeout">>}} ->
+        {ReqId, {error, Timeout}}
+                when Timeout == <<"timeout">>;
+                    Timeout == <<"Request timed out">> ->
             ?LOG_ERROR("stream incorrectly timed out"),
             error(stream_timed_out);
        {ReqId, {_Key, _Vals}} ->

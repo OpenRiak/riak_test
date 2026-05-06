@@ -488,6 +488,8 @@ compare_pb_http([PBo|RestPB], [HTTPo|RestHTTP]) ->
             [{version, 2}]
         ),
     UMDMatch = sets:intersection(PBumd, HTTPumd) == sets:union(PBumd, HTTPumd),
+    ?LOG_INFO("PB2i ~0p", [PB2i]),
+    ?LOG_INFO("HTTP2i ~0p", [HTTP2i]),
     IdxMatch = sets:intersection(PB2i, HTTP2i) == sets:union(PB2i, HTTP2i),
     AllMatch =
         KMatch andalso

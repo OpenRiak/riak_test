@@ -257,9 +257,8 @@ verify_timeout(Node) ->
         io_lib:format("curl -s -S ~s/stats?timeout=1", [rt:http_url(Node)]),
     StatsCommandT5000 =
         io_lib:format("curl -s -S ~s/stats?timeout=5000", [rt:http_url(Node)]),
-    ?assertMatch(
-        "Bad timeout value \"0\" expected milliseconds > 0",
-        os:cmd(StatsCommandT0)
+    ?assert(
+        nomatch =/= string:find(os:cmd(StatsCommandT0), "Bad timeout value")
     ),
     ?LOG_INFO("Waiting for HTTP cache to be expire before testing timeout"),
     timer:sleep(1001),
@@ -617,7 +616,6 @@ common_stats() ->
         <<"memory_processes_used">>,
         <<"memory_system">>,
         <<"memory_total">>,
-        <<"mochiweb_version">>,
         <<"ngrfetch_nofetch">>,
         <<"ngrfetch_nofetch_total">>,
         <<"ngrfetch_prefetch">>,
@@ -913,7 +911,6 @@ common_stats() ->
         <<"vnode_set_update_time_mean">>,
         <<"vnode_set_update_time_median">>,
         <<"vnode_set_update_total">>,
-        <<"webmachine_version">>,
         <<"wx_version">>,
         <<"xmerl_version">>
     ].

@@ -92,6 +92,7 @@ verify_siblingmerge(Cluster) ->
 
     {ok, R1} = httpc:request(io_lib:format("~s?vtag=~s", [KeyURL, VT1])),
     {ok, R2} = httpc:request(io_lib:format("~s?vtag=~s", [KeyURL, VT2])),
+    ?LOG_INFO("R1: ~0p", [R1]),
 
     ?assertMatch(200, element(2, element(1, R1))),
     ?assertMatch(200, element(2, element(1, R2))),

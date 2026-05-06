@@ -66,8 +66,11 @@ confirm() ->
     rt:wait_until_bucket_props([FirstNode],?BUCKET,[{'pw', 2}, {'node_confirms', 0}]),
     ?LOG_INFO("Attempting to write key"),
     %% Write key and confirm error pw=2 unsatisfied
-    ?assertMatch({error, {ok,"503",_,<<"PW-value unsatisfied: 1/2\n">>}},
-                 rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12345">>)),
+    check_error(
+        rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12345">>),
+        "503",
+        <<"PW-value unsatisfied: 1/2">>
+    ),
 
     %% Now write test for pw=0, node_confirms=2. Should pass, as three physical nodes available
     ?LOG_INFO("Change bucket properties to pw:0 node_confirms:2"),
@@ -89,8 +92,11 @@ confirm() ->
     %% Write key
     ?LOG_INFO("Attempting to write key"),
     %% Write key and confirm error invalid pw/node_confirms
-    ?assertMatch({error, {ok,"400",_,<<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3\n">>}},
-                 rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12345">>)),
+    check_error(
+        rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12345">>),
+        "400",
+        <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3">>
+    ),
 
     %% Now stop another node and write test for pw=0, node_confirms=3. Should fail, as only two physical nodes available
     PL2 = rt:get_preflist(FirstNode, ?BUCKET, ?KEY),
@@ -116,8 +122,11 @@ confirm() ->
 
     ?LOG_INFO("Attempting to write key"),
     %% Write key and confirm error node_confirms=3 unsatisfied
-    ?assertMatch({error, {ok,"503",_,<<"node_confirms-value unsatisfied: 2/3\n">>}},
-                 rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12346">>)),
+    check_error(
+        rt:httpc_write(Client, ?BUCKET, ?KEY, <<"12346">>),
+        "503",
+        <<"node_confirms-value unsatisfied: 2/3">>
+    ),
 
     ?LOG_INFO("Setting pw and node_confirms to reflect current status"),
     rpc:call(FirstNode,
@@ -268,6 +277,12 @@ setup_notfound_test(Node1, Key, NotFoundOK) ->
                                 {'node_confirms', 3},
                                 {'notfound_ok', NotFoundOK}]),
     {HttpC, PbC, PriC}.
+
+check_error(Response, ExpCode, ExpMsg) ->
+    {error, {ok, ErrCode, _, ErrMsg}} = Response,
+    ?assertMatch(ExpCode, ErrCode),
+    ?assert(nomatch =/= string:find(ErrMsg, ExpMsg)).
+    
 
 
 primary_and_fallback_counts(PL) ->

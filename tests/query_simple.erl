@@ -99,12 +99,12 @@ test_client_invalid_query(Nodes, http) ->
         rhc:range_query(Client, ?BNAME, <<"index1_int">>, {<<"0">>, <<"1">>}),
     ?assertMatch(
         ?ERROR_QEPREFIX " Invalid index name",
-        E0
+        binary_to_list(E0)
     ),
     {error, E2} = rhc:range_query(Client, ?BNAME, ?INDEX1, {<<"B">>, <<"A">>}),
     ?assertMatch(
         ?ERROR_QEPREFIX " Invalid query range",
-        E2
+        binary_to_list(E2)
     ),
     {error, E4} = 
         rhc:range_query(
@@ -118,7 +118,7 @@ test_client_invalid_query(Nodes, http) ->
         ),
     ?assertMatch(
         ?ERROR_QEPREFIX " Invalid regex",
-        E4
+        binary_to_list(E4)
     ).
 
 
@@ -145,7 +145,7 @@ test_client_invalid_type(Nodes, http) ->
     {error, E1} = send_request(URL, post, BadJson1, 30),
     ?assertMatch(
         ?ERROR_QEPREFIX " Invalid query range",
-        E1
+        binary_to_list(E1)
     ),
     BadJson2 =
         <<"
@@ -165,7 +165,7 @@ test_client_invalid_type(Nodes, http) ->
     {error, E2} = send_request(URL, post, BadJson2, 30),
     ?assertMatch(
         ?ERROR_AOPREFIX " Unrecognised option <<\"matches\">>",
-        E2
+        binary_to_list(E2)
     ).
 
 send_request(Url, Method, Body, Timeout) ->

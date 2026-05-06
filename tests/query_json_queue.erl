@@ -126,7 +126,7 @@ confirm_errors(Nodes) ->
     ?LOG_INFO("Decoded response to bad inactivity timeout ~0p", [DecodedRsp1]),
     ?assertMatch(<<"error">>, element(1, DecodedRsp1)),
     ?assertMatch(
-        "Validation failure at stage init due to Bad inactivity timeout",
+        <<"Validation failure at stage init due to Bad inactivity timeout">>,
         element(2, DecodedRsp1)
     ),
 

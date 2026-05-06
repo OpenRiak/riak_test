@@ -74,7 +74,7 @@ confirm() ->
     write_http(
         HttpClient,
         BucketTypes,
-        {error, "503", <<"PW-value unsatisfied: 1/2\n">>}, [{pw, 2}]
+        {error, "503", <<"PW-value unsatisfied: 1/2">>}, [{pw, 2}]
     ),
     write_pb(
         PBClient,
@@ -97,7 +97,7 @@ confirm() ->
     write_http(
         HttpClient,
         BucketTypes,
-        {error, "400", <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3\n">>},
+        {error, "400", <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3">>},
         [{node_confirms, 4}]
     ),
 
@@ -123,7 +123,7 @@ confirm() ->
     write_http(
         HttpClient,
         BucketTypes,
-        {error, "503", <<"node_confirms-value unsatisfied: 2/3\n">>},
+        {error, "503", <<"node_confirms-value unsatisfied: 2/3">>},
         [{node_confirms, 3}]
     ),
 
@@ -187,7 +187,7 @@ get_http_dt_expected(
     {
         error,
         _Code,
-        <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3\n">>=Msg
+        <<"Specified w/dw/pw/node_confirms values invalid for bucket n value of 3">>=Msg
     }
 ) ->
     {error, {bad_request, Msg}};
