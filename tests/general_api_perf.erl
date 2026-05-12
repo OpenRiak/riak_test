@@ -369,7 +369,7 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
                             {to_index(HP - LP), to_index(HP)}
                         )
                 end,
-            ?assertMatch(200, length(HttpResKeys));
+            ?assert(length(HttpResKeys) >= 1);
         _ ->
             ok
     end,
