@@ -29,9 +29,9 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
--define(DEFAULT_RING_SIZE, 32).
--define(CLIENT_COUNT, 4).
--define(QUERY_EVERY, 20).
+-define(DEFAULT_RING_SIZE, 64).
+-define(CLIENT_COUNT, 6).
+-define(QUERY_EVERY, 5).
 -define(GET_EVERY, 2).
 -define(GETS_PER_GET, 1).
 -define(UPDATE_EVERY, 8).
