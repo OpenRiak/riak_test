@@ -29,14 +29,16 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("riakc/include/riakc.hrl").
 
--define(DEFAULT_RING_SIZE, 16).
+-define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT, 4).
--define(QUERY_EVERY, 1000).
--define(GET_EVERY, 1).
--define(GETS_PER_GET, 2).
+-define(QUERY_EVERY, 20).
+-define(GET_EVERY, 2).
+-define(GETS_PER_GET, 1).
 -define(UPDATE_EVERY, 8).
 -define(LOG_EVERY, 2000).
--define(KEY_COUNT, 20000).
+-define(KEY_COUNT, 20000000).
+-define(NO_QUERY_BEFORE, 5000000).
+-define(NO_GET_BEFORE, 2000000).
 -define(OBJECT_SIZE_BYTES, 1024).
 -define(PROFILE_PAUSE, 10000).
 -define(PROFILE_LENGTH, 20).
@@ -46,7 +48,7 @@
 -define(INDEX_ENTRIES, 6).
 -define(USE_TYPED_BUCKET, true).
 -define(TEST_TYPE, measure). % measure or profile
--define(CONFIRM_TEST, confirm_http). % confirm_pb or confirm_http
+-define(CONFIRM_TEST, confirm_pb). % confirm_pb or confirm_http
 
 -define(FIELD_LIST,
     ["bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8"]
@@ -62,9 +64,9 @@
         [
             {riak_kv,
                 [
-                    {anti_entropy, {off, []}},
+                    {anti_entropy, {on, []}},
                     {delete_mode, keep},
-                    {tictacaae_active, active},
+                    {tictacaae_active, passive},
                     {tictacaae_parallelstore, leveled_ko},
                     {tictacaae_storeheads, true},
                     {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
@@ -76,6 +78,12 @@
                     {compaction_runs_perday, 48},
                     {journal_objectcount, 20000},
                     {compression_method, zstd}
+                ]
+            },
+            {eleveldb,
+                [
+                    {total_leveldb_mem_percent, 35},
+                    {limited_developer_mem, false}
                 ]
             },
             {riak_core,
@@ -160,13 +168,19 @@ perf_test(Node, ClientMod, Clients, BP, KeyCount, ObjSize, TestType, Query) ->
                 V = base64:encode(crypto:strong_rand_bytes(ObjSize)),
                 lists:foreach(
                     fun(I) ->
-                        act(C, ClientMod, B, I, V, Query)
+                        try
+                            act(C, ClientMod, B, I, V, Query)
+                        catch
+                            T:E ->
+                                ?LOG_INFO("Failure in client ~0p ~0p", [T, E])
+                        end
                     end,
                     lists:seq(1, KeyCount)
                 ),
                 TestProcess ! complete
             end
         end,
+    ?LOG_INFO("Starting clients ~0p", [ClientBPairs]),
     SpawnFuns = lists:map(SpawnUpdateFun, ClientBPairs),
     lists:foreach(fun spawn/1, SpawnFuns),
     Profiler =
@@ -302,7 +316,7 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
             ok
     end,
     case I rem ?GET_EVERY of
-        0 when I > 1000 ->
+        0 when I > ?NO_GET_BEFORE ->
             lists:foreach(
                 fun(_I) ->
                     {ok, _PastObj} =
@@ -318,7 +332,15 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
             ok
     end,
     case {I rem ?QUERY_EVERY, Query} of
-        {0, true} when I > ?QUERY_EVERY ->
+        {0, true} when I > ?NO_QUERY_BEFORE ->
+            HP = 
+                case rand:uniform(I) of
+                    RI when RI > 200 ->
+                        RI;
+                    _ ->
+                        200
+                end,
+            LP = rand:uniform(199),
             {ok, ?INDEX_RESULTS{keys=HttpResKeys}} =
                 case ClientMod of
                     riakc_pb_socket ->
@@ -330,16 +352,21 @@ act(Client, ClientMod, Bucket, I, V, Query) ->
                                 lists:nth(
                                     rand:uniform(?INDEX_ENTRIES), FieldList)
                             },
-                            to_index(I - 99), to_index(I),
+                            to_index(HP - LP), to_index(HP),
                             []
                         );
                     rhc ->
                         ClientMod:get_index(
                             Client,
                             Bucket,
-                            {binary_index,
-                                lists:nth(rand:uniform(5), FieldList)},
-                            {to_index(I - 99), to_index(I)}
+                            {
+                                binary_index,
+                                lists:nth(
+                                    rand:uniform(?INDEX_ENTRIES),
+                                    FieldList
+                                )
+                            },
+                            {to_index(HP - LP), to_index(HP)}
                         )
                 end,
             ?assertMatch(200, length(HttpResKeys));
