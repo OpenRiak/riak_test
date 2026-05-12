@@ -70,7 +70,8 @@
                     {tictacaae_parallelstore, leveled_ko},
                     {tictacaae_storeheads, true},
                     {tictacaae_rebuildtick, 3600000}, % don't tick for an hour!
-                    {tictacaae_suspend, true}
+                    {tictacaae_suspend, true},
+                    {worker_pool_size, 12}
                 ]
             },
             {leveled,
