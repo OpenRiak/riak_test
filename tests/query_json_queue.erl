@@ -326,7 +326,14 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
 
     {ok, {HTTP_IPL, HTTP_PortL}} = rt:get_http_conn_info(lists:last(Nodes)),
 
-    MapResponse3 = get_results(HTTP_IPL, HTTP_PortL, QueueRef, 1, false),
+    MapResponse3 =
+        get_results_with_default_max_results(
+            HTTP_IP,
+            HTTP_Port,
+            QueueRef,
+            1,
+            hd(Nodes)
+        ),
     ?assertMatch(1, length(maps:get(<<"raw_keys">>, MapResponse3))),
     ?assertMatch(2, maps:get(<<"returned_count">>, MapResponse3)),
 
@@ -482,6 +489,38 @@ test_peoplefinder_query(Nodes, ObjectCount) when ObjectCount > 3 ->
 
     ok = inets:stop(),
     ok.
+
+get_results_with_default_max_results(HTTP_IP, HTTP_Port, QueueRef, MR, Node) ->
+    ok = 
+        erpc:call(
+            Node,
+            application,
+            set_env,
+            [riak_kv, queue_raw_max_results, MR]
+        ),
+    URI =
+        lists:flatten(
+                io_lib:format(
+                    "http://~s:~w/types/~s/buckets/~s/query"
+                    "?result_queue=~s",
+                    [HTTP_IP, HTTP_Port, ?BTYPE, ?BNAME, QueueRef]
+                )
+            ),
+    
+    ?LOG_INFO("Request to URI: ~s", [URI]),
+
+    {T, {ok, {{?VERSION, 200, "OK"}, _, ResultJson}}} =
+        timer:tc(
+            fun() ->
+                httpc:request(get, {URI, []}, [], [], test_client)
+            end
+        ),
+    {struct, DecodedResponse} = mochijson2:decode(ResultJson),
+
+    ?LOG_INFO("Response received in ~w microseconds", [T]),
+
+    maps:from_list(DecodedResponse).
+
 
 get_results(HTTP_IP, HTTP_Port, QueueRef, MaxResults, Quiet) ->
     URI =
