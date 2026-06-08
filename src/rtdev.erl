@@ -884,7 +884,7 @@ stop_node_fun(#stop_node{
                     ?LOG_ERROR("~0p", [Error]),
                     Error
             end,
-            ?LOG_INFO("Stopped node ~0p, stop status: ~s.", [Node, Status])
+            ?LOG_INFO("Stopped node ~0p, stop status: ~p.", [Node, Status])
     end.
 
 %% @hidden Kill any Erlang processes under the specified DevPath.
