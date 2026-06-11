@@ -14,6 +14,7 @@ nextgenrepl_rtq_stdobj
 nextgenrepl_rtq_workercount
 nextgenrepl_sibling
 nextgenrepl_srcfail
+nextgenrepl_syncbucket
 nextgenrepl_tree_exclude
 nextgenrepl_ttaaefs_autoall
 nextgenrepl_ttaaefs_autocheck
