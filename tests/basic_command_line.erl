@@ -2,6 +2,7 @@
 %%
 %% Copyright (c) 2012-2016 Basho Technologies, Inc.
 %% Copyright (c) 2023 Workday, Inc.
+%% Copyright (c) 2026 TI Tokyo.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -42,6 +43,7 @@ confirm() ->
     console_up_test(Node),
     start_up_test(Node),
     getpid_up_test(Node),
+    node_repair_test(Node),
 
     %% Stop the node, Verify node-down behavior
     stop_test(Node),
@@ -166,6 +168,20 @@ getpid_down_test(Node) ->
         PidOut =:= ""
         orelse rt:str(PidOut, " not responding to ping")
         orelse rt:str(PidOut, " not running") ).
+
+node_repair_test(Node) ->
+    ?LOG_INFO("Test riak node repair prints ok", []),
+    {ok, Output1_} = rt:admin(Node, ["node", "repair"]),
+    Output1 = string:trim(Output1_),
+    ?assertEqual(Output1, "'dev1@127.0.0.1' -> ok\nok"),
+
+    {ok, Output2_} = rt:admin(Node, ["node", "repair", "-n", "all"]),
+    Output2 = string:trim(Output2_),
+    ?assert(rt:str(Output2, "'dev1@127.0.0.1' -> ok\n")),
+    %% Output will have a badrpc error resulting from an rpc call to
+    %% test_node, which we ignore
+
+    ok.
 
 security_ciphers_test(Node) ->
     ?LOG_INFO("Test cipher strings", []),
