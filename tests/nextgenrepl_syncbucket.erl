@@ -255,11 +255,11 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     false = CheckFun(NodeA),
 
     ?LOG_INFO("Launch resync of Bucket1 on A"),
-    erpc:call(NodeA, riak_kv_ttaaefs_manager, resync_bucket, [<<"Bucket1">>]),
+    erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket1">>]),
     ?LOG_INFO("Resync of Bucket1 complete"),
 
     ?LOG_INFO("Launch resync of Bucket2 on A"),
-    erpc:call(NodeA, riak_kv_ttaaefs_manager, resync_bucket, [<<"Bucket2">>]),
+    erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket2">>]),
     ?LOG_INFO("Resync of Bucket2 complete"),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterB, cluster_a) end),
