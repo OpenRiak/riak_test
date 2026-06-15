@@ -67,7 +67,8 @@
                 {delete_mode, keep},
                 {replrtq_enablesrc, true},
                 {replrtq_srcqueue, SrcQueueDefns},
-                {ngr_initial_timeout, ?NGR_INIT_TIMEOUT}
+                {ngr_initial_timeout, ?NGR_INIT_TIMEOUT},
+                {af3_worker_pool_size, 1}
             ]
         }
     ]
@@ -254,6 +255,19 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     ?LOG_INFO("Confirm clusters are out of sync"),
     false = CheckFun(NodeA),
 
+    ?LOG_INFO("Boost AF3 worker pool via hard reset"),
+    lists:foreach(
+        fun(N) ->
+            erpc:call(
+                N,
+                riak_core_node_worker_pool_sup,
+                hard_reset_dscp_pool,
+                [1, 1, 4, 1, 1]
+            )
+        end,
+        ClusterA ++ ClusterB
+    ),
+
     ?LOG_INFO("Launch resync of Bucket1 on A"),
     erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket1">>]),
     ?LOG_INFO("Resync of Bucket1 complete"),
@@ -266,7 +280,22 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     ?LOG_INFO("Confirm clusters are now in-sync"),
     rt:wait_until(fun() -> CheckFun(NodeA) end),
 
+    {WTM, QTM} = get_af3_stats(NodeA),
+    ?assert(WTM > QTM),
+
     pass.
+
+get_af3_stats(Node) ->
+    S = rt:get_stats(Node, 5000),
+    {<<"worker_af3_pool_worktime_mean">>, WTM} =
+        lists:keyfind(<<"worker_af3_pool_worktime_mean">>, 1, S),
+    {<<"worker_af3_pool_queuetime_mean">>, QTM} =
+        lists:keyfind(<<"worker_af3_pool_queuetime_mean">>, 1, S),
+    ?LOG_INFO(
+        "AF3 pool stats on ~w WorkTimeMean=~w QueueTimeMean=~w",
+        [Node, WTM, QTM]
+    ),
+    {WTM, QTM}.
 
 wait_for_convergence(ClusterA, ClusterB) ->
     ?LOG_INFO("Waiting for convergence."),
