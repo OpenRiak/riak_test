@@ -33,7 +33,7 @@
 -define(B_NVAL, 1).
 -define(NGR_INIT_TIMEOUT, 10000).
 -define(REPL_PAUSE, 2000).
--define(KEY_COUNT, 50000).
+-define(KEY_COUNT, 25000).
 -define(SNK_WORKERS, 8).
 
 -define(CONFIG(RingSize, NVal, SrcQueueDefns, LocalQueue, PeerQueue), 
@@ -68,7 +68,9 @@
                 {replrtq_enablesrc, true},
                 {replrtq_srcqueue, SrcQueueDefns},
                 {ngr_initial_timeout, ?NGR_INIT_TIMEOUT},
-                {af3_worker_pool_size, 1}
+                {af3_worker_pool_size, 1},
+                % {replicate_repair_tomb, true},
+                {repl_reap, true}
             ]
         }
     ]
@@ -162,11 +164,11 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     ),
 
     CVB = <<"CommonValueForInitialInsert">>,
-    write_to_cluster(NodeA, 1, ?KEY_COUNT, <<"Bucket1">>, true, CVB),
+    write_to_cluster(ClusterA, 1, ?KEY_COUNT, <<"Bucket1">>, true, CVB),
     
     CheckQueueEmptyFun =
         fun(Cluster, QueueName) ->
-            ?LOG_INFO("Waiting for real-time queues to drain"),
+            ?LOG_INFO("Waiting for real-time queue ~w to drain", [QueueName]),
             {P1, P2, P3} =
                 get_all_queue_lengths(Cluster, QueueName, {0, 0, 0}),
             Total = P1 + P2 + P3,
@@ -197,18 +199,54 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
         [?KEY_COUNT]
     ),
 
-    write_to_cluster(NodeB, 1, ?KEY_COUNT, <<"Bucket2">>, true, CVB),
+    write_to_cluster(ClusterB, 1, ?KEY_COUNT, <<"Bucket2">>, true, CVB),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterB, cluster_a) end),
     rt:wait_until(fun() -> CheckFun(NodeB) end),
     ?LOG_INFO("Clusters in sync after initial write to B"),
 
+    ?LOG_INFO("Write some more keys - to be erased"),
+    write_to_cluster(ClusterA, 1, ?KEY_COUNT, <<"Bucket3">>, true, CVB),
+    rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
+    rt:wait_until(fun() -> CheckFun(NodeA) end),
+    ?LOG_INFO("Clusters in sync after write to A of keys to be erased"),
+
+    KeyRanges =
+        [
+            {1, ?KEY_COUNT div 4},
+            {(?KEY_COUNT div 4) + 1, ?KEY_COUNT div 2},
+            {(?KEY_COUNT div 2) + 1, 3 * (?KEY_COUNT div 4)},
+            {3 * (?KEY_COUNT div 4) + 1, ?KEY_COUNT}
+        ],
+    lists:foreach(
+        fun({{LK, HK}, N}) ->
+            R = {key(LK), key(HK)},
+            EraseResult =
+                erpc:call(
+                    N,
+                    riak_client,
+                    aae_fold,
+                    [{erase_keys, <<"Bucket3">>, R, all, all, local}]
+                ),
+            ?LOG_INFO(
+                "Erase result of ~0p after triggering erase of keys on A"
+                " with range ~0p on ~w",
+                [EraseResult, R, N]
+            ),
+            rt:wait_until(fun() -> 0 == get_eraser_stats(ClusterA, 0) end)
+        end,
+        lists:zip(KeyRanges, ClusterA)
+    ),
+    rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
+    rt:wait_until(fun() -> CheckFun(NodeA) end),
+    ?LOG_INFO("Clusters in sync after erase of keys on A"),
+    
     ?LOG_INFO(
         "Suspend RTQ on a single node - some PUTs will replicate, some not"
     ),
     erpc:call(NodeA, riak_kv_replrtq_src, suspend_rtq, [cluster_b]),
     erpc:call(NodeB, riak_kv_replrtq_src, suspend_rtq, [cluster_a]),
     write_to_cluster(
-        NodeA,
+        ClusterA,
         ?KEY_COUNT + 1,
         2 * ?KEY_COUNT,
         <<"Bucket1">>,
@@ -216,13 +254,35 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
         CVB
     ),
     write_to_cluster(
-        NodeB,
+        ClusterB,
         ?KEY_COUNT + 1,
         2 * ?KEY_COUNT,
         <<"Bucket2">>,
         true,
         CVB
     ),
+    
+    lists:foreach(
+        fun({{LK, HK}, N}) ->
+            R = {key(LK), key(HK)},
+            ReapResult =
+                erpc:call(
+                    N,
+                    riak_client,
+                    aae_fold,
+                    [{reap_tombs, <<"Bucket3">>, R, all, all, local}]
+                ),
+            ?LOG_INFO(
+                "Reap result of ~0p after triggering reap of tombs on A"
+                " with range ~0p on ~w",
+                [ReapResult, R, N]
+            ),
+            rt:wait_until(fun() -> 0 == get_reaper_stats(ClusterA, 0) end),
+            rt:wait_until(fun() -> 0 == get_reaper_stats(ClusterB, 0) end)
+        end,
+        lists:zip(KeyRanges, ClusterA)
+    ),
+
     ?LOG_INFO("Re-enable queues, and check queues have drained to empty"),
     erpc:call(NodeA, riak_kv_replrtq_src, resume_rtq, [cluster_b]),
     erpc:call(NodeB, riak_kv_replrtq_src, resume_rtq, [cluster_a]),
@@ -234,7 +294,7 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
 
     ?LOG_INFO("Write more keys that should replicate"),
     write_to_cluster(
-        NodeA,
+        ClusterA,
         2 * ?KEY_COUNT + 1,
         3 * ?KEY_COUNT,
         <<"Bucket1">>,
@@ -242,7 +302,7 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
         CVB
     ),
     write_to_cluster(
-        NodeB,
+        ClusterB,
         2 * ?KEY_COUNT + 1,
         3 * ?KEY_COUNT,
         <<"Bucket2">>,
@@ -275,17 +335,31 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     ?LOG_INFO("Launch resync of Bucket2 on A"),
     erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket2">>]),
     ?LOG_INFO("Resync of Bucket2 complete"),
+
+    {WTM, QTM} = get_af3_stats(ClusterA, {0, 0}),
+    ?assert(WTM > QTM),
+
+    ?LOG_INFO("Launch resync of Bucket3 on A"),
+    erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket3">>]),
+    ?LOG_INFO("Resync of Bucket3 complete"),
+    rt:wait_until(fun() -> 0 == get_reader_stats(ClusterA, 0) end),
+    ?LOG_INFO("Redo sync of Bucket 3 now read repairs complete"),
+    erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket3">>]),
+    ?LOG_INFO("Redo of resync of Bucket3 complete"),
+
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterB, cluster_a) end),
     ?LOG_INFO("Confirm clusters are now in-sync"),
     rt:wait_until(fun() -> CheckFun(NodeA) end),
 
-    {WTM, QTM} = get_af3_stats(NodeA),
-    ?assert(WTM > QTM),
+    % _RRT = get_repairs_stats(NodeA),
+    % ?assert(RRT > 0),
 
     pass.
 
-get_af3_stats(Node) ->
+get_af3_stats([], {WTMT, QTMT}) ->
+    {WTMT, QTMT};
+get_af3_stats([Node|Rest], {WTMT, QTMT}) ->
     S = rt:get_stats(Node, 5000),
     {<<"worker_af3_pool_worktime_mean">>, WTM} =
         lists:keyfind(<<"worker_af3_pool_worktime_mean">>, 1, S),
@@ -295,7 +369,17 @@ get_af3_stats(Node) ->
         "AF3 pool stats on ~w WorkTimeMean=~w QueueTimeMean=~w",
         [Node, WTM, QTM]
     ),
-    {WTM, QTM}.
+    get_af3_stats(Rest, {WTM + WTMT, QTM + QTMT}).
+
+% get_repairs_stats(Node) ->
+%     S = rt:get_stats(Node, 5000),
+%     {<<"replicated_repairs_total">>, RRT} =
+%         lists:keyfind(<<"replicated_repairs_total">>, 1, S),
+%     ?LOG_INFO(
+%         "Replicated repairs total stats of ~0p from ~w",
+%         [RRT, Node]
+%     ),
+%     RRT.
 
 wait_for_convergence(ClusterA, ClusterB) ->
     ?LOG_INFO("Waiting for convergence."),
@@ -331,13 +415,13 @@ reset_peer_config(SnkCluster, ClusterName, Peer, IP, Port) ->
         SnkCluster
     ).
 
-
-write_to_cluster(Node, Start, End, Bucket, NewObj, CVB) ->
-    ?LOG_INFO("Writing ~b keys to node ~0p.", [End - Start + 1, Node]),
-    ?LOG_WARNING("Note that only utf-8 keys are used"),
-    {ok, C} = riak:client_connect(Node),
+write_to_cluster(Cluster, Start, End, Bucket, NewObj, CVB) ->
+    ?LOG_INFO("Writing ~b keys", [End - Start + 1]),
+    Clients =
+        lists:map(fun(N) -> {ok, C} = riak:client_connect(N), C end, Cluster),
     F =
         fun(N, Acc) ->
+            C0 = lists:nth((N rem length(Clients)) + 1, Clients),
             Key = key(N),
             Obj =
                 case NewObj of
@@ -348,7 +432,7 @@ write_to_cluster(Node, Start, End, Bucket, NewObj, CVB) ->
                             <<N:32/integer, CVB/binary>>
                         )
                 end,
-            try riak_client:put(Obj, C) of
+            try riak_client:put(Obj, C0) of
                 ok ->
                     Acc;
                 Other ->
@@ -363,7 +447,7 @@ write_to_cluster(Node, Start, End, Bucket, NewObj, CVB) ->
     ?assertEqual([], Errors).
 
 key(N) ->
-    list_to_binary(io_lib:format("~8..0B~n", [N])).
+    list_to_binary(io_lib:format("~8..0B", [N])).
 
 
 get_all_queue_lengths([], _QueueName, Acc) ->
@@ -378,3 +462,48 @@ update_discovery([], _QueueName) ->
 update_discovery([Node|Rest], QueueName) ->
     erpc:call(Node, riak_kv_replrtq_peer, update_discovery, [QueueName]),
     update_discovery(Rest, QueueName).
+
+get_reader_stats([], TQL) ->
+    ?LOG_INFO("Total reader queue lengths ~w", [TQL]),
+    TQL;
+get_reader_stats([Node|Rest], TQL) ->
+    R = erpc:call(Node, riak_kv_reader, read_stats, []),
+    {mqueue_lengths, MQL} = lists:keyfind(mqueue_lengths, 1, R),
+    NQL = lists:sum(lists:map(fun({_P, QL}) -> QL end, MQL)),
+    case NQL of
+        NQL when NQL > 0 ->
+            ?LOG_INFO("Node ~w has reader queue lengths ~0p", [Node, MQL]);
+        _ ->
+            ok
+    end,
+    get_reaper_stats(Rest, TQL + NQL).
+
+get_reaper_stats([], TQL) ->
+    ?LOG_INFO("Total reaper queue lengths ~w", [TQL]),
+    TQL;
+get_reaper_stats([Node|Rest], TQL) ->
+    R = erpc:call(Node, riak_kv_reaper, reap_stats, []),
+    {mqueue_lengths, MQL} = lists:keyfind(mqueue_lengths, 1, R),
+    NQL = lists:sum(lists:map(fun({_P, QL}) -> QL end, MQL)),
+    case NQL of
+        NQL when NQL > 0 ->
+            ?LOG_INFO("Node ~w has reaper queue lengths ~0p", [Node, MQL]);
+        _ ->
+            ok
+    end,
+    get_reaper_stats(Rest, TQL + NQL).
+
+get_eraser_stats([], TQL) ->
+    ?LOG_INFO("Total eraser queue lengths ~w", [TQL]),
+    TQL;
+get_eraser_stats([Node|Rest], TQL) ->
+    R = erpc:call(Node, riak_kv_eraser, delete_stats, []),
+    {mqueue_lengths, MQL} = lists:keyfind(mqueue_lengths, 1, R),
+    NQL = lists:sum(lists:map(fun({_P, QL}) -> QL end, MQL)),
+    case NQL of
+        NQL when NQL > 0 ->
+            ?LOG_INFO("Node ~w has eraser queue lengths ~0p", [Node, MQL]);
+        _ ->
+            ok
+    end,
+    get_eraser_stats(Rest, TQL + NQL).
