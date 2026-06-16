@@ -476,7 +476,7 @@ get_reader_stats([Node|Rest], TQL) ->
         _ ->
             ok
     end,
-    get_reaper_stats(Rest, TQL + NQL).
+    get_reader_stats(Rest, TQL + NQL).
 
 get_reaper_stats([], TQL) ->
     ?LOG_INFO("Total reaper queue lengths ~w", [TQL]),
