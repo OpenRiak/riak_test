@@ -33,7 +33,7 @@
 -define(B_NVAL, 1).
 -define(NGR_INIT_TIMEOUT, 10000).
 -define(REPL_PAUSE, 2000).
--define(KEY_COUNT, 25000).
+-define(KEY_COUNT, 20000).
 -define(SNK_WORKERS, 8).
 
 -define(CONFIG(RingSize, NVal, SrcQueueDefns, LocalQueue, PeerQueue), 
@@ -206,6 +206,7 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
 
     ?LOG_INFO("Write some more keys - to be erased"),
     write_to_cluster(ClusterA, 1, ?KEY_COUNT, <<"Bucket3">>, true, CVB),
+    write_to_cluster(ClusterA, 1, ?KEY_COUNT, <<"Bucket4">>, true, CVB),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
     rt:wait_until(fun() -> CheckFun(NodeA) end),
     ?LOG_INFO("Clusters in sync after write to A of keys to be erased"),
@@ -220,17 +221,24 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     lists:foreach(
         fun({{LK, HK}, N}) ->
             R = {key(LK), key(HK)},
-            EraseResult =
+            EraseResult3 =
                 erpc:call(
                     N,
                     riak_client,
                     aae_fold,
                     [{erase_keys, <<"Bucket3">>, R, all, all, local}]
                 ),
+            EraseResult4 =
+                erpc:call(
+                    N,
+                    riak_client,
+                    aae_fold,
+                    [{erase_keys, <<"Bucket4">>, R, all, all, local}]
+                ),
             ?LOG_INFO(
-                "Erase result of ~0p after triggering erase of keys on A"
+                "Erase result of ~0p ~0p after triggering erase of keys on A"
                 " with range ~0p on ~w",
-                [EraseResult, R, N]
+                [EraseResult3, EraseResult4, R, N]
             ),
             rt:wait_until(fun() -> 0 == get_eraser_stats(ClusterA, 0) end)
         end,
@@ -265,17 +273,24 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     lists:foreach(
         fun({{LK, HK}, N}) ->
             R = {key(LK), key(HK)},
-            ReapResult =
+            ReapResult3 =
                 erpc:call(
                     N,
                     riak_client,
                     aae_fold,
                     [{reap_tombs, <<"Bucket3">>, R, all, all, local}]
                 ),
+            ReapResult4 =
+                erpc:call(
+                    N,
+                    riak_client,
+                    aae_fold,
+                    [{reap_tombs, <<"Bucket4">>, R, all, all, local}]
+                ),
             ?LOG_INFO(
-                "Reap result of ~0p after triggering reap of tombs on A"
+                "Reap result of ~0p ~0p after triggering reap of tombs on A"
                 " with range ~0p on ~w",
-                [ReapResult, R, N]
+                [ReapResult3, ReapResult4, R, N]
             ),
             rt:wait_until(fun() -> 0 == get_reaper_stats(ClusterA, 0) end),
             rt:wait_until(fun() -> 0 == get_reaper_stats(ClusterB, 0) end)
@@ -347,13 +362,27 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
     erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket3">>]),
     ?LOG_INFO("Redo of resync of Bucket3 complete"),
 
+    ?LOG_INFO("Testing with amnesia disabled"),
+    lists:foreach(
+        fun(N) ->
+            erpc:call(
+                N,
+                application,
+                set_env,
+                [riak_kv, temp_disable_newactor_amnesia, true]
+            )
+        end,
+        ClusterA
+    ),
+    ?LOG_INFO("Launch resync of Bucket4 on A"),
+    erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket4">>]),
+    ?LOG_INFO("Resync of Bucket4 complete"),
+    ?assertMatch(0, get_reader_stats(ClusterA, 0)),
+
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterA, cluster_b) end),
     rt:wait_until(fun() -> CheckQueueEmptyFun(ClusterB, cluster_a) end),
     ?LOG_INFO("Confirm clusters are now in-sync"),
     rt:wait_until(fun() -> CheckFun(NodeA) end),
-
-    % _RRT = get_repairs_stats(NodeA),
-    % ?assert(RRT > 0),
 
     pass.
 
@@ -370,16 +399,6 @@ get_af3_stats([Node|Rest], {WTMT, QTMT}) ->
         [Node, WTM, QTM]
     ),
     get_af3_stats(Rest, {WTM + WTMT, QTM + QTMT}).
-
-% get_repairs_stats(Node) ->
-%     S = rt:get_stats(Node, 5000),
-%     {<<"replicated_repairs_total">>, RRT} =
-%         lists:keyfind(<<"replicated_repairs_total">>, 1, S),
-%     ?LOG_INFO(
-%         "Replicated repairs total stats of ~0p from ~w",
-%         [RRT, Node]
-%     ),
-%     RRT.
 
 wait_for_convergence(ClusterA, ClusterB) ->
     ?LOG_INFO("Waiting for convergence."),
