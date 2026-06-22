@@ -68,8 +68,6 @@
                 {replrtq_enablesrc, true},
                 {replrtq_srcqueue, SrcQueueDefns},
                 {ngr_initial_timeout, ?NGR_INIT_TIMEOUT},
-                {af3_worker_pool_size, 1},
-                % {replicate_repair_tomb, true},
                 {repl_reap, true}
             ]
         }
@@ -329,19 +327,6 @@ test_repl_between_clusters(ClusterA, ClusterB) ->
 
     ?LOG_INFO("Confirm clusters are out of sync"),
     false = CheckFun(NodeA),
-
-    ?LOG_INFO("Boost AF3 worker pool via hard reset"),
-    lists:foreach(
-        fun(N) ->
-            erpc:call(
-                N,
-                riak_core_node_worker_pool_sup,
-                hard_reset_dscp_pool,
-                [1, 1, 4, 1, 1]
-            )
-        end,
-        ClusterA ++ ClusterB
-    ),
 
     ?LOG_INFO("Launch resync of Bucket1 on A"),
     erpc:call(NodeA, riak_client, resync_bucket, [<<"Bucket1">>]),
