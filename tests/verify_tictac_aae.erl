@@ -458,8 +458,7 @@ restart_vnode(Node, Service, Partition) ->
                [Partition, NewPid]).
 
 dir_for_partition(Partition) ->
-    TestMetaData = riak_test_runner:metadata(),
-    KVBackend = proplists:get_value(backend, TestMetaData),
+    KVBackend = rt:get_backends(),
     BaseDir = base_dir_for_backend(KVBackend),
     filename:join([BaseDir, integer_to_list(Partition)]).
 
