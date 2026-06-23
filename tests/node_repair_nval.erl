@@ -25,8 +25,7 @@
 -export(
     [
         get_partitions_for_node/1,
-        count_all_keys/1,
-        wait_for_all_handoffs_and_repairs/1
+        count_all_keys/1
     ]
 ).
 
@@ -35,6 +34,7 @@
 
 -import(general_api_perf, [perf_test/8, get_clients/3]).
 -import(verify_tictac_aae, [wipe_out_partition/2]).
+-import(node_repair_cli_test, [wait_until_repairs_complete/1]).
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT_PERNODE, 1).
@@ -199,12 +199,12 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     ),
 
     ?LOG_INFO("Calling for node to be repaired"),
-    ?RPC_MODULE:call(NodeToFail, riak_client, repair_node, []),
+    rt:admin(NodeToFail,  ["node", "repair", "start"]),
 
     ExpectedKeyCount = ?KEY_COUNT + KeyCount2 + KeyCount3,
     ?LOG_INFO("Tracking repair transfers is hard - wait until count is good"),
 
-    ok = wait_for_all_handoffs_and_repairs([NodeToFail]),
+    ok = wait_until_repairs_complete([NodeToFail]),
 
     rt:wait_until(fun() -> ExpectedKeyCount == count_all_keys(NodeToFail) end),
     ?LOG_INFO("Now double-check it wasn't a fluke"),
@@ -256,26 +256,3 @@ count_all_keys(Node) ->
             )
         ),
     AllKeyCount.
-
-wait_for_all_handoffs_and_repairs([]) ->
-    ok;
-wait_for_all_handoffs_and_repairs([N|Rest]) ->
-    HOs = ?RPC_MODULE:call(N, riak_core_vnode_manager, all_handoffs, []),
-    ?LOG_INFO("Vnode manager on ~w reports ~0p", [N, HOs]),
-    timer:sleep(4000),
-    case length(HOs) of
-        0 ->
-            HOsUpd =
-                ?RPC_MODULE:call(
-                    N, riak_core_vnode_manager, all_handoffs, []),
-            ?LOG_INFO("Vnode manager on ~w reports ~0p", [N, HOsUpd]),
-            case length(HOsUpd) of
-                0 ->
-                    wait_for_all_handoffs_and_repairs(Rest);
-                _ ->
-                    wait_for_all_handoffs_and_repairs([N|Rest])
-            end;
-        _ ->
-            wait_for_all_handoffs_and_repairs([N|Rest])
-    end.            
-

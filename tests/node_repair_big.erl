@@ -31,10 +31,10 @@
 -import(node_repair_nval,
     [
         get_partitions_for_node/1,
-        count_all_keys/1,
-        wait_for_all_handoffs_and_repairs/1
+        count_all_keys/1
     ]
 ).
+-import(node_repair_cli_test, [wait_until_repairs_complete/1]).
 
 -define(DEFAULT_RING_SIZE, 32).
 -define(CLIENT_COUNT_PERNODE, 1).
@@ -187,7 +187,7 @@ node_repair_test(Nodes) when is_list(Nodes), length(Nodes) > 2 ->
     ?LOG_INFO("Tracking repair transfers is hard - wait until count is good"),
 
     P = spawn_profile_fun(hd(Nodes)),
-    ok = wait_for_all_handoffs_and_repairs([NodeToFail]),
+    ok = wait_until_repairs_complete([NodeToFail]),
     P ! complete,
 
     rt:wait_until(fun() -> ExpectedKeyCount == count_all_keys(NodeToFail) end),
