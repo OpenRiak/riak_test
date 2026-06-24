@@ -28,8 +28,9 @@
 
 confirm() ->
     Nodes = rt:build_cluster(2),
-    node_repair_empty_test(Nodes),
-    node_repair_start_stop_test(Nodes),
+    ok = node_repair_empty_test(Nodes),
+    ok = node_repair_start_stop_test(Nodes),
+    ok = node_repair_restart_test(Nodes),
     pass.
 
 node_repair_empty_test([Node1, Node2]) ->
@@ -53,7 +54,7 @@ node_repair_empty_test([Node1, Node2]) ->
 
     ok.
 
-node_repair_start_stop_test([Node1, _Node2]) ->
+node_repair_start_stop_test([Node1, Node2]) ->
     ?LOG_INFO("* node repair can only be started when no nodes run repairs", []),
     {ok, Output1} = rt:admin(Node1, ["node", "repair", "start"]),
     ?assertMatch({match, _}, re:run(Output1, ff("Node repair started on ~s", [Node1]))),
@@ -70,18 +71,32 @@ node_repair_start_stop_test([Node1, _Node2]) ->
 
     {ok, Output3} = rt:admin(Node1, ["node", "repair", "start"]),
     ?assertMatch({match, _}, re:run(Output3, ff("There are repairs currently ongoing on node", []))),
+    {ok, Output4} = rt:admin(Node2, ["node", "repair", "start"]),
+    ?assertMatch({match, _}, re:run(Output4, ff("There are repairs currently ongoing on node", []))),
 
     %% wait_until_repairs_complete(Nodes),  %% will take longer than default timeout
+    ok.
 
-    timer:sleep(333),
+node_repair_restart_test([Node1, _]) ->
+    ?LOG_INFO("* node repair can be restarted", []),
+    %% a repair is in progress, started in the previous test: try stop and resume it
+
     ok = rt_logger:plugin_logger(Node1),
 
+    {ok, PreStopStatus} = rt:admin(Node1, ["node", "repair", "status", "-f", "json"]),
+
     RepairStopReason = "justBecause",
-    {ok, Output4} = rt:admin(Node1, ["node", "repair", "stop", RepairStopReason]),
-    ?assertMatch({match, _}, re:run(Output4, ff("~s: Node repair stopped", [Node1]))),
-    {ok, Output5} = rt:admin(Node1, ["node", "repair", "status"]),
-    ?assertMatch({match, _}, re:run(Output5, ff("No active node repairs on ~s", [Node1]))),
+    {ok, Output1} = rt:admin(Node1, ["node", "repair", "stop", RepairStopReason]),
+    ?assertMatch({match, _}, re:run(Output1, ff("~s: Node repair stopped", [Node1]))),
+    {ok, Output2} = rt:admin(Node1, ["node", "repair", "status"]),
+    ?assertMatch({match, _}, re:run(Output2, ff("No active node repairs on ~s", [Node1]))),
     rt:expect_in_log(Node1, RepairStopReason),
+
+    {ok, Output3} = rt:admin(Node1, ["node", "repair", "start"]),
+    ?assertMatch({match, _}, re:run(Output3, ff("Node repair started on ~s", [Node1]))),
+
+    {ok, PostResumeStatus} = rt:admin(Node1, ["node", "repair", "status", "-f", "json"]),
+    ?assertEqual(PreStopStatus, PostResumeStatus),
 
     ok.
 
