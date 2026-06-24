@@ -21,7 +21,8 @@
 -behavior(riak_test).
 
 -export([confirm/0]).
--export([wait_until_repairs_complete/1]).
+-export([wait_until_repairs_complete/1,
+         wait_until_repairs_complete/3]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -74,10 +75,9 @@ node_repair_start_stop_test([Node1, Node2]) ->
     {ok, Output4} = rt:admin(Node2, ["node", "repair", "start"]),
     ?assertMatch({match, _}, re:run(Output4, ff("There are repairs currently ongoing on node", []))),
 
-    %% wait_until_repairs_complete(Nodes),  %% will take longer than default timeout
     ok.
 
-node_repair_restart_test([Node1, _]) ->
+node_repair_restart_test([Node1, _] = Nodes) ->
     ?LOG_INFO("* node repair can be restarted", []),
     %% a repair is in progress, started in the previous test: try stop and resume it
 
@@ -96,14 +96,20 @@ node_repair_restart_test([Node1, _]) ->
     ?assertMatch({match, _}, re:run(Output3, ff("Node repair started on ~s", [Node1]))),
 
     {ok, PostResumeStatus} = rt:admin(Node1, ["node", "repair", "status", "-f", "json"]),
+    ?LOG_INFO("* checking that resumed repairs match the pre-stop state", []),
     ?assertEqual(PreStopStatus, PostResumeStatus),
+
+    wait_until_repairs_complete(Nodes, 500, 2000),
 
     ok.
 
 ff(F, A) ->
     lists:flatten(io_lib:format(F, A)).
 
-wait_until_repairs_complete([N1|_] = Nodes) ->
+wait_until_repairs_complete(Nodes) ->
+    {Delay, Retry} = rt:get_retry_settings(),
+    wait_until_repairs_complete(Nodes, Retry, Delay).
+wait_until_repairs_complete([N1|_] = Nodes, Retry, Delay) ->
     rt:wait_until(
       fun() ->
               {ok, Out} = rt:admin(N1, ["node", "repair", "status", "-n", "all"]),
@@ -113,5 +119,5 @@ wait_until_repairs_complete([N1|_] = Nodes) ->
                         nomatch /= re:run(Out, ff("No active node repairs on ~s", [N])) end,
                 true,
                 Nodes)
-      end
+      end, Retry, Delay
      ).
