@@ -3,3 +3,4 @@ riak_admin_console_tests
 verify_ops_tools
 riak_admin_tictacaae_console_tests
 vnode_status_test
+node_repair_cli_test
