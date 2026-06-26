@@ -99,7 +99,8 @@ node_repair_restart_test([Node1, _] = Nodes) ->
     ?LOG_INFO("* checking that resumed repairs match the pre-stop state", []),
     ?assertEqual(PreStopStatus, PostResumeStatus),
 
-    wait_until_repairs_complete(Nodes, 500, 2000),
+    %% completing repairs can take minutes, so:
+    wait_until_repairs_complete(Nodes, 500, 10000),
 
     ok.
 
