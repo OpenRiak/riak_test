@@ -28,7 +28,15 @@
 -include_lib("stdlib/include/assert.hrl").
 
 confirm() ->
-    Nodes = rt:build_cluster(2),
+    Conf =
+        [
+         {riak_core,
+          [{vnode_management_timer, 4000},
+           {vnode_inactivity_timeout, 4000}
+          ]
+         }
+        ],
+    Nodes = rt:build_cluster(2, Conf),
     ok = node_repair_empty_test(Nodes),
     ok = node_repair_start_stop_test(Nodes),
     ok = node_repair_restart_test(Nodes),
@@ -97,12 +105,31 @@ node_repair_restart_test([Node1, _] = Nodes) ->
 
     {ok, PostResumeStatus} = rt:admin(Node1, ["node", "repair", "status", "-f", "json"]),
     ?LOG_INFO("* checking that resumed repairs match the pre-stop state", []),
-    ?assertEqual(PreStopStatus, PostResumeStatus),
+    assert_post_state_has_no_new_partitions(PreStopStatus, PostResumeStatus),
 
     %% completing repairs can take minutes, so:
     wait_until_repairs_complete(Nodes, 500, 10000),
 
     ok.
+
+assert_post_state_has_no_new_partitions(Pre_, Post_) ->
+    [J1, _] = string:split(Pre_, "\n"),
+    [JN1pre] = mochijson2:decode(J1, [{format, map}]),
+    [J2, _] = string:split(Post_, "\n"),
+    [JN1post] = mochijson2:decode(J2, [{format, map}]),
+
+    #{<<"status">> := SS1_} = JN1pre,
+    #{<<"status">> := SS2_} = JN1post,
+
+    %% it's possible repairs are about to complete just as
+    %% riak_core_vnode_manager serves kill_repairs message, so we
+    %% should be happy with checking that all resumed partitions are
+    %% seen in pre-stop state
+    SS1pp = [Idx || #{idx := Idx} <- SS1_],
+    SS2pp = [Idx || #{idx := Idx} <- SS2_],
+    lists:all(
+      fun(P) -> lists:member(P, SS1pp) end, SS2pp).
+
 
 ff(F, A) ->
     lists:flatten(io_lib:format(F, A)).
