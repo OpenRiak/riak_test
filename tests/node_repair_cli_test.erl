@@ -69,7 +69,7 @@ node_repair_start_stop_test([Node1, Node2]) ->
     ?assertMatch({match, _}, re:run(Output1, ff("Node repair started on ~s", [Node1]))),
 
     {ok, Output2} = rt:admin(Node1, ["node", "repair", "status", "-n", "all"]),
-    ?assertMatch({match, _}, re:run(Output2, ff("Node repairs on ~s", [Node1]))),
+    ?assertMatch({match, _}, re:run(Output2, ff("Vnode repairs triggered by node repair on ~s", [Node1]))),
 
     {ok, Output2a} = rt:admin(Node1, ["node", "repair", "status", "-n", "all", "-f", "json"]),
     [JsonL1, _] = string:split(Output2a, "\n"),
