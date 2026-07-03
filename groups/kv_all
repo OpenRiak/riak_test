@@ -52,6 +52,7 @@ verify_tick_change
 verify_tictac_aae
 verify_tictac_aae_treeexclude
 verify_tictacaae_nodedown
+verify_tictacaae_rebuildcrash
 verify_tictacrebuild_via_statsfold
 verify_vclock
 verify_vclock_raw
