@@ -13,6 +13,7 @@ location_upgrade
 node_repair_big
 node_repair_nval
 verify_build_cluster
+verify_build_cluster_caps_race
 verify_claimant
 verify_dynamic_ring
 verify_leave

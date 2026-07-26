@@ -111,8 +111,8 @@
 
 confirm() ->
 
+    KVBackend = get_backend(),
     TestMetaData = riak_test_runner:metadata(),
-    KVBackend = proplists:get_value(backend, TestMetaData),
     OldVsn = proplists:get_value(upgrade_version, TestMetaData, previous),
 
     ?LOG_INFO("*****************************"),
@@ -181,8 +181,7 @@ upgrade(Node, NewVsn) ->
     ok.
 
 backend_size(Node) ->
-    TestMetaData = riak_test_runner:metadata(),
-    KVBackend = proplists:get_value(backend, TestMetaData),
+    KVBackend = get_backend(),
     {ok, DataDir} =
         rpc:call(Node, application, get_env, [riak_core, platform_data_dir]),
     BackendDir = filename:join(DataDir, base_dir_for_backend(KVBackend)),
@@ -191,6 +190,13 @@ backend_size(Node) ->
     {match, [SzOnly]} =
         re:run(SzTxt, "(?<SzOnly>[0-9]+)M.*", [{capture, all_names, list}]),
     list_to_integer(SzOnly).
+
+get_backend() ->
+    case rt:get_backends() of
+        [B1|_] ->
+            B1;
+        B -> B
+    end.
 
 base_dir_for_backend(leveled) ->
     "leveled";
