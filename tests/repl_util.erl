@@ -234,17 +234,33 @@ wait_until_fullsync_stopped(SourceLeader) ->
     ).
 
 wait_for_reads(Node, Start, End, Bucket, R) ->
-    wait_for_x(Node, fun() -> rt:systest_read(Node, Start, End, Bucket, R, <<>>, true) end).
+    wait_for_empty_results(
+        Node, 
+        fun() -> 
+            Results = rt:systest_read(Node, Start, End, Bucket, R, <<>>, true),
+            ?LOG_INFO("Results from rt:systest_read on Node ~0p from ~0p to ~0p on bucket ~0p: ~0p", [Node, Start, End, Bucket, Results]),
+            Results
+        end
+    ).
 
 wait_for_all_notfound(Node, Start, End, Bucket, R) ->
-    wait_for_x(Node, fun() -> rt:systest_verify_delete(Node, Start, End, Bucket, R) end).
+    wait_for_empty_results(
+        Node, 
+        fun() -> 
+            Results = rt:systest_verify_delete(Node, Start, End, Bucket, R),
+            ?LOG_INFO("Results from rt:systest_verify_delete on Node ~0p from ~0p to ~0p on bucket ~0p: ~0p", [Node, Start, End, Bucket, Results]),
+            Results
+        end
+    ).
 
-wait_for_x(Node, Fun) ->
-    ok = rt:wait_until(Node,
+wait_for_empty_results(Node, Fun) ->
+    ok = rt:wait_until(
+        Node,
         fun(_) ->
-                Results = Fun(),
-                Results =:= []
-        end),
+            Results = Fun(),
+            Results =:= []
+        end
+    ),
     %% rt:systest_read/6 returns a list of errors encountered while performing
     %% the requested reads. Since we are asserting this list is empty above,
     %% we already know that if we reached here, that the list of reads has
