@@ -24,7 +24,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(RING_SIZE, 32).
+-define(RING_SIZE, 32). % Must be >=16 for max_results test
 -define(DEFAULT_BUCKET_PROPS, [{allow_mult, true}, {dvv_enabled, true}]).
 -define(BTYPE, <<"Type1">>).
 -define(BNAME, <<"Bucket1">>).
@@ -295,7 +295,7 @@ check_stats(HdNode) ->
         lists:keyfind(<<"query_server_create_error">>, 1, Stats),
     ?assert(NQRM > 0),
     ?assert(NQTM > 0),
-    ?assert(NQTM >= VQTM),
+    ?assert(VQTM > 0),
     ?assert(NQ > 0),
     ?assert(NQ < VQ),
     ?assert(QSC > 0),
@@ -358,7 +358,7 @@ return_all_results(HTTPC, QueueRef, AccOpt, TC) ->
                             true ->
                                 ?LOG_INFO(
                                     "Results fetched in ~w loops in ~w ms "
-                                    "After initial uery response in ~w micro",
+                                    "After initial query response in ~w micro",
                                     [
                                         I,
                                         os:system_time(millisecond) - TS,
@@ -412,6 +412,12 @@ max_results(HTTPC) ->
 
     max_results_query_test(
         NumberofLS1_endsA,
+        ?RING_SIZE - 1,
+        RangeQueryFunForMR,
+        raw_keys
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
         ?KEYCOUNT div 12,
         RangeQueryFunForMR,
         raw_keys
@@ -421,6 +427,12 @@ max_results(HTTPC) ->
         ?KEYCOUNT div 12,
         RangeQueryFunForMR,
         raw_keys
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
+        ?RING_SIZE - 1,
+        RangeQueryFunForMR,
+        terms
     ),
     max_results_query_test(
         NumberofLS1_endsA,
