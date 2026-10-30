@@ -273,9 +273,13 @@ query_tests(HdNode) ->
         }
     ),
     term_counting(HTTPC),
-    max_results(HTTPC),
     result_queue_check(HTTPC),
-    check_stats(HdNode).
+    check_stats(HdNode),
+    % Due to specific issues with stats in max_results tests - check_stats/1
+    % now run after all tests but max_results/1
+    % See - https://github.com/OpenRiak/riak_kv/issues/181
+    max_results(HTTPC)
+    .
 
 check_stats(HdNode) ->
     Stats = rt:get_stats(HdNode, 2000),
@@ -358,7 +362,7 @@ return_all_results(HTTPC, QueueRef, AccOpt, TC) ->
                             true ->
                                 ?LOG_INFO(
                                     "Results fetched in ~w loops in ~w ms "
-                                    "After initial uery response in ~w micro",
+                                    "After initial query response in ~w micro",
                                     [
                                         I,
                                         os:system_time(millisecond) - TS,
@@ -412,6 +416,12 @@ max_results(HTTPC) ->
 
     max_results_query_test(
         NumberofLS1_endsA,
+        ?RING_SIZE - 1,
+        RangeQueryFunForMR,
+        raw_keys
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
         ?KEYCOUNT div 12,
         RangeQueryFunForMR,
         raw_keys
@@ -421,6 +431,12 @@ max_results(HTTPC) ->
         ?KEYCOUNT div 12,
         RangeQueryFunForMR,
         raw_keys
+    ),
+    max_results_query_test(
+        NumberofLS1_endsA,
+        ?RING_SIZE - 1,
+        RangeQueryFunForMR,
+        terms
     ),
     max_results_query_test(
         NumberofLS1_endsA,
