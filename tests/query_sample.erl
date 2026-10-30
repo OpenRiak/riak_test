@@ -24,7 +24,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--define(RING_SIZE, 32). % Must be >=16 for max_results test
+-define(RING_SIZE, 32).
 -define(DEFAULT_BUCKET_PROPS, [{allow_mult, true}, {dvv_enabled, true}]).
 -define(BTYPE, <<"Type1">>).
 -define(BNAME, <<"Bucket1">>).
@@ -273,9 +273,13 @@ query_tests(HdNode) ->
         }
     ),
     term_counting(HTTPC),
-    max_results(HTTPC),
     result_queue_check(HTTPC),
-    check_stats(HdNode).
+    check_stats(HdNode),
+    % Due to specific issues with stats in max_results tests - check_stats/1
+    % now run after all tests but max_results/1
+    % See - https://github.com/OpenRiak/riak_kv/issues/181
+    max_results(HTTPC)
+    .
 
 check_stats(HdNode) ->
     Stats = rt:get_stats(HdNode, 2000),
@@ -295,7 +299,7 @@ check_stats(HdNode) ->
         lists:keyfind(<<"query_server_create_error">>, 1, Stats),
     ?assert(NQRM > 0),
     ?assert(NQTM > 0),
-    ?assert(VQTM > 0),
+    ?assert(NQTM >= VQTM),
     ?assert(NQ > 0),
     ?assert(NQ < VQ),
     ?assert(QSC > 0),
