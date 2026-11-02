@@ -227,12 +227,22 @@ update_1({BType, hll}, Bucket, Client, CMod) ->
                      end,
                      {BType, Bucket}, ?KEY, ?MODIFY_OPTS);
 update_1({BType, gset}, Bucket, Client, CMod) ->
-    ?LOG_INFO("update_1: Updating hyperloglog(set)"),
-    CMod:modify_type(Client,
-                     fun(S) ->
-                             riakc_gset:add_element(<<"Z">>, S)
-                     end,
-                     {BType, Bucket}, ?KEY, ?MODIFY_OPTS).
+    ?LOG_INFO("update_1: Updating gset"),
+    R = 
+        CMod:modify_type(
+            Client,
+            fun(S) ->
+                    riakc_gset:add_element(<<"Z">>, S)
+            end,
+            {BType, Bucket},
+            ?KEY,
+            [return_body|?MODIFY_OPTS]
+        ),
+    ?assertMatch(
+        {ok, {gset, [<<"Z">>], [], undefined}},
+        R
+    ),
+    R.
 
 check_1({BType, counter}, Bucket, Client, CMod) ->
     ?LOG_INFO("check_1: Checking counter value is correct"),
@@ -249,8 +259,15 @@ check_1({BType, hll}, Bucket, Client, CMod) ->
     ?LOG_INFO("check_1: Checking hll value is correct"),
     check_value(Client,CMod,{BType, Bucket},?KEY,riakc_hll,1);
 check_1({BType, gset}, Bucket, Client, CMod) ->
-    ?LOG_INFO("check_1: Checking hll value is correct"),
-    check_value(Client,CMod,{BType, Bucket},?KEY,riakc_gset, [<<"Z">>]).
+    ?LOG_INFO("check_1: Checking gset value is correct"),
+    check_value(
+        Client,
+        CMod,
+        {BType, Bucket},
+        ?KEY,
+        riakc_gset,
+        [<<"Z">>]
+    ).
 
 update_2a({BType, counter}, Bucket, Client, CMod) ->
     CMod:modify_type(Client,
@@ -360,11 +377,15 @@ update_3b({BType, hll}, Bucket, Client, CMod) ->
                      end,
                      {BType, Bucket}, ?KEY, ?MODIFY_OPTS);
 update_3b({BType, gset}, Bucket, Client, CMod) ->
-    CMod:modify_type(Client,
-                     fun(S) ->
-                             riakc_gset:add_element(<<"Zedd's Dead">>, S)
-                     end,
-                     {BType, Bucket}, ?KEY, ?MODIFY_OPTS).
+    CMod:modify_type(
+        Client,
+        fun(S) ->
+                riakc_gset:add_element(<<"Zedd's Dead">>, S)
+        end,
+        {BType, Bucket},
+        ?KEY,
+        ?MODIFY_OPTS
+    ).
 
 
 check_3a({BType, counter}, Bucket, Client, CMod) ->
@@ -385,7 +406,14 @@ check_3a({BType, hll}, Bucket, Client, CMod) ->
     check_value(Client,CMod,{BType, Bucket},?KEY,riakc_hll,3);
 check_3a({BType, gset}, Bucket, Client, CMod) ->
     ?LOG_INFO("check_3a: Checking gset value is unchanged"),
-    check_value(Client,CMod,{BType, Bucket},?KEY,riakc_gset, [<<"DANG">>,<<"Z">>,<<"Z^2">>]).
+    check_value(
+        Client,
+        CMod,
+        {BType, Bucket},
+        ?KEY,
+        riakc_gset,
+        [<<"DANG">>,<<"Z">>,<<"Z^2">>]
+    ).
 
 
 check_4({BType, counter}, Bucket, Client, CMod) ->
@@ -421,12 +449,14 @@ check_4({BType, hll}, Bucket, Client, CMod) ->
                 [{pr, 3}, {notfound_ok, false}]);
 check_4({BType, gset}, Bucket, Client, CMod) ->
     ?LOG_INFO("check_4: Checking final merged value of sset"),
-    check_value(Client,
-                CMod, {BType, Bucket},
-                ?KEY,
-                riakc_gset,
-                [<<"DANG">>,<<"Z">>,<<"Z^2">>,<<"Zedd's Dead">>],
-                [{pr, 3}, {notfound_ok, false}]).
+    check_value(
+        Client,
+        CMod, {BType, Bucket},
+        ?KEY,
+        riakc_gset,
+        [<<"DANG">>,<<"Z">>,<<"Z^2">>,<<"Zedd's Dead">>],
+        [{pr, 3}, {notfound_ok, false}]
+    ).
 
 
 check_value(Client, CMod, Bucket, Key, DTMod, Expected) ->
