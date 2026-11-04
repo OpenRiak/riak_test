@@ -938,6 +938,7 @@ common_stats() ->
         <<"sys_thread_pool_size">>,
         <<"sys_threads_enabled">>,
         <<"sys_wordsize">>,
+        <<"syslog_version">>,
         <<"tools_version">>,
         <<"uncovered_preflists">>,
         <<"uncovered_preflists2">>,
