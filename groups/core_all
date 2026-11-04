@@ -17,4 +17,5 @@ verify_claimant
 verify_dynamic_ring
 verify_leave
 verify_reset_bucket_props
+verify_riak_logger
 verify_staged_clustering
