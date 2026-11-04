@@ -22,8 +22,7 @@
 %% replicated to the sink cluster.
 -module(nextgenrepl_sibling).
 -behavior(riak_test).
-
--export([confirm/0]).
+-export([confirm/0, read_from_cluster/5, read_from_cluster/7]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -42,9 +41,8 @@
 -define(COMMMON_VAL_SIB, <<"CommonValueToWriteForAllSiblingObjects">>).
 -define(COMMMON_VAL_FIN, <<"CommonValueToWriteForAllFinalObjects">>).
 
--define(REPL_SLEEP, 4096).
-    % May need to wait for 2 x the 1024ms max sleep time of a snk worker
--define(WAIT_LOOPS, 12).
+-define(WAIT_LOOPS, 20). % Default number of times we'll check if repl has completed
+-define(REPL_SLEEP, 1024). % Time between each check
 
 -define(CONFIG(RingSize, NVal, SrcQueueDefns), [
         {riak_core,
@@ -149,9 +147,9 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Test 1000 key difference and resolve"),
     % Write keys to cluster A, verify B does have these changes
     write_to_cluster(NodeA, 1, 1000, new_obj),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 1, 1000, ?COMMMON_VAL_INIT, 0),
     read_from_cluster(NodeB, 1, 1000, ?COMMMON_VAL_INIT, 0),
+
     {root_compare, 0}
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL},
@@ -159,7 +157,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
 
     ?LOG_INFO("Test replicating tombstones"),
     delete_from_cluster(NodeA, 901, 1000),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 901, 1000, ?COMMMON_VAL_INIT, 100),
     read_from_cluster(NodeB, 901, 1000, ?COMMMON_VAL_INIT, 100),
     {root_compare, 0}
@@ -180,7 +177,7 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
                                 cluster_c),
             R == {root_compare, 0}
         end,
-    ok = rt:wait_until(FSCFun, 12, ?REPL_SLEEP div 4),
+    ok = rt:wait_until(FSCFun, ?WAIT_LOOPS, ?REPL_SLEEP),
     read_from_cluster(NodeC, 1, 900, ?COMMMON_VAL_INIT, 0),
     read_from_cluster(NodeC, 901, 1000, ?COMMMON_VAL_INIT, 100),
 
@@ -188,7 +185,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
     ?LOG_INFO("Create some siblings - if we update in A then in C"),
     write_to_cluster(NodeA, 1, 100, ?COMMMON_VAL_MOD),
     write_to_cluster(NodeC, 1, 100, ?COMMMON_VAL_SIB),
-    timer:sleep(?REPL_SLEEP + ?REPL_SLEEP), % double sleep as no local read
     ?LOG_INFO("A should have siblings"),
     ?LOG_INFO("B and C should have different versions but not siblings"),
     read_from_cluster(NodeB, 1, 100, ?COMMMON_VAL_MOD, 0),
@@ -207,7 +203,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
         = fullsync_check({NodeB, IPB, PortB, ?B_NVAL},
                             {NodeC, IPC, PortC, ?C_NVAL},
                             cluster_c),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeB, 1, 100, ?COMMMON_VAL_MOD, 0),
     read_sibsfrom_cluster(NodeC, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
     read_sibsfrom_cluster(NodeA, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
@@ -217,7 +212,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
         = fullsync_check({NodeA, IPA, PortA, ?A_NVAL},
                             {NodeB, IPB, PortB, ?B_NVAL},
                             cluster_b),
-    timer:sleep(?REPL_SLEEP + ?REPL_SLEEP), % double sleep as no local read
     read_sibsfrom_cluster(NodeB, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
     read_sibsfrom_cluster(NodeC, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
     read_sibsfrom_cluster(NodeA, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
@@ -232,7 +226,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
 
     ?LOG_INFO("Replace sibling on Node A"),
     write_to_cluster(NodeA, 1, 100, ?COMMMON_VAL_FIN),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_from_cluster(NodeB, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_sibsfrom_cluster(NodeC, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
@@ -242,7 +235,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
         = fullsync_check({NodeC, IPC, PortC, ?C_NVAL},
                             {NodeA, IPA, PortA, ?A_NVAL},
                             cluster_a),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_from_cluster(NodeB, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_sibsfrom_cluster(NodeC, 1, 100, [?COMMMON_VAL_MOD, ?COMMMON_VAL_SIB]),
@@ -252,7 +244,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
         = fullsync_check({NodeB, IPB, PortB, ?B_NVAL},
                             {NodeC, IPC, PortC, ?C_NVAL},
                             cluster_c),
-    timer:sleep(?REPL_SLEEP),
     read_from_cluster(NodeA, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_from_cluster(NodeB, 1, 100, ?COMMMON_VAL_FIN, 0),
     read_from_cluster(NodeC, 1, 100, ?COMMMON_VAL_FIN, 0),
@@ -265,7 +256,6 @@ test_repl_between_clusters(ClusterA, ClusterB, ClusterC) ->
 
 
     pass.
-
 
 check_all_insync({NodeA, IPA, PortA},
                     {NodeB, IPB, PortB},
@@ -358,10 +348,10 @@ delete_from_cluster(Node, Start, End) ->
 %% @doc Read from cluster a series of keys, asserting a certain number
 %%      of errors.
 read_from_cluster(Node, Start, End, CommonValBin, Errors) ->
-    read_from_cluster(Node, Start, End, CommonValBin, Errors, false).
+    read_from_cluster(Node, Start, End, CommonValBin, Errors, false, ?WAIT_LOOPS).
 
-read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
-    ?LOG_INFO("Reading ~b keys from node ~0p.", [End - Start + 1, Node]),
+read_from_cluster(Node, Start, End, CommonValBin, Errors, LogErrors, Tries) ->
+    ?LOG_INFO("Reading ~p keys from node ~0p.", [End - Start + 1, Node]),
     {ok, C} = riak:client_connect(Node),
     F =
         fun(N, Acc) ->
@@ -369,8 +359,8 @@ read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
             case  riak_client:get(?TEST_BUCKET, Key, C) of
                 {ok, Obj} ->
                     ExpectedVal = <<N:32/integer, CommonValBin/binary>>,
-                    case riak_object:get_value(Obj) of
-                        ExpectedVal ->
+                    case riak_object:get_values(Obj) of
+                        [ExpectedVal] ->
                             Acc;
                         UnexpectedVal ->
                             [{wrong_value, Key, UnexpectedVal}|Acc]
@@ -379,8 +369,31 @@ read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
                     [{fetch_error, Error, Key}|Acc]
             end
         end,
-    ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    ?assertEqual(Errors, length(ErrorsFound)).
+        
+    F1 = 
+        fun () ->
+            ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
+            case Errors of
+                undefined ->
+                    ?LOG_INFO("Errors Found in read_from_cluster ~w",
+                                [length(ErrorsFound)]),
+                    true;
+                _ ->
+                    case LogErrors of
+                        true ->
+                            LogFun =
+                                fun(Error) ->
+                                    ?LOG_INFO("Read error ~w", [Error])
+                                end,
+                            lists:foreach(LogFun, ErrorsFound);
+                        false ->
+                            ok
+                    end,
+                    Errors == length(ErrorsFound)
+            end
+         end,
+
+        ?assertEqual(ok, rt:wait_until(F1, Tries, ?REPL_SLEEP)).
 
 read_sibsfrom_cluster(Node, Start, End, Values) ->
     {ok, C} = riak:client_connect(Node),
@@ -405,5 +418,8 @@ read_sibsfrom_cluster(Node, Start, End, Values) ->
                     [{fetch_error, Error, Key}|Acc]
             end
         end,
-    ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
-    ?assertEqual(0, length(ErrorsFound)).
+
+    ?assertEqual(ok, rt:wait_until(fun () ->
+                                           ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
+                                           length(ErrorsFound) == 0
+                                   end, ?WAIT_LOOPS, ?REPL_SLEEP)).
