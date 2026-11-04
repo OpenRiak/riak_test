@@ -26,6 +26,7 @@
 %%
 -module(rt_config).
 
+%% riak_test API
 -export([
     config_or_os_env/1, config_or_os_env/2,
     get/1, get/2,
@@ -34,6 +35,12 @@
     logger_filters/1,
     logger_formatter/2, logger_formatter/3,
     set/2
+]).
+
+%% logger filters
+-export([
+    logger_emu_crash_filter/2,
+    logger_proclib_crash_filter/2
 ]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -190,13 +197,13 @@ logger_filters(Selector) ->
 logger_filters([emu_crash | Selectors], Results) ->
     logger_filters(Selectors, [
         {rt_emu_crash_filter,
-            {fun logger_emu_crash_filter/2, ?MODULE}}
+            {fun ?MODULE:logger_emu_crash_filter/2, ?MODULE}}
         | Results]);
 %% Stops crash reports from procs spawned by proc_lib:spawn...
 logger_filters([proclib_crash | Selectors], Results) ->
     logger_filters(Selectors, [
         {rt_proclib_crash_filter,
-            {fun logger_proclib_crash_filter/2, ?MODULE}}
+            {fun ?MODULE:logger_proclib_crash_filter/2, ?MODULE}}
         | Results]);
 %% Stops progress reports from proc_lib apps/sups
 logger_filters([progress | Selectors], Results) ->

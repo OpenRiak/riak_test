@@ -80,7 +80,6 @@ metadata(Pid) ->
 %%
 confirm(TestName, Outdir, TestMetaData, HarnessArgs) ->
     {Module, Function} = function_name(TestName),
-    start_loggers(Module, Outdir),
     rt:setup_harness(Module, HarnessArgs),
     BackendExtras = case proplists:get_value(multi_config, TestMetaData) of
         undefined -> [];
@@ -88,6 +87,7 @@ confirm(TestName, Outdir, TestMetaData, HarnessArgs) ->
     end,
     Backend = rt:set_backend(
         proplists:get_value(backend, TestMetaData), BackendExtras),
+    start_loggers(Module, Outdir),
     {ElapsedMS, Status, Reason} = case check_prereqs(Module) of
         true ->
             execute(TestName, Module, Function, TestMetaData);
@@ -169,7 +169,7 @@ execute(TestName, Module, Function, TestMetaData) ->
     erlang:group_leader(NewGroupLeader, ThisPid),
 
     {0, UName} = rt:cmd("uname", ["-a"]),
-    ?LOG_INFO("Test Runner `uname -a` : ~s", [string:trim(UName)]),
+    ?LOG_INFO("Test Runner: ~s", [string:trim(UName)]),
     Timeout = rt_config:get(test_timeout, undefined),
 
     TrapExit = erlang:process_flag(trap_exit, true),

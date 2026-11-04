@@ -28,6 +28,13 @@
 ]).
 
 -include_lib("kernel/include/logger.hrl").
+%% Easy-to-find value to twiddle console logger output between single- and
+%% multi-line when debugging riak_test itself or particularly surly tests.
+%% This is the default unless overridden by Verbose or config value
+%% 'console_log_multiline'.
+%% Until we shake out logger format strings through all tests, force this
+%% 'true' in all cases.
+-define(LOGCONS_MULTI_LINE,     true).
 
 %% Logger handler
 -define(LOGFILE_HANDLER_NAME,   rt_file_h).
@@ -122,17 +129,28 @@ main(Args) ->
         end,
         ConfVerbose =:= Verbose orelse rt_config:set(verbose, Verbose),
 
+        ConsoleSingleLine = not case
+                rt_config:get(console_log_multiline, undefined) of
+            undefined ->
+                Verbose orelse ?LOGCONS_MULTI_LINE;
+            MlBool ->
+                MlBool
+        end,
         %% We have enough now to update the default (console) log handler.
         ok = logger:set_handler_config(default, #{
             config => #{type => standard_io},
             filters => rt_config:logger_filters(all),
-            formatter => rt_config:logger_formatter(Verbose, true, true)
+            formatter =>
+                rt_config:logger_formatter(Verbose, true, ConsoleSingleLine)
         }),
 
         %% That should keep the startup noise down, open up the lower levels.
         LogLevel = rt_config:get(log_level, info),
         logger:set_primary_config(level, LogLevel),
 
+        {_App, _Desc, RTVersion} = lists:keyfind(
+            riak_test, 1, application:loaded_applications()),
+        ?LOG_NOTICE("Riak Test ~s", [RTVersion]),
         erlang:register(riak_test, erlang:self()),
 
         %% Sets up extra paths earlier so that tests can be loadable
@@ -521,7 +539,7 @@ print_summary(TestResults, CoverResult, Verbose) ->
         {_Coverage, CovApps} ->
             cover_app_width(CovApps)
     end,
-    MaxWidth = erlang:max(TestWidth, CoverWidth),
+    MaxWidth = (erlang:max(TestWidth, CoverWidth) + 1),
     Border = lists:duplicate((MaxWidth + 10), $=),
 
     CountFun = fun
