@@ -69,7 +69,9 @@ populate_counters(Node) ->
 verify_counters(Node) ->
     ?LOG_INFO("Verifying counters on ~0p", [Node]),
     RHC = rt:httpc(Node),
-    ?assertMatch({ok, 4}, rhc:counter_val(RHC, ?COUNTER_BUCKET, <<"pbkey">>)),
+    PBKey = <<"pbkey">>,
+    rt:wait_until(not_503(RHC, PBKey)),
+    ?assertMatch({ok, 4}, rhc:counter_val(RHC, ?COUNTER_BUCKET, PBKey)),
 
     PBC = rt:pbc(Node),
     ?assertEqual({ok, 2}, riakc_pb_socket:counter_val(PBC, ?COUNTER_BUCKET, <<"httpkey">>)),
@@ -82,6 +84,19 @@ verify_counters(Node) ->
             ok
     end,
     ok.
+
+not_503(Client, Key) ->
+    fun() ->
+            Res = rhc:counter_val(Client, ?COUNTER_BUCKET, Key),
+            case Res of
+                %% expect 503 for a brief while
+                {error, {ok, "503", _Headers, <<"Counters are not supported.">>}} ->
+                    ?LOG_INFO("\"Counters are not supported\" pending caps negotiation post upgrade", []),
+                    false;
+                _ ->
+                    true
+            end
+    end.
 
 upgrade(Node, NewVsn) ->
     ?LOG_INFO("Upgrading ~0p to ~0p", [Node, NewVsn]),

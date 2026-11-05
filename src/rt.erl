@@ -2706,13 +2706,15 @@ make_multi_backend_config(Other) ->
 get_backends() ->
     Backends = ?HARNESS:get_backends(),
     case Backends of
-        [riak_kv_bitcask_backend] -> bitcask;
-        [riak_kv_eleveldb_backend] -> eleveldb;
-        [riak_kv_memory_backend] -> memory;
-        [riak_kv_leveled_backend] -> leveled;
-        [Other] -> Other;
-        MoreThanOne -> MoreThanOne
+        [Single] -> known_backend(Single);
+        MoreThanOne -> [known_backend(A) || A <- MoreThanOne]
     end.
+
+known_backend(riak_kv_bitcask_backend) -> bitcask;
+known_backend(riak_kv_eleveldb_backend) -> eleveldb;
+known_backend(riak_kv_memory_backend) -> memory;
+known_backend(riak_kv_leveled_backend) -> leveled;
+known_backend(X) -> X.
 
 -spec get_backend(rtt:app_config()) -> rtt:backend() | error.
 get_backend(AppConfigProplist) ->
