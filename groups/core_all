@@ -15,6 +15,7 @@ node_repair_nval
 verify_build_cluster
 verify_claimant
 verify_dynamic_ring
+verify_handoff_receiver
 verify_leave
 verify_reset_bucket_props
 verify_riak_logger
