@@ -28,7 +28,7 @@
 -define(FULL_NUM_KEYS, 5000).
 -define(TEST_BUCKET, <<"repl_bench">>).
 
--define(CONF, [
+-define(CONF(Listen), [
         {riak_core,
             [
              {ring_creation_size, 8},
@@ -50,7 +50,8 @@
           {max_fssource_retries, infinity},
           {max_fssource_cluster, 1},
           {max_fssource_node, 1},
-          {max_fssink_node, 1}
+          {max_fssink_node, 1},
+          {cluster_listener, Listen}
          ]}
         ]).
 
@@ -58,12 +59,14 @@ confirm() ->
     fullsync_enabled_and_started().
 
 fullsync_enabled_and_started() ->
-    rt:set_advanced_conf(all, ?CONF),
+    rt:set_advanced_conf(all, ?CONF(true)),
 
     [ANodes, BNodes] = rt:build_clusters([3, 3]),
 
     rt:wait_for_cluster_service(ANodes, riak_repl),
     rt:wait_for_cluster_service(BNodes, riak_repl),
+
+    ok = test_listener(hd(ANodes), true),
 
     AFirst = hd(ANodes),
     BFirst = hd(BNodes),
@@ -121,7 +124,27 @@ fullsync_enabled_and_started() ->
             fail
     end,
 
+    rt:update_app_config(hd(ANodes), ?CONF(false)),
+    ok = test_listener(hd(ANodes), false),
+
     rt:clean_cluster(ANodes),
     rt:clean_cluster(BNodes),
 
     Result.
+
+
+get_cluster_manager_port(Node) ->
+    {ok, {_Ip, Port}} =
+        erpc:call(Node, application, get_env, [riak_core, cluster_mgr]),    
+    Port.
+
+test_listener(Node, Expected) ->
+    P = get_cluster_manager_port(Node),
+    R = gen_tcp:connect("127.0.0.1", P, [binary, {packet, 0}]),
+
+    case {Expected, R} of
+        {true, {ok, Sock}} ->
+            ok = gen_tcp:close(Sock);
+        {false, {error, econnrefused}} ->
+            ok
+    end.
