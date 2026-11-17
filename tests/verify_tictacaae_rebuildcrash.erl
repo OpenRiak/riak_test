@@ -1,7 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2018 Martin Sumner.
-%% Copyright (c) 2023 Workday, Inc.
+%% Copyright (c) 2026 Martin Sumner.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -134,23 +133,26 @@ kill_pool_sup(Node) ->
     SupPid =
         erpc:call(Node, erlang, whereis, [riak_core_node_worker_pool_sup]),
     _Killed = erpc:call(Node, erlang, exit, [SupPid, kill]),
-    rt:wait_until(
-        fun() ->
-            UpdPid =
-                erpc:call(
-                    Node,
-                    erlang,
-                    whereis,
-                    [riak_core_node_worker_pool_sup]
-                ),
-            UpdPid =/= undefined
-        end),
-    rt:wait_until(
-        fun() ->
-            RegNames = erpc:call(Node, erlang, registered, []),
-            not lists:member(node_worker_pool, RegNames)
-        end
-    ),
+    ok =
+        rt:wait_until(
+            fun() ->
+                UpdPid =
+                    erpc:call(
+                        Node,
+                        erlang,
+                        whereis,
+                        [riak_core_node_worker_pool_sup]
+                    ),
+                UpdPid =/= undefined
+            end
+        ),
+    ok =
+        rt:wait_until(
+            fun() ->
+                RegNames = erpc:call(Node, erlang, registered, []),
+                not lists:member(node_worker_pool, RegNames)
+            end
+        ),
     WorkerPools = erpc:call(Node, riak_kv_app, get_worker_pools, []),
     erpc:call(Node, riak_core, register, [WorkerPools]),
     ok.
