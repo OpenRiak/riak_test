@@ -41,6 +41,7 @@ verify_kv_health_check
 verify_listkeys
 verify_metadata_version_change
 verify_multibackend_head
+verify_multibackend_synconwrite
 verify_object_limits
 verify_put_opt_node_confirms
 verify_readonly
