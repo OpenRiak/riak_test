@@ -631,8 +631,10 @@ read_from_cluster(Node, Start, End, Errors, Bucket, CommonValBin) ->
     ErrorsFound = lists:foldl(F, [], lists:seq(Start, End)),
     case Errors of
         undefined ->
-            ?LOG_INFO("Errors Found in read_from_cluster ~w",
-                        [length(ErrorsFound)]),
+            ?LOG_INFO(
+                "Errors Found in read_from_cluster ~w",
+                [length(ErrorsFound)]
+            ),
             length(ErrorsFound);
         _ ->
             ?assertEqual(Errors, length(ErrorsFound))
