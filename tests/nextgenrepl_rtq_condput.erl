@@ -132,11 +132,6 @@ confirm() ->
             ClusterC,
             HTTPClientFun
         ),
-    timer:sleep(?STATS_WAIT),
-    StatsA0 = get_stats(ClusterA),
-    StatsB0 = get_stats(ClusterB),
-    ?LOG_INFO("ClusterA stats ~w", [StatsA0]),
-    ?LOG_INFO("ClusterB stats ~w", [StatsB0]),
 
     ?LOG_INFO("Discover Peer IP/ports for pb and restart with peer config"),
     FoldToPeerConfigPB =
@@ -183,11 +178,6 @@ confirm() ->
             ClusterCpb,
             PBClientFun
         ),
-    timer:sleep(?STATS_WAIT),
-    StatsA1 = get_stats(ClusterA),
-    StatsB1 = get_stats(ClusterB),
-    ?LOG_INFO("ClusterA stats ~0p", [StatsA1]),
-    ?LOG_INFO("ClusterB stats ~0p", [StatsB1]),
     pass.
 
 
@@ -373,23 +363,3 @@ read_from_cluster(Node, Start, End, CommonValBin, Errors, _LogErrors) ->
     end,
 
     ?assertEqual(Errors, length(ErrorsFound)).
-
-
-get_stats(Cluster) ->
-    Stats = {0, 0, 0, 0, 0, 0},
-    % {prefetch, tofetch, nofetch, object, error, empty}
-    lists:foldl(
-        fun(N, {PFAcc, TFAcc, NFAcc, FOAcc, FErAcc, FEmAcc}) ->
-            S = rt:get_stats(N),
-            PFT = rt:get_stat(S, <<"ngrfetch_prefetch_total">>),
-            TFT = rt:get_stat(S, <<"ngrfetch_tofetch_total">>),
-            NFT = rt:get_stat(S, <<"ngrfetch_nofetch_total">>),
-            FOT = rt:get_stat(S, <<"ngrrepl_object_total">>),
-            FErT = rt:get_stat(S, <<"ngrrepl_error_total">>),
-            FEmT = rt:get_stat(S, <<"ngrrepl_empty_total">>),
-            {PFT + PFAcc, TFT + TFAcc, NFT + NFAcc,
-                FOT + FOAcc, FErT + FErAcc, FEmAcc + FEmT}
-        end,
-        Stats,
-        Cluster
-    ).
